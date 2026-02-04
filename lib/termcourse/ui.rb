@@ -345,7 +345,7 @@ module Termcourse
       liked = post_liked?(post)
       liked_marker = ""
       username = post["username"].to_s
-      heart = liked ? "♥" : "♡"
+      heart = liked ? "❤️" : "🤍"
       header = "#{liked_marker}@#{username}"
 
       body_width = content_width(width)
@@ -510,12 +510,22 @@ module Termcourse
       return text unless @emoji_enabled
 
       text
-        .gsub(":heart:", "♥")
+        .gsub(":)", "🙂")
+        .gsub(":-)", "🙂")
+        .gsub(":(", "🙁")
+        .gsub(":-(", "🙁")
+        .gsub(";)", "😉")
+        .gsub(";-)", "😉")
+        .gsub(":D", "😄")
+        .gsub(":-D", "😄")
+        .gsub(":P", "😛")
+        .gsub(":-P", "😛")
+        .gsub(":heart:", "❤️")
         .gsub(":pizza:", "🍕")
         .gsub(":smile:", "😄")
         .gsub(":thumbsup:", "👍")
         .gsub(":fire:", "🔥")
-        .gsub(":star:", "★")
+        .gsub(":star:", "⭐")
     end
 
     def highlight(line)
