@@ -2,6 +2,7 @@
 
 require "cgi"
 require "json"
+require "time"
 require "tty-screen"
 require "tty-cursor"
 require "tty-box"
@@ -20,6 +21,9 @@ module Termcourse
       @api_username = api_username
       @base_url = base_url
       @display_url = base_url.sub(%r{\Ahttps?://}i, "")
+      @links_enabled = ENV.fetch("TERMCOURSE_LINKS", "1") != "0"
+      @emoji_enabled = ENV.fetch("TERMCOURSE_EMOJI", "1") != "0"
+      @debug_enabled = ENV.fetch("TERMCOURSE_DEBUG", "0") == "1"
       @resized = false
       trap_resize
     end
@@ -184,14 +188,13 @@ module Termcourse
         "-" * (width - 4),
         status
       ]
-      render_header(content, width)
+      header_height = render_header(content, width)
 
       if topics.empty?
         puts "No topics found."
         return
       end
 
-      header_height = content.length + 2
       max_lines = [height - header_height - 1, 1].max
       start_index = [selected - (max_lines / 2), 0].max
       end_index = [start_index + max_lines - 1, topics.length - 1].min
@@ -207,7 +210,6 @@ module Termcourse
     end
 
     def render_topic(topic_data, posts, selected, scroll_offsets)
-      clear_screen
       width = TTY::Screen.width
       height = TTY::Screen.height
       title = topic_data["title"].to_s
@@ -218,22 +220,68 @@ module Termcourse
         width - 4
       )
       topic_line = "Topic: #{truncate(title, width - 4)}"
-      content = [
+      header_lines = [
         top_line,
         "-" * (width - 4),
         topic_line
       ]
-      render_header(content, width)
+      header_box = build_header_box(header_lines, width)
+      header_lines_rendered = header_box.split("\n")
+      header_height = header_lines_rendered.length
 
-      list_height_lines = height - 8
-      printed = render_post_list(posts, selected, scroll_offsets[selected], list_height_lines, width)
-      filler = list_height_lines - printed
-      filler.times { puts "" } if filler.positive?
-      render_progress_footer(posts.length, selected, width)
+      footer_box = build_progress_footer(posts.length, selected, width)
+      footer_lines = footer_box.split("\n")
+      footer_height = footer_lines.length
+
+      list_height_lines = [height - header_height - footer_height, 1].max
+      list_lines = build_post_list_lines(posts, selected, scroll_offsets[selected], list_height_lines, width)
+      list_lines = list_lines.first(list_height_lines)
+      list_lines.fill("", list_lines.length...list_height_lines)
+      debug_selected_post(posts, selected, width, height) if @debug_enabled
+
+      screen = Array.new(height) { " " * width }
+      header_lines_rendered.each_with_index do |line, idx|
+        screen[idx] = pad_line(line, width)
+      end
+
+      list_start = header_height
+      list_lines.each_with_index do |line, idx|
+        row = list_start + idx
+        break if row >= height - footer_height
+        screen[row] = pad_line(line, width)
+      end
+
+      footer_start = height - footer_height
+      footer_lines.each_with_index do |line, idx|
+        row = footer_start + idx
+        break if row >= height
+        screen[row] = pad_line(line, width)
+      end
+
+      clear_screen
+      print screen.join("\n")
     end
 
-    def render_post_list(posts, selected, scroll_offset, list_height_lines, width)
-      return if posts.empty?
+    def debug_selected_post(posts, selected, width, height)
+      post = posts[selected]
+      return if post.nil?
+
+      lines = build_post_block(post, true, width)
+      File.open("/tmp/termcourse_debug.txt", "a") do |f|
+        f.puts("---")
+        f.puts("time=#{Time.now.utc.iso8601}")
+        f.puts("screen=#{width}x#{height} selected=#{selected} post_id=#{post["id"]}")
+        f.puts("raw=#{post["raw"].to_s.inspect}")
+        lines.each_with_index do |line, idx|
+          f.puts("line#{idx}: visible=#{visible_length(line)} bytes=#{line.bytesize} text=#{strip_all_ansi(line).inspect}")
+        end
+      end
+    rescue StandardError
+      nil
+    end
+
+    def build_post_list_lines(posts, selected, scroll_offset, list_height_lines, width)
+      return ["No posts."] if posts.empty?
 
       blocks = posts.map.with_index do |post, index|
         build_post_block(post, index == selected, width)
@@ -284,19 +332,13 @@ module Termcourse
         offset += 1
       end
 
-      printed = 0
+      lines = []
       rendered.each_with_index do |item, idx|
-        item[:lines].each do |line|
-          puts line
-          printed += 1
-        end
-        next if idx == rendered.length - 1
-
-        puts "-" * width
-        printed += 1
+        lines.concat(item[:lines])
+        lines << "-" * width if idx != rendered.length - 1
       end
-
-      printed
+      lines = ["No posts."] if lines.empty?
+      lines
     end
 
     def build_post_block(post, expanded, width)
@@ -311,7 +353,9 @@ module Termcourse
       content_lines = wrap_and_linkify_lines(lines, body_width)
 
       if expanded
-        ([format_line(header, width, heart)] + content_lines).map { |line| highlight(line) }
+        header_line = pad_line(format_line(header, width, heart), width)
+        header_line = highlight(header_line)
+        [header_line] + content_lines
       else
         preview = content_lines.first(3)
         preview = [""] if preview.empty?
@@ -337,6 +381,12 @@ module Termcourse
 
     def parse_markdown_lines(raw, width)
       content = TTY::Markdown.parse(raw.to_s, width: width)
+      content = content.gsub("\r", "")
+      content = content.gsub("\t", "  ")
+      content = content.tr("\u2028\u2029\u0085", "   ")
+      content = strip_invisible(content)
+      content = strip_control_chars(content)
+      content = strip_ansi(content)
       lines = content.split("\n").map { |line| emojify(line) }
       lines = [""] if lines.empty?
       lines
@@ -399,44 +449,46 @@ module Termcourse
           tokens.each do |token|
             if token.strip.empty?
               next if current_len.zero?
-              if current_len + token.length <= width
-                append.call(token, token.length)
+              token_width = display_width(token)
+              if current_len + token_width <= width
+                append.call(token, token_width)
               else
                 flush.call
               end
               next
             end
 
-            if token.length > width
+            token_width = display_width(token)
+            if token_width > width
               flush.call if current_len.positive?
               token_chars = token
               while token_chars.length.positive?
-                take = [width, token_chars.length].min
-                append.call(token_chars[0, take], take)
-                token_chars = token_chars[take..]
+                piece, rest = take_by_display_width(token_chars, width)
+                append.call(piece, display_width(piece))
+                token_chars = rest
                 flush.call if current_len == width
               end
               next
             end
 
-            if current_len + token.length > width
+            if current_len + token_width > width
               flush.call
             end
-            append.call(token, token.length)
+            append.call(token, token_width)
           end
         else
           url = segment[:text]
           display = CGI.unescape(url)
-          flush.call if current_len.positive? && display.length > (width - current_len)
+          display_width_total = display_width(display)
+          flush.call if current_len.positive? && display_width_total > (width - current_len)
 
-          if display.length <= width
-            append.call(osc8(url, display), display.length)
+          if display_width_total <= width
+            append.call(osc8(url, display), display_width_total)
           else
             while display.length.positive?
-              take = [width, display.length].min
-              piece = display[0, take]
-              display = display[take..]
-              append.call(osc8(url, piece), piece.length)
+              piece, rest = take_by_display_width(display, width)
+              display = rest
+              append.call(osc8(url, piece), display_width(piece))
               flush.call if current_len == width
             end
           end
@@ -449,10 +501,14 @@ module Termcourse
     end
 
     def osc8(url, text)
+      return text unless @links_enabled
+
       "\e]8;;#{url}\a#{text}\e]8;;\a"
     end
 
     def emojify(text)
+      return text unless @emoji_enabled
+
       text
         .gsub(":heart:", "♥")
         .gsub(":pizza:", "🍕")
@@ -478,10 +534,116 @@ module Termcourse
     end
 
     def render_header(lines, width)
+      header = build_header_box(lines, width)
+      print header.chomp
+      print "\n"
+      header.split("\n").length + 1
+    end
+
+    def build_header_box(lines, width)
       content = lines.join("\n")
       height = lines.length + 2
-      header = TTY::Box.frame(width: width, height: height, padding: [0, 1]) { content }
-      print header.chomp
+      TTY::Box.frame(width: width, height: height, padding: [0, 1]) { content }
+    end
+
+    def pad_line(text, width)
+      line = text.to_s.gsub(/[\r\n]/, " ")
+      line = strip_invisible(line)
+      visible = visible_length(line)
+      if visible > width
+        line = clamp_visible(strip_all_ansi(line), width)
+        visible = visible_length(line)
+      end
+      pad = [width - visible, 0].max
+      line + (" " * pad)
+    end
+
+    def visible_length(text)
+      stripped = text.gsub(/\e\[[0-9;]*m/, "")
+      stripped = stripped.gsub(/\e\]8;;.*?\a/, "")
+      stripped = stripped.gsub(/\e\]8;;\a/, "")
+      display_width(stripped)
+    end
+
+    def strip_ansi(text)
+      text.gsub(/\e\[[0-9;]*m/, "")
+    end
+
+    def strip_control_chars(text)
+      text.gsub(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/, "")
+    end
+
+    def strip_invisible(text)
+      text.gsub(/[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/, "")
+    end
+
+    def strip_all_ansi(text)
+      stripped = text.gsub(/\e\[[0-9;]*m/, "")
+      stripped = stripped.gsub(/\e\]8;;.*?\a/, "")
+      stripped = stripped.gsub(/\e\]8;;\a/, "")
+      stripped
+    end
+
+    def clamp_visible(text, max_width)
+      return "" if max_width <= 0
+
+      width = 0
+      out = +""
+      text.each_char do |ch|
+        ch_width = display_width(ch)
+        break if width + ch_width > max_width
+
+        out << ch
+        width += ch_width
+      end
+      out
+    end
+
+    def display_width(text)
+      text.each_codepoint.sum do |cp|
+        if combining_codepoint?(cp)
+          0
+        else
+          wide_codepoint?(cp) ? 2 : 1
+        end
+      end
+    end
+
+    def combining_codepoint?(cp)
+      (cp >= 0x0300 && cp <= 0x036F) ||
+        (cp >= 0x1AB0 && cp <= 0x1AFF) ||
+        (cp >= 0x1DC0 && cp <= 0x1DFF) ||
+        (cp >= 0x20D0 && cp <= 0x20FF) ||
+        (cp >= 0xFE20 && cp <= 0xFE2F)
+    end
+
+    def take_by_display_width(text, max_width)
+      return ["", text] if max_width <= 0 || text.empty?
+
+      width = 0
+      index = 0
+      text.each_char do |ch|
+        ch_width = display_width(ch)
+        break if width + ch_width > max_width
+
+        width += ch_width
+        index += ch.length
+      end
+
+      [text[0, index], text[index..] || ""]
+    end
+
+    def wide_codepoint?(cp)
+      (cp >= 0x1100 && cp <= 0x115F) ||
+        (cp >= 0x2329 && cp <= 0x232A) ||
+        (cp >= 0x2E80 && cp <= 0xA4CF) ||
+        (cp >= 0xAC00 && cp <= 0xD7A3) ||
+        (cp >= 0xF900 && cp <= 0xFAFF) ||
+        (cp >= 0xFE10 && cp <= 0xFE19) ||
+        (cp >= 0xFE30 && cp <= 0xFE6F) ||
+        (cp >= 0xFF00 && cp <= 0xFF60) ||
+        (cp >= 0xFFE0 && cp <= 0xFFE6) ||
+        (cp >= 0x1F300 && cp <= 0x1FAFF)
     end
 
     def format_line(text, width, heart = nil)
@@ -505,6 +667,18 @@ module Termcourse
     end
 
     def render_progress_footer(total_posts, selected, width)
+      box = build_progress_footer(total_posts, selected, width)
+      print box.chomp
+    end
+
+    def render_progress_footer_at(total_posts, selected, width, row)
+      box = build_progress_footer(total_posts, selected, width)
+      box.split("\n").each_with_index do |line, idx|
+        print_line_at(row + idx, 0, line, width)
+      end
+    end
+
+    def build_progress_footer(total_posts, selected, width)
       total = total_posts.to_i
       current = total.zero? ? 0 : selected + 1
 
@@ -519,8 +693,7 @@ module Termcourse
       footer = "#{bar}#{label.rjust(label_width)}"
       footer = footer.ljust(content_width)
 
-      box = TTY::Box.frame(width: width, height: 3, padding: [0, 1]) { footer }
-      print box.chomp
+      TTY::Box.frame(width: width, height: 3, padding: [0, 1]) { footer }
     end
 
     def reply_to_topic(topic_id)
@@ -533,7 +706,8 @@ module Termcourse
 
     def reply_to_post(topic_id, post)
       label = "Reply to post ##{post["post_number"]} (Ctrl+D to finish)"
-      body = compose_body(label)
+      context = compose_context(post)
+      body = compose_body(label, context_lines: context)
       return false if body.nil?
 
       with_errors do
@@ -553,26 +727,50 @@ module Termcourse
       body
     end
 
-    def compose_body(title)
+    def compose_body(title, context_lines: [])
       min_len = 20
       body = nil
 
       loop do
-        clear_screen
-        render_composer_box(title, body.to_s.length, min_len)
-        input = @prompt.multiline("#{title} (Ctrl+D to finish)")
-        body = normalize_multiline(input)
+        body = read_multiline_input(title, min_len, context_lines: context_lines)
         return nil if body.nil? || body.strip.empty?
 
         return body if body.strip.length >= min_len
 
-        render_composer_box(title, body.strip.length, min_len, invalid: true)
+        render_composer_box(title, body.strip.length, min_len, context_lines: context_lines, invalid: true)
         puts "Press any key to try again..."
         @reader.read_keypress
       end
     end
 
-    def render_composer_box(title, count, min_len, invalid: false)
+    def read_multiline_input(title, min_len, context_lines: [])
+      buffer = +""
+      loop do
+        count = buffer.length
+        clear_screen
+        render_composer_box(title, count, min_len, context_lines: context_lines)
+        print "> "
+        print buffer.split("\n").last.to_s
+        key = @reader.read_keypress
+
+        case key
+        when "\u0004" # Ctrl+D
+          break
+        when "\r"
+          buffer << "\n"
+        when "\u007f", "\b"
+          buffer.chop! unless buffer.empty?
+        when "\u001b"
+          next
+        else
+          buffer << key
+        end
+      end
+
+      buffer
+    end
+
+    def render_composer_box(title, count, min_len, context_lines: [], invalid: false)
       width = TTY::Screen.width
       status = "#{count} / #{min_len}"
       status = if count < min_len
@@ -581,12 +779,26 @@ module Termcourse
                  @pastel.green(status)
                end
       label = invalid ? "Body too short" : "Compose"
-      content = [
-        "#{label}: #{title}",
-        "-" * (width - 4),
-        "Chars: #{status}"
-      ]
+      content = ["#{label}: #{title}"]
+      unless context_lines.empty?
+        content << "-" * (width - 4)
+        content.concat(context_lines)
+      end
+      content << "-" * (width - 4)
+      content << "Chars: #{status}"
       render_header(content, width)
+    end
+
+    def compose_context(post)
+      return [] if post.nil?
+
+      username = post["username"].to_s
+      raw = post["raw"].to_s
+      lines = parse_markdown_lines(raw, content_width(TTY::Screen.width))
+      lines = wrap_and_linkify_lines(lines, content_width(TTY::Screen.width))
+      preview = lines.first(3)
+      preview = [""] if preview.empty?
+      ["Replying to @#{username}:", *preview]
     end
 
     def toggle_like(post)
