@@ -25,14 +25,25 @@ module Termcourse
     end
 
     def run
+      filter = :latest
+      top_period = :monthly
       loop do
-        topics_data = fetch_latest
+        topics_data = fetch_list(filter, top_period)
         return if topics_data.nil?
 
         topics = topics_data.dig("topic_list", "topics") || []
-        result = topic_list_loop(topics)
+        next_url = topics_data.dig("topic_list", "more_topics_url")
+        result = topic_list_loop(topics, next_url, filter, top_period)
 
         break if result == :quit
+        if result.is_a?(Hash) && result[:filter]
+          filter = result[:filter]
+          next
+        end
+        if result.is_a?(Hash) && result[:top_period]
+          top_period = result[:top_period]
+          next
+        end
         next if result == :reload
 
         topic_result = topic_loop(result)
@@ -42,11 +53,22 @@ module Termcourse
 
     private
 
-    def topic_list_loop(topics)
+    def topic_list_loop(topics, next_url, filter, top_period)
       selected = 0
+      loading = false
+      filters = %i[latest hot new unread top]
+      filter_index = filters.index(filter) || 0
+      top_periods = %i[daily weekly monthly quarterly yearly]
+      period_index = top_periods.index(top_period) || 2
 
       loop do
-        render_topic_list(topics, selected)
+        render_topic_list(
+          topics,
+          selected,
+          filter: filters[filter_index],
+          top_period: top_periods[period_index],
+          loading: loading
+        )
         key = @reader.read_keypress
         if @resized
           @resized = false
@@ -58,9 +80,30 @@ module Termcourse
           selected = [selected - 1, 0].max
         when "\u001b[B" # down
           selected = [selected + 1, topics.length - 1].min
+          if next_url && selected >= topics.length - 3 && !loading
+            loading = true
+            render_topic_list(
+              topics,
+              selected,
+              filter: filters[filter_index],
+              top_period: top_periods[period_index],
+              loading: loading
+            )
+            more = fetch_more_topics(next_url)
+            more_topics = more&.dig("topic_list", "topics") || []
+            next_url = more&.dig("topic_list", "more_topics_url")
+            topics.concat(more_topics)
+            loading = false
+          end
         when "\r" # enter
           topic = topics[selected]
           return topic["id"] if topic
+        when "f"
+          filter_index = (filter_index + 1) % filters.length
+          return { filter: filters[filter_index] }
+        when "p"
+          period_index = (period_index + 1) % top_periods.length
+          return { top_period: top_periods[period_index] }
         when "g"
           return :reload
         when "q", "\u001b"
@@ -123,26 +166,33 @@ module Termcourse
       end
     end
 
-    def render_topic_list(topics, selected)
+    def render_topic_list(topics, selected, filter:, top_period:, loading: false)
       clear_screen
       width = TTY::Screen.width
+      height = TTY::Screen.height
 
-      header = TTY::Box.frame(width: width, height: 3, padding: [0, 1]) do
-        build_header_line(
-          "Topic List | arrows: move | enter: open | g: refresh | q: quit",
-          @display_url,
-          width - 4
-        )
-      end
-
-      print header.chomp
+      top_line = build_header_line(
+        "arrows: move | enter: open | f: filter | p: period | g: refresh | q: quit",
+        @display_url,
+        width - 4
+      )
+      status_label = "Topic List: #{filter.to_s.capitalize}"
+      status_label += " (#{top_period.to_s.capitalize})" if filter == :top
+      status = loading ? "#{status_label} | Loading more..." : status_label
+      content = [
+        top_line,
+        "-" * (width - 4),
+        status
+      ]
+      render_header(content, width)
 
       if topics.empty?
         puts "No topics found."
         return
       end
 
-      max_lines = TTY::Screen.height - 5
+      header_height = content.length + 2
+      max_lines = [height - header_height - 1, 1].max
       start_index = [selected - (max_lines / 2), 0].max
       end_index = [start_index + max_lines - 1, topics.length - 1].min
 
@@ -162,17 +212,20 @@ module Termcourse
       height = TTY::Screen.height
       title = topic_data["title"].to_s
 
-      header = TTY::Box.frame(width: width, height: 3, padding: [0, 1]) do
-        build_header_line(
-          "Topic: #{truncate(title, width - 12)} | arrows: move | l: like | r: reply topic | p: reply post | q: back",
-          @display_url,
-          width - 4
-        )
-      end
+      top_line = build_header_line(
+        "arrows: move | l: like | r: reply topic | p: reply post | esc: back | q: quit",
+        @display_url,
+        width - 4
+      )
+      topic_line = "Topic: #{truncate(title, width - 4)}"
+      content = [
+        top_line,
+        "-" * (width - 4),
+        topic_line
+      ]
+      render_header(content, width)
 
-      print header.chomp
-
-      list_height_lines = height - 6
+      list_height_lines = height - 8
       printed = render_post_list(posts, selected, scroll_offsets[selected], list_height_lines, width)
       filler = list_height_lines - printed
       filler.times { puts "" } if filler.positive?
@@ -424,6 +477,13 @@ module Termcourse
       "#{left_text}#{right}"
     end
 
+    def render_header(lines, width)
+      content = lines.join("\n")
+      height = lines.length + 2
+      header = TTY::Box.frame(width: width, height: height, padding: [0, 1]) { content }
+      print header.chomp
+    end
+
     def format_line(text, width, heart = nil)
       heart_width = 2
       heart = " " if heart.nil?
@@ -464,8 +524,8 @@ module Termcourse
     end
 
     def reply_to_topic(topic_id)
-      body = @prompt.multiline("Reply to topic (Ctrl+D to finish)")
-      return false if body.nil? || body.strip.empty?
+      body = compose_body("Reply to topic")
+      return false if body.nil?
 
       with_errors { @client.create_post(topic_id: topic_id, raw: body) }
       true
@@ -473,8 +533,8 @@ module Termcourse
 
     def reply_to_post(topic_id, post)
       label = "Reply to post ##{post["post_number"]} (Ctrl+D to finish)"
-      body = @prompt.multiline(label)
-      return false if body.nil? || body.strip.empty?
+      body = compose_body(label)
+      return false if body.nil?
 
       with_errors do
         @client.create_post(
@@ -484,6 +544,49 @@ module Termcourse
         )
       end
       true
+    end
+
+    def normalize_multiline(body)
+      return nil if body.nil?
+      return body.join("\n") if body.is_a?(Array)
+
+      body
+    end
+
+    def compose_body(title)
+      min_len = 20
+      body = nil
+
+      loop do
+        clear_screen
+        render_composer_box(title, body.to_s.length, min_len)
+        input = @prompt.multiline("#{title} (Ctrl+D to finish)")
+        body = normalize_multiline(input)
+        return nil if body.nil? || body.strip.empty?
+
+        return body if body.strip.length >= min_len
+
+        render_composer_box(title, body.strip.length, min_len, invalid: true)
+        puts "Press any key to try again..."
+        @reader.read_keypress
+      end
+    end
+
+    def render_composer_box(title, count, min_len, invalid: false)
+      width = TTY::Screen.width
+      status = "#{count} / #{min_len}"
+      status = if count < min_len
+                 @pastel.red(status)
+               else
+                 @pastel.green(status)
+               end
+      label = invalid ? "Body too short" : "Compose"
+      content = [
+        "#{label}: #{title}",
+        "-" * (width - 4),
+        "Chars: #{status}"
+      ]
+      render_header(content, width)
     end
 
     def toggle_like(post)
@@ -501,6 +604,14 @@ module Termcourse
 
     def fetch_latest
       with_errors { @client.latest_topics }
+    end
+
+    def fetch_list(filter, top_period)
+      with_errors { @client.list_topics(filter, period: top_period.to_s) }
+    end
+
+    def fetch_more_topics(next_url)
+      with_errors { @client.get_url(next_url) }
     end
 
     def fetch_topic(topic_id)

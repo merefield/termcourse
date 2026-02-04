@@ -23,6 +23,30 @@ module Termcourse
       get_json("/latest.json")
     end
 
+    def list_topics(filter, period: "weekly")
+      path = case filter
+             when :latest then "/latest.json"
+             when :hot then "/hot.json"
+             when :new then "/new.json"
+             when :unread then "/unread.json"
+             when :top then "/top.json"
+             else "/latest.json"
+             end
+
+      params = {}
+      params[:period] = period if filter == :top
+      get_json(path, params)
+    end
+
+    def get_url(path_or_url)
+      if path_or_url.start_with?("http://", "https://")
+        response = @connection.get(path_or_url, nil, headers)
+      else
+        response = @connection.get(path_or_url, nil, headers)
+      end
+      parse_json(response.body)
+    end
+
     def topic(id)
       get_json("/t/#{id}.json", print: "true", include_raw: "true")
     end
