@@ -74,18 +74,38 @@ module Termcourse
       post_json("/posts.json", payload)
     end
 
+    def create_topic(title:, raw:, category: nil)
+      payload = { title: title, raw: raw }
+      payload[:category] = category if category
+      post_json("/posts.json", payload)
+    end
+
     def login(username:, password:, otp: nil, otp_method: 1)
+      debug_log("login_start")
       ensure_csrf
       payload = { login: username, password: password }
       if otp
         payload[:second_factor_token] = otp
         payload[:second_factor_method] = otp_method
       end
-      post_json("/session.json", payload)
+      debug_log("login_request username=#{username} otp=#{otp ? "yes" : "no"} method=#{otp_method}")
+      response = post_json("/session.json", payload)
+      debug_log("login_response #{response.inspect}")
+      response
+    rescue Faraday::ClientError => e
+      parsed = parse_error_body(e)
+      debug_log("login_error #{parsed.inspect}")
+      parsed
+    end
+
+    def set_debug(enabled)
+      @debug_enabled = enabled
     end
 
     def current_user
       get_json("/session/current.json")
+    rescue Faraday::ResourceNotFound
+      nil
     end
 
     def ensure_csrf
@@ -93,6 +113,7 @@ module Termcourse
 
       token = fetch_csrf_token
       @csrf_token = token if token
+      debug_log("csrf_token #{token ? "ok" : "missing"}")
       @csrf_token
     end
 
@@ -138,6 +159,30 @@ module Termcourse
       match = html.match(/name=\"csrf-token\" content=\"([^\"]+)\"/)
       match ? match[1] : nil
     rescue Faraday::Error
+      debug_log("csrf_fetch_error")
+      nil
+    end
+
+    def parse_error_body(error)
+      return { "__http_status" => nil } unless error.respond_to?(:response)
+
+      status = error.response[:status]
+      body = error.response[:body]
+      parsed = parse_json(body.to_s)
+      parsed = { "error" => body.to_s } unless parsed.is_a?(Hash)
+      parsed["__http_status"] = status
+      parsed
+    rescue JSON::ParserError
+      { "error" => error.message, "__http_status" => error.response[:status] }
+    end
+
+    def debug_log(message)
+      return unless @debug_enabled
+
+      File.open("/tmp/termcourse_login_debug.txt", "a") do |f|
+        f.puts("[#{Time.now.utc.iso8601}] #{message}")
+      end
+    rescue StandardError
       nil
     end
   end

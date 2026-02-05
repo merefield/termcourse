@@ -85,14 +85,28 @@ module Termcourse
         end
 
         client = Client.new(base_url)
+        debug_enabled = ENV.fetch("TERMCOURSE_LOGIN_DEBUG", "0") == "1"
+        client.set_debug(debug_enabled)
+        if debug_enabled
+          File.open("/tmp/termcourse_login_debug.txt", "a") do |f|
+            f.puts("[#{Time.now.utc.iso8601}] prompt_complete username=#{username}")
+          end
+        end
         login = client.login(username: username, password: password)
-        if login.is_a?(Hash) && (login["second_factor_required"] || login["requires_second_factor"])
-          otp = prompt.ask("Enter 2FA code:")
-          login = client.login(username: username, password: password, otp: otp)
+        if mfa_required?(login)
+          method = mfa_method_from(login, prompt)
+          otp_label = method == 2 ? "Enter backup code:" : "Enter 2FA code:"
+          otp = prompt.ask(otp_label)
+          login = client.login(username: username, password: password, otp: otp, otp_method: method)
         end
         current = client.current_user
-        if current.is_a?(Hash) && current["current_user"].is_a?(Hash)
-          ui = UI.new(base_url, client: client, api_username: current["current_user"]["username"])
+        login_user = if current.is_a?(Hash) && current["current_user"].is_a?(Hash)
+                       current["current_user"]["username"]
+                     elsif login.is_a?(Hash)
+                       (login.dig("user", "username") || login.dig("current_user", "username") || login["username"])
+                     end
+        if login_user
+          ui = UI.new(base_url, client: client, api_username: login_user)
         else
           warn "Login failed."
           return 1
@@ -101,6 +115,36 @@ module Termcourse
 
       ui.run
       0
+    end
+
+    def mfa_required?(login)
+      return false unless login.is_a?(Hash)
+
+      return true if login["second_factor_required"] || login["requires_second_factor"]
+      return true if login["second_factor"] || login["second_factor_methods"]
+      return true if login["reason"] == "invalid_second_factor_method"
+      error = login["error"].to_s.downcase
+      return true if error.include?("second factor") || error.include?("two factor")
+
+      false
+    end
+
+    def mfa_method_from(login, prompt)
+      methods = login["second_factor_methods"]
+      return methods.first if methods.is_a?(Array) && methods.first
+
+      options = []
+      options << { label: "TOTP (Recommended)", value: 1 } if login["totp_enabled"]
+      options << { label: "Backup code", value: 2 } if login["backup_enabled"]
+      return options.first[:value] if options.length == 1
+
+      if options.length > 1
+        choice = prompt.select("Choose 2FA method:", options.map { |o| o[:label] })
+        selected = options.find { |o| o[:label] == choice }
+        return selected[:value] if selected
+      end
+
+      1
     end
   end
 end

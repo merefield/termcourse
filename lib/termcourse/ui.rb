@@ -55,6 +55,10 @@ module Termcourse
           break if topic_result == :quit
           next
         end
+        if result.is_a?(Hash) && result[:new_topic]
+          create_topic_from(result[:new_topic])
+          next
+        end
         next if result == :reload
 
         topic_result = topic_loop(result)
@@ -118,6 +122,9 @@ module Termcourse
         when "s"
           query = prompt_search_query
           return { search: query } if query
+        when "n"
+          new_topic = new_topic_flow
+          return { new_topic: new_topic } if new_topic
         when "g"
           return :reload
         when "q", "\u001b"
@@ -199,7 +206,7 @@ module Termcourse
       height = TTY::Screen.height
 
       top_line = build_header_line(
-        "arrows: move | enter: open | s: search | f: filter | p: period | g: refresh | q: quit",
+        "arrows: move | enter: open | n: new | s: search | f: filter | p: period | g: refresh | q: quit",
         @display_url,
         width - 4
       )
@@ -759,6 +766,48 @@ module Termcourse
       true
     end
 
+    def new_topic_flow
+      buffer = +""
+      loop do
+        clear_screen
+        width = TTY::Screen.width
+        content = [
+          build_header_line("New Topic", @display_url, width - 4),
+          "-" * (width - 4),
+          "Enter title and press Enter"
+        ]
+        render_header(content, width)
+        print "Title: "
+        print buffer
+        key = @reader.read_keypress
+
+        case key
+        when "\r"
+          title = buffer.strip
+          return nil if title.empty?
+          buffer = title
+          break
+        when "\u0004", "\u001b"
+          return nil
+        when "\u007f", "\b"
+          buffer.chop! unless buffer.empty?
+        else
+          buffer << key
+        end
+      end
+
+      body = compose_body("New Topic: #{buffer}")
+      return nil if body.nil?
+
+      { title: buffer, raw: body }
+    end
+
+    def create_topic_from(data)
+      return if data.nil?
+
+      with_errors { @client.create_topic(title: data[:title], raw: data[:raw]) }
+    end
+
     def normalize_multiline(body)
       return nil if body.nil?
       return body.join("\n") if body.is_a?(Array)
@@ -768,49 +817,61 @@ module Termcourse
 
     def compose_body(title, context_lines: [])
       min_len = 20
-      body = nil
-
-      loop do
-        body = read_multiline_input(title, min_len, context_lines: context_lines)
-        return nil if body.nil? || body.strip.empty?
-
-        return body if body.strip.length >= min_len
-
-        render_composer_box(title, body.strip.length, min_len, context_lines: context_lines, invalid: true)
-        puts "Press any key to try again..."
-        @reader.read_keypress
-      end
-    end
-
-    def read_multiline_input(title, min_len, context_lines: [])
       buffer = +""
+      cursor = 0
+
       loop do
         count = buffer.length
         clear_screen
-        render_composer_box(title, count, min_len, context_lines: context_lines)
-        print "> "
-        print buffer.split("\n").last.to_s
+        render_composer_box(title, buffer, cursor, count, min_len, context_lines: context_lines)
         key = @reader.read_keypress
+
+        if key.start_with?("\u001b")
+          seq = key.length > 1 ? key[1..] : @reader.read_keypress
+          case seq
+          when "[A"
+            cursor = move_cursor_up(buffer, cursor)
+          when "[B"
+            cursor = move_cursor_down(buffer, cursor)
+          when "[C"
+            cursor = [cursor + 1, buffer.length].min
+          when "[D"
+            cursor = [cursor - 1, 0].max
+          else
+            return nil
+          end
+          next
+        end
 
         case key
         when "\u0004" # Ctrl+D
           break
-        when "\r"
-          buffer << "\n"
+        when "\r", "\n"
+          buffer.insert(cursor, "\n")
+          cursor += 1
         when "\u007f", "\b"
-          buffer.chop! unless buffer.empty?
-        when "\u001b"
-          next
+          if cursor.positive?
+            buffer.slice!(cursor - 1)
+            cursor -= 1
+          end
         else
-          buffer << key
+          buffer.insert(cursor, key)
+          cursor += key.length
         end
       end
 
-      buffer
+      return nil if buffer.strip.empty?
+      return buffer if buffer.strip.length >= min_len
+
+      render_composer_box(title, buffer, cursor, buffer.strip.length, min_len, context_lines: context_lines, invalid: true)
+      puts "Press any key to try again..."
+      @reader.read_keypress
+      compose_body(title, context_lines: context_lines)
     end
 
-    def render_composer_box(title, count, min_len, context_lines: [], invalid: false)
+    def render_composer_box(title, buffer, cursor, count, min_len, context_lines: [], invalid: false)
       width = TTY::Screen.width
+      content_width = width - 4
       status = "#{count} / #{min_len}"
       status = if count < min_len
                  @pastel.red(status)
@@ -818,14 +879,63 @@ module Termcourse
                  @pastel.green(status)
                end
       label = invalid ? "Body too short" : "Compose"
+
+      status_line = "Chars: #{status} | Arrows: move | Finish: Ctrl+D | New line: Enter | Cancel: Esc"
+      status_line = clamp_visible(status_line, content_width)
+
       content = ["#{label}: #{title}"]
       unless context_lines.empty?
-        content << "-" * (width - 4)
+        content << "-" * content_width
         content.concat(context_lines)
       end
-      content << "-" * (width - 4)
-      content << "Chars: #{status}"
-      render_header(content, width)
+      content << "-" * content_width
+      content << status_line
+
+      box = build_header_box(content, width)
+      print box.chomp
+
+      input_lines = buffer.split("\n", -1)
+      input_lines = [""] if input_lines.empty?
+      input_start_row = box.split("\n").length
+      input_lines.each_with_index do |line, idx|
+        print TTY::Cursor.move_to(0, input_start_row + idx)
+        print pad_line(" #{line}", width)
+      end
+
+      line_idx, col = cursor_line_col(buffer, cursor)
+      row = input_start_row + line_idx
+      col = [col + 1, width - 1].min
+      print TTY::Cursor.move_to(col, row)
+    end
+
+    def cursor_line_col(buffer, cursor)
+      before = buffer[0, cursor] || ""
+      lines = before.split("\n", -1)
+      line_idx = lines.length - 1
+      col = lines.last.to_s.length
+      [line_idx, col]
+    end
+
+    def move_cursor_up(buffer, cursor)
+      lines = buffer.split("\n", -1)
+      line_idx, col = cursor_line_col(buffer, cursor)
+      return cursor if line_idx.zero?
+
+      new_line_idx = line_idx - 1
+      new_col = [col, lines[new_line_idx].length].min
+      line_start = lines[0...new_line_idx].sum { |l| l.length + 1 }
+      line_start + new_col
+    end
+
+    def move_cursor_down(buffer, cursor)
+      lines = buffer.split("\n", -1)
+      line_idx, col = cursor_line_col(buffer, cursor)
+      return cursor if line_idx >= lines.length - 1
+
+      new_line_idx = line_idx + 1
+      new_col = [col, lines[new_line_idx].length].min
+      line_start = lines[0...new_line_idx].sum { |l| l.length + 1 }
+      line_start + new_col
     end
 
     def compose_context(post)
