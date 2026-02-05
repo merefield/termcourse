@@ -85,10 +85,10 @@ module Termcourse
         end
 
         client = Client.new(base_url)
-        debug_enabled = ENV.fetch("TERMCOURSE_LOGIN_DEBUG", "0") == "1"
+        debug_enabled = ENV.fetch("TERMCOURSE_HTTP_DEBUG", "0") == "1"
         client.set_debug(debug_enabled)
         if debug_enabled
-          File.open("/tmp/termcourse_login_debug.txt", "a") do |f|
+          File.open("/tmp/termcourse_http_debug.txt", "a") do |f|
             f.puts("[#{Time.now.utc.iso8601}] prompt_complete username=#{username}")
           end
         end

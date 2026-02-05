@@ -60,7 +60,7 @@ You can set any of these in your shell or `.env` file. `.env` is auto-loaded if 
 - `DISCOURSE_API_USERNAME`: Username tied to the API key.
 - `DISCOURSE_USERNAME`: Username or email for password login.
 - `DISCOURSE_PASSWORD`: Password for password login.
-- `TERMCOURSE_LOGIN_DEBUG`: Set to `1` to log login responses to `/tmp/termcourse_login_debug.txt`.
+- `TERMCOURSE_HTTP_DEBUG`: Set to `1` to log HTTP/auth debug responses to `/tmp/termcourse_http_debug.txt`.
 - `TERMCOURSE_LINKS`: Set to `0` to disable OSC8 clickable links.
 - `TERMCOURSE_EMOJI`: Set to `0` to disable emoji substitutions.
 
@@ -111,8 +111,8 @@ The bottom bar shows your position in the topic (current/total).
 
 ## Debug & Logging
 
-- Login debug logs are **opt-in**: set `TERMCOURSE_LOGIN_DEBUG=1`.
-- Logs are written to `/tmp/termcourse_login_debug.txt`.
+- HTTP debug logs are **opt-in**: set `TERMCOURSE_HTTP_DEBUG=1`.
+- Logs are written to `/tmp/termcourse_http_debug.txt`.
 - Logs may include usernames and server responses. Disable when not needed and delete after use.
 
 ## Security
@@ -131,3 +131,4 @@ The bottom bar shows your position in the topic (current/total).
 
 - If a site returns login errors with MFA enabled, ensure TOTP is configured and enter a fresh 6-digit code when prompted.
 - If you need to force username/password login even when API keys exist, use `--login`.
+- On some networks (often macOS with broken IPv6 routes), the client may time out on initial requests. Termcourse automatically retries once over IPv4 and will stick to IPv4 for the remainder of the session after the first timeout.

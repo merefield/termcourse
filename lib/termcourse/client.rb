@@ -5,6 +5,8 @@ require "faraday/retry"
 require "faraday-cookie_jar"
 require "http/cookie_jar"
 require "json"
+require "socket"
+require "uri"
 
 module Termcourse
   class Client
@@ -14,14 +16,11 @@ module Termcourse
       @api_username = api_username
       @csrf_token = nil
       @cookie_jar = HTTP::CookieJar.new
+      @ipv4_address = resolve_ipv4_address
+      @prefer_ipv4 = false
 
-      @connection = Faraday.new(@base_url) do |f|
-        f.request :json
-        f.use Faraday::CookieJar, jar: @cookie_jar
-        f.request :retry, max: 2, interval: 0.1, backoff_factor: 2
-        f.response :raise_error
-        f.adapter Faraday.default_adapter
-      end
+      @connection = build_connection
+      @ipv4_connection = build_connection(ipv4: true)
     end
 
     def latest_topics
@@ -124,17 +123,17 @@ module Termcourse
     private
 
     def get_json(path, params = {})
-      response = @connection.get(path, params, headers)
+      response = perform_request(:get, path, params)
       parse_json(response.body)
     end
 
     def post_json(path, payload)
-      response = @connection.post(path, payload, headers)
+      response = perform_request(:post, path, payload)
       parse_json(response.body)
     end
 
     def delete_json(path, params = nil)
-      response = @connection.delete(path, params, headers)
+      response = perform_request(:delete, path, params)
       parse_json(response.body)
     end
 
@@ -147,7 +146,8 @@ module Termcourse
     def headers
       headers = {
         "Content-Type" => "application/json",
-        "Accept" => "application/json"
+        "Accept" => "application/json",
+        "User-Agent" => "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
       }
       headers["Api-Key"] = @api_key if @api_key && !@api_key.strip.empty?
       headers["Api-Username"] = @api_username if @api_username && !@api_username.strip.empty?
@@ -159,11 +159,76 @@ module Termcourse
       data = get_json("/session/csrf.json")
       return data["csrf"] if data.is_a?(Hash) && data["csrf"]
 
-      html = @connection.get("/").body.to_s
+      html = perform_request(:get, "/").body.to_s
       match = html.match(/name=\"csrf-token\" content=\"([^\"]+)\"/)
       match ? match[1] : nil
     rescue Faraday::Error
       debug_log("csrf_fetch_error")
+      nil
+    end
+
+    def perform_request(method, path_or_url, payload = nil, use_ipv4: false, allow_ipv4_retry: true)
+      use_ipv4 = true if @prefer_ipv4
+      method_name = method.to_s.upcase
+      debug_log("http_request method=#{method_name} path=#{path_or_url} ipv4=#{use_ipv4 ? "yes" : "no"}")
+      start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      connection = use_ipv4 ? @ipv4_connection : @connection
+      response = case method
+                 when :get
+                   connection.get(path_or_url, payload, headers)
+                 when :post
+                   connection.post(path_or_url, payload, headers)
+                 when :delete
+                   connection.delete(path_or_url, payload, headers)
+                 else
+                   raise ArgumentError, "Unsupported method: #{method}"
+                 end
+      elapsed_ms = ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - start) * 1000).round(1)
+      debug_log("http_response method=#{method_name} path=#{path_or_url} status=#{response.status} ms=#{elapsed_ms} ipv4=#{use_ipv4 ? "yes" : "no"}")
+      response
+    rescue Faraday::Error => e
+      elapsed_ms = ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - start) * 1000).round(1)
+      debug_log("http_error method=#{method_name} path=#{path_or_url} error=#{e.class} ms=#{elapsed_ms} ipv4=#{use_ipv4 ? "yes" : "no"}")
+      if allow_ipv4_retry && !use_ipv4 && ipv4_retryable?(e)
+        debug_log("http_retry_ipv4 method=#{method_name} path=#{path_or_url}")
+        @prefer_ipv4 = true
+        return perform_request(method, path_or_url, payload, use_ipv4: true, allow_ipv4_retry: false)
+      end
+      raise
+    end
+
+    def ipv4_retryable?(error)
+      return true if error.is_a?(Faraday::TimeoutError)
+      return true if error.is_a?(Faraday::ConnectionFailed) &&
+        (error.cause.is_a?(Net::OpenTimeout) || error.message.to_s.include?("execution expired"))
+
+      false
+    end
+
+    def build_connection(ipv4: false)
+      Faraday.new(@base_url) do |f|
+        f.request :json
+        f.use Faraday::CookieJar, jar: @cookie_jar
+        f.request :retry, max: 2, interval: 0.1, backoff_factor: 2
+        f.response :raise_error
+        f.options.open_timeout = 3
+        f.options.timeout = 15
+        if ipv4
+          f.adapter :net_http do |http|
+            http.ipaddr = @ipv4_address if @ipv4_address
+          end
+        else
+          f.adapter Faraday.default_adapter
+        end
+      end
+    end
+
+    def resolve_ipv4_address
+      host = URI(@base_url).host
+      return nil if host.nil? || host.strip.empty?
+
+      Addrinfo.getaddrinfo(host, nil, Socket::AF_INET, Socket::SOCK_STREAM).first&.ip_address
+    rescue SocketError, ArgumentError
       nil
     end
 
@@ -183,7 +248,7 @@ module Termcourse
     def debug_log(message)
       return unless @debug_enabled
 
-      File.open("/tmp/termcourse_login_debug.txt", "a") do |f|
+      File.open("/tmp/termcourse_http_debug.txt", "a") do |f|
         f.puts("[#{Time.now.utc.iso8601}] #{message}")
       end
     rescue StandardError
