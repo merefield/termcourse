@@ -38,6 +38,10 @@ module Termcourse
       get_json(path, params)
     end
 
+    def search(query)
+      get_json("/search.json", q: query)
+    end
+
     def get_url(path_or_url)
       if path_or_url.start_with?("http://", "https://")
         response = @connection.get(path_or_url, nil, headers)

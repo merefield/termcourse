@@ -48,6 +48,13 @@ module Termcourse
           top_period = result[:top_period]
           next
         end
+        if result.is_a?(Hash) && result[:search]
+          search_result = search_loop(result[:search])
+          next if search_result.nil?
+          topic_result = topic_loop(search_result[:topic_id], search_result[:post_id])
+          break if topic_result == :quit
+          next
+        end
         next if result == :reload
 
         topic_result = topic_loop(result)
@@ -108,6 +115,9 @@ module Termcourse
         when "p"
           period_index = (period_index + 1) % top_periods.length
           return { top_period: top_periods[period_index] }
+        when "s"
+          query = prompt_search_query
+          return { search: query } if query
         when "g"
           return :reload
         when "q", "\u001b"
@@ -116,12 +126,16 @@ module Termcourse
       end
     end
 
-    def topic_loop(topic_id)
+    def topic_loop(topic_id, selected_post_id = nil)
       topic_data = fetch_topic(topic_id)
       return if topic_data.nil?
 
       posts = topic_data.dig("post_stream", "posts") || []
       selected = 0
+      if selected_post_id
+        idx = posts.find_index { |p| p["id"] == selected_post_id }
+        selected = idx if idx
+      end
       scroll_offsets = Hash.new(0)
 
       loop do
@@ -141,6 +155,15 @@ module Termcourse
           scroll_offsets[selected] += 3
         when "\u001b[D" # left
           scroll_offsets[selected] = [scroll_offsets[selected] - 3, 0].max
+        when "s"
+          query = prompt_search_query
+          search_result = search_loop(query) if query
+          if search_result
+            topic_data = fetch_topic(search_result[:topic_id])
+            posts = topic_data.dig("post_stream", "posts") || []
+            selected = posts.find_index { |p| p["id"] == search_result[:post_id] } || 0
+            scroll_offsets = Hash.new(0)
+          end
         when "l"
           post = posts[selected]
           next unless post
@@ -176,7 +199,7 @@ module Termcourse
       height = TTY::Screen.height
 
       top_line = build_header_line(
-        "arrows: move | enter: open | f: filter | p: period | g: refresh | q: quit",
+        "arrows: move | enter: open | s: search | f: filter | p: period | g: refresh | q: quit",
         @display_url,
         width - 4
       )
@@ -215,7 +238,7 @@ module Termcourse
       title = topic_data["title"].to_s
 
       top_line = build_header_line(
-        "arrows: move | l: like | r: reply topic | p: reply post | esc: back | q: quit",
+        "arrows: move | l: like | r: reply topic | p: reply post | s: search | esc: back | q: quit",
         @display_url,
         width - 4
       )
@@ -836,6 +859,10 @@ module Termcourse
       with_errors { @client.get_url(next_url) }
     end
 
+    def fetch_search(query)
+      with_errors { @client.search(query) }
+    end
+
     def fetch_topic(topic_id)
       with_errors { @client.topic(topic_id) }
     end
@@ -860,6 +887,109 @@ module Termcourse
       puts message
       puts "Press any key to continue..."
       @reader.read_keypress
+    end
+
+    def search_loop(query)
+      return nil if query.nil? || query.strip.empty?
+
+      results = fetch_search(query)
+      return nil if results.nil?
+
+      topics_map = {}
+      (results["topics"] || []).each { |t| topics_map[t["id"]] = t["title"].to_s }
+      posts = results["posts"] || []
+      selected = 0
+
+      loop do
+        render_search_results(query, posts, topics_map, selected)
+        key = @reader.read_keypress
+        if @resized
+          @resized = false
+          next
+        end
+
+        case key
+        when "\u001b[A"
+          selected = [selected - 1, 0].max
+        when "\u001b[B"
+          selected = [selected + 1, posts.length - 1].min
+        when "\r"
+          post = posts[selected]
+          return nil unless post
+          return { topic_id: post["topic_id"], post_id: post["id"] }
+        when "q", "\u001b"
+          return nil
+        end
+      end
+    end
+
+    def render_search_results(query, posts, topics_map, selected)
+      clear_screen
+      width = TTY::Screen.width
+      height = TTY::Screen.height
+
+      top_line = build_header_line(
+        "arrows: move | enter: open | esc: back | q: quit",
+        @display_url,
+        width - 4
+      )
+      status = "Search: #{truncate(query, width - 4)}"
+      content = [
+        top_line,
+        "-" * (width - 4),
+        status
+      ]
+      header_height = render_header(content, width)
+
+      if posts.empty?
+        puts "No results."
+        return
+      end
+
+      max_lines = [height - header_height - 1, 1].max
+      start_index = [selected - (max_lines / 2), 0].max
+      end_index = [start_index + max_lines - 1, posts.length - 1].min
+
+      posts[start_index..end_index].each_with_index do |post, idx|
+        line_index = start_index + idx
+        title = topics_map[post["topic_id"]] || "Topic #{post["topic_id"]}"
+        blurb = strip_html(post["blurb"].to_s)
+        line = "#{truncate(title, width / 2)} - #{truncate(blurb, width / 2)}"
+        line = @pastel.inverse(line) if line_index == selected
+        puts line
+      end
+    end
+
+    def prompt_search_query
+      buffer = +""
+      loop do
+        clear_screen
+        width = TTY::Screen.width
+        content = [
+          build_header_line("Search", @display_url, width - 4),
+          "-" * (width - 4),
+          "Type query and press Enter"
+        ]
+        render_header(content, width)
+        print "Search: "
+        print buffer
+        key = @reader.read_keypress
+
+        case key
+        when "\r"
+          return buffer.strip
+        when "\u0004", "\u001b"
+          return nil
+        when "\u007f", "\b"
+          buffer.chop! unless buffer.empty?
+        else
+          buffer << key
+        end
+      end
+    end
+
+    def strip_html(text)
+      text.gsub(/<[^>]*>/, "")
     end
 
     def truncate(text, width)
