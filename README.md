@@ -7,6 +7,7 @@ A terminal UI for browsing and posting to Discourse forums. It behaves like a li
 - Browse latest/hot/new/unread/top topic lists.
 - Read full topics with scrollable posts and a progress bar.
 - Create new topics from the topic list.
+- Choose a category when creating a new topic.
 - Reply to topics or specific posts (Markdown supported).
 - Like/unlike posts.
 - Search posts and jump directly to the matching topic context.
@@ -18,7 +19,7 @@ A terminal UI for browsing and posting to Discourse forums. It behaves like a li
 ## Quickstart
 
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/merefield/termcourse
 cd termcourse
 bundle install
 
@@ -83,6 +84,13 @@ DISCOURSE_PASSWORD=your_password
 - Press `q` to quit.
 
 The status bar shows the current list filter and your logged-in username.
+
+### Composer
+- Enter inserts a new line.
+- Arrow keys move the cursor within the editor.
+- Backspace deletes.
+- `Ctrl+D` submits.
+- `Esc` cancels.
 
 ### Topic View
 - Up/Down moves between posts.
