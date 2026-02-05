@@ -80,6 +80,10 @@ module Termcourse
       post_json("/posts.json", payload)
     end
 
+    def site_info
+      get_json("/site.json")
+    end
+
     def login(username:, password:, otp: nil, otp_method: 1)
       debug_log("login_start")
       ensure_csrf

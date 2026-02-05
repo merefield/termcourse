@@ -250,10 +250,11 @@ module Termcourse
         width - 4
       )
       topic_line = "Topic: #{truncate(title, width - 4)}"
+      category_label = category_label_from_topic_data(topic_data)
       header_lines = [
         top_line,
         "-" * (width - 4),
-        build_header_line(topic_line, login_label, width - 4)
+        build_header_line(topic_line, category_label, width - 4)
       ]
       header_box = build_header_box(header_lines, width)
       header_lines_rendered = header_box.split("\n")
@@ -573,6 +574,21 @@ module Termcourse
       "#{left_text}#{right}"
     end
 
+    def build_header_line_visible(left, right, width)
+      left = left.to_s
+      right = right.to_s
+      return truncate_visible_with_ansi(left, width) if right.empty?
+
+      right_text = truncate_visible_with_ansi(right, width)
+      right_width = visible_length(right_text)
+      return right_text if right_width >= width
+
+      left_width = width - right_width
+      left_text = truncate_visible_with_ansi(left, left_width)
+      padding = [left_width - visible_length(left_text), 0].max
+      "#{left_text}#{' ' * padding}#{right_text}"
+    end
+
     def login_label
       username = @api_username.to_s
       username = "unknown" if username.strip.empty?
@@ -615,6 +631,42 @@ module Termcourse
       text.gsub(/\e\[[0-9;]*m/, "")
     end
 
+    def truncate_visible_with_ansi(text, max_width)
+      return "" if max_width <= 0
+
+      out = +""
+      width = 0
+      i = 0
+      while i < text.length
+        ch = text[i]
+        if ch == "\e"
+          if text[i + 1] == "["
+            m_idx = text.index("m", i + 2)
+            if m_idx
+              out << text[i..m_idx]
+              i = m_idx + 1
+              next
+            end
+          elsif text[i + 1] == "]"
+            a_idx = text.index("\a", i + 2)
+            if a_idx
+              out << text[i..a_idx]
+              i = a_idx + 1
+              next
+            end
+          end
+        end
+
+        ch_width = display_width(ch)
+        break if width + ch_width > max_width
+
+        out << ch
+        width += ch_width
+        i += 1
+      end
+      out
+    end
+
     def strip_control_chars(text)
       text.gsub(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/, "")
     end
@@ -643,6 +695,11 @@ module Termcourse
         width += ch_width
       end
       out
+    end
+
+    def ljust_visible(text, width)
+      pad = [width - display_width(text), 0].max
+      text + (" " * pad)
     end
 
     def display_width(text)
@@ -743,27 +800,29 @@ module Termcourse
     end
 
     def reply_to_topic(topic_id)
-      body = compose_body("Reply to topic")
+      category_label = category_label_for(topic_id)
+      body = compose_body("Reply to topic", category_label: category_label)
       return false if body.nil?
 
-      with_errors { @client.create_post(topic_id: topic_id, raw: body) }
-      true
+      result = with_errors { @client.create_post(topic_id: topic_id, raw: body) }
+      !result.nil?
     end
 
     def reply_to_post(topic_id, post)
       label = "Reply to post ##{post["post_number"]} (Ctrl+D to finish)"
       context = compose_context(post)
-      body = compose_body(label, context_lines: context)
+      category_label = category_label_for(topic_id)
+      body = compose_body(label, context_lines: context, category_label: category_label)
       return false if body.nil?
 
-      with_errors do
+      result = with_errors do
         @client.create_post(
           topic_id: topic_id,
           raw: body,
           reply_to_post_number: post["post_number"]
         )
       end
-      true
+      !result.nil?
     end
 
     def new_topic_flow
@@ -796,16 +855,90 @@ module Termcourse
         end
       end
 
-      body = compose_body("New Topic: #{buffer}")
+      category = pick_category
+      category_id = category[:id]
+      category_label = category[:label]
+      body = compose_body("New Topic: #{buffer}", category_label: category_label)
       return nil if body.nil?
 
-      { title: buffer, raw: body }
+      { title: buffer, raw: body, category: category_id }
     end
 
     def create_topic_from(data)
       return if data.nil?
 
-      with_errors { @client.create_topic(title: data[:title], raw: data[:raw]) }
+      with_errors do
+        @client.create_topic(title: data[:title], raw: data[:raw], category: data[:category])
+      end
+    end
+
+    def pick_category
+      info = with_errors { @client.site_info }
+      categories = info&.dig("categories") || []
+      default_id = info&.dig("default_category_id")
+
+      options = []
+      options << { name: "No category", value: nil }
+      categories.each do |cat|
+        next if cat["read_restricted"]
+        options << { name: cat["name"], value: cat["id"] }
+      end
+
+      default_index = if default_id
+                        options.find_index { |opt| opt[:value] == default_id } || 0
+                      else
+                        0
+                      end
+
+      selected = category_picker(options, default_index)
+      name = options[selected][:name] rescue "No category"
+      { id: options[selected][:value], label: "Category: #{name}" }
+    rescue StandardError
+      { id: nil, label: "Category: none" }
+    end
+
+    def category_picker(options, selected)
+      loop do
+        clear_screen
+        width = TTY::Screen.width
+        content = [
+          build_header_line("Select Category", @display_url, width - 4),
+          "-" * (width - 4),
+          "Use arrows, Enter to select, Esc to cancel"
+        ]
+        header_height = render_header(content, width)
+
+        max_lines = [TTY::Screen.height - header_height - 1, 1].max
+        start_index = [selected - (max_lines / 2), 0].max
+        end_index = [start_index + max_lines - 1, options.length - 1].min
+
+        options[start_index..end_index].each_with_index do |opt, idx|
+          line_index = start_index + idx
+          line = opt[:name]
+          line = @pastel.inverse(line) if line_index == selected
+          puts line
+        end
+
+        key = @reader.read_keypress
+        case key
+        when "\u001b[A"
+          selected = [selected - 1, 0].max
+        when "\u001b[B"
+          selected = [selected + 1, options.length - 1].min
+        when "\r"
+          return selected
+        when "\u001b"
+          return 0
+        end
+      end
+    end
+
+    def category_label_from_topic_data(topic_data)
+      category_id = topic_data&.dig("category_id")
+      return "Category: none" if category_id.nil?
+
+      name = site_categories[category_id] || "Category #{category_id}"
+      "Category: #{name}"
     end
 
     def normalize_multiline(body)
@@ -815,7 +948,7 @@ module Termcourse
       body
     end
 
-    def compose_body(title, context_lines: [])
+    def compose_body(title, context_lines: [], category_label: nil)
       min_len = 20
       buffer = +""
       cursor = 0
@@ -823,7 +956,7 @@ module Termcourse
       loop do
         count = buffer.length
         clear_screen
-        render_composer_box(title, buffer, cursor, count, min_len, context_lines: context_lines)
+        render_composer_box(title, buffer, cursor, count, min_len, context_lines: context_lines, category_label: category_label)
         key = @reader.read_keypress
 
         if key.start_with?("\u001b")
@@ -863,13 +996,13 @@ module Termcourse
       return nil if buffer.strip.empty?
       return buffer if buffer.strip.length >= min_len
 
-      render_composer_box(title, buffer, cursor, buffer.strip.length, min_len, context_lines: context_lines, invalid: true)
+      render_composer_box(title, buffer, cursor, buffer.strip.length, min_len, context_lines: context_lines, category_label: category_label, invalid: true)
       puts "Press any key to try again..."
       @reader.read_keypress
-      compose_body(title, context_lines: context_lines)
+      compose_body(title, context_lines: context_lines, category_label: category_label)
     end
 
-    def render_composer_box(title, buffer, cursor, count, min_len, context_lines: [], invalid: false)
+    def render_composer_box(title, buffer, cursor, count, min_len, context_lines: [], category_label: nil, invalid: false)
       width = TTY::Screen.width
       content_width = width - 4
       status = "#{count} / #{min_len}"
@@ -880,10 +1013,12 @@ module Termcourse
                end
       label = invalid ? "Body too short" : "Compose"
 
-      status_line = "Chars: #{status} | Arrows: move | Finish: Ctrl+D | New line: Enter | Cancel: Esc"
-      status_line = clamp_visible(status_line, content_width)
+      left = "Chars: #{status} | Arrows: move | Finish: Ctrl+D | New line: Enter | Cancel: Esc"
+      right = category_label.to_s
+      status_line = build_header_line_visible(left, right, content_width)
 
-      content = ["#{label}: #{title}"]
+      top_line = build_header_line("#{label} #{title}", @display_url, content_width)
+      content = [top_line]
       unless context_lines.empty?
         content << "-" * content_width
         content.concat(context_lines)
@@ -892,15 +1027,27 @@ module Termcourse
       content << status_line
 
       box = build_header_box(content, width)
-      print box.chomp
+      box_lines = box.split("\n", -1)
+      box_lines.pop if box_lines.last == ""
+      box_height = box_lines.length
 
       input_lines = buffer.split("\n", -1)
       input_lines = [""] if input_lines.empty?
-      input_start_row = box.split("\n").length
-      input_lines.each_with_index do |line, idx|
-        print TTY::Cursor.move_to(0, input_start_row + idx)
-        print pad_line(" #{line}", width)
+      input_start_row = box_height + 1
+
+      screen = Array.new(TTY::Screen.height) { " " * width }
+      box_lines.each_with_index do |line, idx|
+        screen[idx] = pad_line(line, width)
       end
+
+      input_lines.each_with_index do |line, idx|
+        row = input_start_row + idx
+        break if row >= screen.length
+        screen[row] = pad_line(" #{line}", width)
+      end
+
+      clear_screen
+      print screen.join("\n")
 
       line_idx, col = cursor_line_col(buffer, cursor)
       row = input_start_row + line_idx
@@ -922,7 +1069,8 @@ module Termcourse
       return cursor if line_idx.zero?
 
       new_line_idx = line_idx - 1
-      new_col = [col, lines[new_line_idx].length].min
+      target_line = lines[new_line_idx] || ""
+      new_col = [col, target_line.length].min
       line_start = lines[0...new_line_idx].sum { |l| l.length + 1 }
       line_start + new_col
     end
@@ -933,7 +1081,8 @@ module Termcourse
       return cursor if line_idx >= lines.length - 1
 
       new_line_idx = line_idx + 1
-      new_col = [col, lines[new_line_idx].length].min
+      target_line = lines[new_line_idx] || ""
+      new_col = [col, target_line.length].min
       line_start = lines[0...new_line_idx].sum { |l| l.length + 1 }
       line_start + new_col
     end
@@ -948,6 +1097,24 @@ module Termcourse
       preview = lines.first(3)
       preview = [""] if preview.empty?
       ["Replying to @#{username}:", *preview]
+    end
+
+    def category_label_for(topic_id)
+      topic = with_errors { @client.topic(topic_id) }
+      category_id = topic&.dig("category_id")
+      return "Category: none" if category_id.nil?
+
+      categories = site_categories
+      name = categories[category_id] || "Category #{category_id}"
+      "Category: #{name}"
+    end
+
+    def site_categories
+      @site_categories ||= begin
+        info = with_errors { @client.site_info }
+        list = info&.dig("categories") || []
+        list.each_with_object({}) { |cat, memo| memo[cat["id"]] = cat["name"].to_s }
+      end
     end
 
     def toggle_like(post)
@@ -995,14 +1162,45 @@ module Termcourse
 
     def show_error(error)
       clear_screen
-      message = "Error: #{error.class} - #{error.message}"
+      message = "Error"
       if error.respond_to?(:response) && error.response.is_a?(Hash)
         body = error.response[:body]
-        message = "#{message}\n#{body}" if body
+        pretty = extract_error_message(body)
+        message = "#{message}: #{pretty}" if pretty
+      elsif error.respond_to?(:message) && error.message
+        message = "#{message}: #{error.message}"
       end
-      puts message
+      if message.start_with?("Error:")
+        error_body = message.sub("Error:", "").strip
+        puts "#{@pastel.bold("Error:")} #{error_body}"
+      else
+        puts @pastel.bold("Error:")
+        puts message
+      end
+      puts ""
       puts "Press any key to continue..."
       @reader.read_keypress
+    end
+
+    def extract_error_message(body)
+      return nil if body.nil?
+
+      data = JSON.parse(body.to_s) rescue nil
+      return body.to_s unless data.is_a?(Hash)
+
+      if data["errors"].is_a?(Array) && !data["errors"].empty?
+        return data["errors"].join("\n")
+      end
+
+      if data["error"].is_a?(String)
+        return data["error"]
+      end
+
+      if data["message"].is_a?(String)
+        return data["message"]
+      end
+
+      body.to_s
     end
 
     def search_loop(query)
