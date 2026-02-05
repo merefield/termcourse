@@ -14,7 +14,8 @@ module Termcourse
         api_key: ENV["DISCOURSE_API_KEY"],
         api_username: ENV["DISCOURSE_API_USERNAME"],
         username: ENV["DISCOURSE_USERNAME"],
-        password: ENV["DISCOURSE_PASSWORD"]
+        password: ENV["DISCOURSE_PASSWORD"],
+        force_login: false
       }
 
       parser = OptionParser.new do |opts|
@@ -36,6 +37,10 @@ module Termcourse
           options[:password] = value
         end
 
+        opts.on("--login", "Force username/password login (ignore API key)") do
+          options[:force_login] = true
+        end
+
         opts.on("-h", "--help", "Show help") do
           puts opts
           return 0
@@ -52,7 +57,8 @@ module Termcourse
       end
 
       ui = nil
-      if options[:api_key] && !options[:api_key].strip.empty? &&
+      if !options[:force_login] &&
+         options[:api_key] && !options[:api_key].strip.empty? &&
          options[:api_username] && !options[:api_username].strip.empty?
         begin
           client = Client.new(base_url, api_key: options[:api_key], api_username: options[:api_username])

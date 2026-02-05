@@ -209,7 +209,7 @@ module Termcourse
       content = [
         top_line,
         "-" * (width - 4),
-        status
+        build_header_line(status, login_label, width - 4)
       ]
       header_height = render_header(content, width)
 
@@ -246,7 +246,7 @@ module Termcourse
       header_lines = [
         top_line,
         "-" * (width - 4),
-        topic_line
+        build_header_line(topic_line, login_label, width - 4)
       ]
       header_box = build_header_box(header_lines, width)
       header_lines_rendered = header_box.split("\n")
@@ -564,6 +564,12 @@ module Termcourse
       left_width = width - right.length
       left_text = truncate(left, left_width).ljust(left_width)
       "#{left_text}#{right}"
+    end
+
+    def login_label
+      username = @api_username.to_s
+      username = "unknown" if username.strip.empty?
+      "Logged in: #{username}"
     end
 
     def render_header(lines, width)
