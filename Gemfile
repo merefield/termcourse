@@ -14,4 +14,5 @@ gem "pastel"
 
 gem "faraday"
 gem "faraday-retry"
+gem "faraday-cookie_jar"
 gem "dotenv"

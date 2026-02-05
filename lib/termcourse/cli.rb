@@ -12,7 +12,9 @@ module Termcourse
     def run
       options = {
         api_key: ENV["DISCOURSE_API_KEY"],
-        api_username: ENV["DISCOURSE_API_USERNAME"]
+        api_username: ENV["DISCOURSE_API_USERNAME"],
+        username: ENV["DISCOURSE_USERNAME"],
+        password: ENV["DISCOURSE_PASSWORD"]
       }
 
       parser = OptionParser.new do |opts|
@@ -24,6 +26,14 @@ module Termcourse
 
         opts.on("--api-username USER", "Discourse API username (or DISCOURSE_API_USERNAME)") do |value|
           options[:api_username] = value
+        end
+
+        opts.on("--username USER", "Discourse username/email (or DISCOURSE_USERNAME)") do |value|
+          options[:username] = value
+        end
+
+        opts.on("--password PASS", "Discourse password (or DISCOURSE_PASSWORD)") do |value|
+          options[:password] = value
         end
 
         opts.on("-h", "--help", "Show help") do
@@ -41,17 +51,48 @@ module Termcourse
         return 1
       end
 
-      if options[:api_key].nil? || options[:api_key].strip.empty?
-        warn "Missing API key. Set DISCOURSE_API_KEY or --api-key."
-        return 1
+      ui = nil
+      if options[:api_key] && !options[:api_key].strip.empty? &&
+         options[:api_username] && !options[:api_username].strip.empty?
+        begin
+          client = Client.new(base_url, api_key: options[:api_key], api_username: options[:api_username])
+          current = client.current_user
+          if current.is_a?(Hash) && current["current_user"].is_a?(Hash)
+            ui = UI.new(base_url, client: client, api_username: options[:api_username])
+          end
+        rescue Faraday::Error
+          ui = nil
+        end
       end
 
-      if options[:api_username].nil? || options[:api_username].strip.empty?
-        warn "Missing API username. Set DISCOURSE_API_USERNAME or --api-username."
-        return 1
+      unless ui
+        prompt = TTY::Prompt.new
+        username = options[:username]
+        password = options[:password]
+        username = prompt.ask("Username or email:") if username.nil? || username.strip.empty?
+        password = prompt.mask("Password:") if password.nil? || password.strip.empty?
+        if username.nil? || username.strip.empty? || password.nil? || password.strip.empty?
+          warn "Missing auth. Provide API key or username/password."
+          warn "API key: DISCOURSE_API_KEY + DISCOURSE_API_USERNAME"
+          warn "Login: DISCOURSE_USERNAME + DISCOURSE_PASSWORD"
+          return 1
+        end
+
+        client = Client.new(base_url)
+        login = client.login(username: username, password: password)
+        if login.is_a?(Hash) && (login["second_factor_required"] || login["requires_second_factor"])
+          otp = prompt.ask("Enter 2FA code:")
+          login = client.login(username: username, password: password, otp: otp)
+        end
+        current = client.current_user
+        if current.is_a?(Hash) && current["current_user"].is_a?(Hash)
+          ui = UI.new(base_url, client: client, api_username: current["current_user"]["username"])
+        else
+          warn "Login failed."
+          return 1
+        end
       end
 
-      ui = UI.new(base_url, api_key: options[:api_key], api_username: options[:api_username])
       ui.run
       0
     end

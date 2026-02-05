@@ -13,8 +13,8 @@ require "pastel"
 
 module Termcourse
   class UI
-    def initialize(base_url, api_key:, api_username:)
-      @client = Client.new(base_url, api_key: api_key, api_username: api_username)
+    def initialize(base_url, api_key: nil, api_username: nil, client: nil)
+      @client = client || Client.new(base_url, api_key: api_key, api_username: api_username)
       @reader = TTY::Reader.new
       @prompt = TTY::Prompt.new
       @pastel = Pastel.new
