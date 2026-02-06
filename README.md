@@ -81,6 +81,7 @@ Auth selection order:
 - Then host credentials from YAML using lookup order: `TERMCOURSE_CREDENTIALS_FILE` path if set, else `./credentials.yml`, else `~/.config/termcourse/credentials.yml`.
 - Then generic env vars (`DISCOURSE_*`).
 - If both login and API pairs are present, login is tried first unless the host entry sets `auth: api`.
+- If a host entry explicitly sets `auth: login` or `auth: api`, termcourse only tries that auth method for that host.
 - For username/password auth, termcourse prompts only for missing fields (for example, prompts just for password if username is already known).
 - For API auth, both `api_username` and API key must resolve to non-empty values. If either is missing (including missing `*_env` target values), API login fails.
 

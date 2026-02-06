@@ -157,9 +157,14 @@ module Termcourse
     end
 
     def auth_order(preferred_auth)
-      return [:api, :login] if preferred_auth.to_s == "api"
-
-      [:login, :api]
+      case preferred_auth.to_s
+      when "api"
+        [:api]
+      when "login"
+        [:login]
+      else
+        [:login, :api]
+      end
     end
 
     def load_site_credentials(base_url)
@@ -202,7 +207,7 @@ module Termcourse
     end
 
     def present?(value)
-      value && !value.to_s.strip.empty?
+      !!(value && !value.to_s.strip.empty?)
     end
 
     def missing_auth_error
