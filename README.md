@@ -2,6 +2,10 @@
 
 A terminal UI for browsing and posting to Discourse forums. It behaves like a lightweight browser client and supports reading topic lists, viewing full topics, replying, liking, and searching.
 
+## Screenshot
+
+![Termcourse topic list view](docs/images/topic-list-view.png)
+
 ## Features
 
 - Browse latest/hot/new/unread/top topic lists.
@@ -25,7 +29,7 @@ bundle install
 
 # Option A: username/password login
 DISCOURSE_USERNAME="you@example.com" DISCOURSE_PASSWORD="your_password" \
-  bundle exec bin/termcourse --login https://your.discourse.host
+  bundle exec bin/termcourse https://your.discourse.host
 
 # Option B: API key fallback
 DISCOURSE_API_KEY="your_key" DISCOURSE_API_USERNAME="your_username" \
@@ -40,7 +44,7 @@ This uses a cookie-based browser session and works across most Discourse install
 
 ```bash
 DISCOURSE_USERNAME="you@example.com" DISCOURSE_PASSWORD="your_password" \
-  bundle exec bin/termcourse --login https://your.discourse.host
+  bundle exec bin/termcourse https://your.discourse.host
 ```
 
 If MFA (TOTP) is enabled, you’ll be prompted for a 6-digit code. If backup codes are enabled, you can choose that method instead.
@@ -63,6 +67,15 @@ You can set any of these in your shell or `.env` file. `.env` is auto-loaded if 
 - `TERMCOURSE_HTTP_DEBUG`: Set to `1` to log HTTP/auth debug responses to `/tmp/termcourse_http_debug.txt`.
 - `TERMCOURSE_LINKS`: Set to `0` to disable OSC8 clickable links.
 - `TERMCOURSE_EMOJI`: Set to `0` to disable emoji substitutions.
+- `TERMCOURSE_CREDENTIALS_FILE`: Optional path to host-mapped YAML credentials. If unset, termcourse checks `./credentials.yml` first, then `~/.config/termcourse/credentials.yml`.
+
+Auth selection order:
+- CLI flags (`--username`, `--password`, `--api-key`, `--api-username`) have highest priority.
+- Then host credentials from YAML using lookup order: `TERMCOURSE_CREDENTIALS_FILE` path if set, else `./credentials.yml`, else `~/.config/termcourse/credentials.yml`.
+- Then generic env vars (`DISCOURSE_*`).
+- If both login and API pairs are present, login is tried first unless the host entry sets `auth: api`.
+- For username/password auth, termcourse prompts only for missing fields (for example, prompts just for password if username is already known).
+- For API auth, both `api_username` and API key must resolve to non-empty values. If either is missing (including missing `*_env` target values), API login fails.
 
 Example `.env`:
 
@@ -70,6 +83,24 @@ Example `.env`:
 DISCOURSE_USERNAME=you@example.com
 DISCOURSE_PASSWORD=your_password
 ```
+
+Example `credentials.yml`:
+
+```yaml
+sites:
+  acmeforum.example:
+    auth: api
+    api_username: system
+    api_key_env: TERMCOURSE_API_KEY_ACME
+
+  meta.discourse.org:
+    auth: login
+    username: you@example.com
+    password_env: TERMCOURSE_PASSWORD_META
+```
+
+A ready-to-edit sample is included at `credentials.example.yml`.
+An aligned env template is included at `.env.example`.
 
 ## How To Use
 
@@ -117,7 +148,7 @@ The bottom bar shows your position in the topic (current/total).
 
 ## Security
 
-- **Prompt-based login is supported.** Use `--login` to avoid putting passwords on the command line (which can appear in shell history or process lists).
+- **Prompt-based login is supported by default** when no full credential pair is found in env/flags, which avoids putting passwords on the command line.
 - **Session cookies are in-memory only.** The app does not write cookies to disk; closing the app ends the session on this client.
 - **No password storage.** Credentials are only used for the login request and are not persisted by the app.
 - **Some sites disable local login.** If a site requires SSO or blocks scripted login, use an API key or a dedicated test account.
@@ -130,5 +161,5 @@ The bottom bar shows your position in the topic (current/total).
 ## Troubleshooting
 
 - If a site returns login errors with MFA enabled, ensure TOTP is configured and enter a fresh 6-digit code when prompted.
-- If you need to force username/password login even when API keys exist, use `--login`.
+- If both login and API env pairs are set, username/password is used first.
 - On some networks (often macOS with broken IPv6 routes), the client may time out on initial requests. Termcourse automatically retries once over IPv4 and will stick to IPv4 for the remainder of the session after the first timeout.
