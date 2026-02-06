@@ -130,7 +130,7 @@ module Termcourse
             topics.concat(more_topics)
             loading = false
           end
-        when "\r" # enter
+        when "\r", "\n" # enter
           topic = topics[selected]
           return topic["id"] if topic
         when "1", "2", "3", "4", "5", "6", "7", "8", "9", "0"
