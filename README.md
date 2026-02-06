@@ -4,7 +4,7 @@ A terminal UI for browsing and posting to Discourse forums. It behaves like a li
 
 ## Screenshot
 
-![Termcourse topic list view](docs/images/topic-list-view.png)
+![Termcourse topic list view](docs/images/termcourse.png)
 
 ## Features
 

@@ -1,6 +1,5 @@
 Place the topic-list screenshot at:
 
-`docs/images/topic-list-view.png`
+`docs/images/termcourse.png`
 
 The top-level `README.md` references this file.
-
