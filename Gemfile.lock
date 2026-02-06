@@ -1,0 +1,81 @@
+GEM
+  remote: https://rubygems.org/
+  specs:
+    domain_name (0.6.20240107)
+    dotenv (3.2.0)
+    faraday (2.14.0)
+      faraday-net_http (>= 2.0, < 3.5)
+      json
+      logger
+    faraday-cookie_jar (0.0.8)
+      faraday (>= 0.8.0)
+      http-cookie (>= 1.0.0)
+    faraday-net_http (3.4.2)
+      net-http (~> 0.5)
+    faraday-retry (2.4.0)
+      faraday (~> 2.0)
+    http-cookie (1.1.0)
+      domain_name (~> 0.5)
+    json (2.18.1)
+    kramdown (2.5.2)
+      rexml (>= 3.4.4)
+    logger (1.7.0)
+    net-http (0.9.1)
+      uri (>= 0.11.1)
+    pastel (0.8.0)
+      tty-color (~> 0.5)
+    rexml (3.4.4)
+    rouge (4.7.0)
+    strings (0.2.1)
+      strings-ansi (~> 0.2)
+      unicode-display_width (>= 1.5, < 3.0)
+      unicode_utils (~> 1.4)
+    strings-ansi (0.2.0)
+    tty-box (0.7.0)
+      pastel (~> 0.8)
+      strings (~> 0.2.0)
+      tty-cursor (~> 0.7)
+    tty-color (0.6.0)
+    tty-cursor (0.7.1)
+    tty-markdown (0.7.2)
+      kramdown (>= 1.16.2, < 3.0)
+      pastel (~> 0.8)
+      rouge (>= 3.14, < 5.0)
+      strings (~> 0.2.0)
+      tty-color (~> 0.5)
+      tty-screen (~> 0.8)
+    tty-prompt (0.23.1)
+      pastel (~> 0.8)
+      tty-reader (~> 0.8)
+    tty-reader (0.9.0)
+      tty-cursor (~> 0.7)
+      tty-screen (~> 0.8)
+      wisper (~> 2.0)
+    tty-screen (0.8.2)
+    unicode-display_width (2.6.0)
+    unicode_utils (1.4.0)
+    uri (1.1.1)
+    wisper (2.0.1)
+
+PLATFORMS
+  ruby
+  x86_64-linux
+
+DEPENDENCIES
+  dotenv
+  faraday
+  faraday-cookie_jar
+  faraday-retry
+  pastel
+  tty-box
+  tty-cursor
+  tty-markdown
+  tty-prompt
+  tty-reader
+  tty-screen
+
+RUBY VERSION
+   ruby 3.3.2p78
+
+BUNDLED WITH
+   2.6.6
