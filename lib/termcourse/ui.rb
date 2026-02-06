@@ -34,6 +34,9 @@ module Termcourse
       @image_quality_filter = ENV.fetch("TERMCOURSE_IMAGE_QUALITY_FILTER", "1") != "0"
       @image_max_bytes = ENV.fetch("TERMCOURSE_IMAGE_MAX_BYTES", "5242880").to_i
       @image_max_bytes = 5_242_880 if @image_max_bytes <= 0
+      @tick_ms = ENV.fetch("TERMCOURSE_TICK_MS", "100").to_i
+      @tick_ms = 100 if @tick_ms <= 0
+      @tick_seconds = @tick_ms / 1000.0
       @image_backend = detect_image_backend
       @image_cache = {}
       @debug_enabled = ENV.fetch("TERMCOURSE_DEBUG", "0") == "1"
@@ -97,7 +100,11 @@ module Termcourse
           top_period: top_periods[period_index],
           loading: loading
         )
-        key = @reader.read_keypress
+        key = read_keypress_with_tick
+        if key == :__tick__
+          @resized = false
+          next
+        end
         if @resized
           @resized = false
           next
@@ -126,10 +133,16 @@ module Termcourse
         when "\r" # enter
           topic = topics[selected]
           return topic["id"] if topic
+        when "1", "2", "3", "4", "5", "6", "7", "8", "9", "0"
+          index = (key == "0") ? 9 : (key.to_i - 1)
+          topic = topics[index]
+          return topic["id"] if topic
         when "f"
           filter_index = (filter_index + 1) % filters.length
           return { filter: filters[filter_index] }
         when "p"
+          next unless filters[filter_index] == :top
+
           period_index = (period_index + 1) % top_periods.length
           return { top_period: top_periods[period_index] }
         when "s"
@@ -160,7 +173,11 @@ module Termcourse
 
       loop do
         render_topic(topic_data, posts, selected, scroll_offsets)
-        key = @reader.read_keypress
+        key = read_keypress_with_tick
+        if key == :__tick__
+          @resized = false
+          next
+        end
         if @resized
           @resized = false
           next
@@ -218,11 +235,11 @@ module Termcourse
       width = TTY::Screen.width
       height = TTY::Screen.height
 
-      top_line = build_header_line(
-        "arrows: move | enter: open | n: new | s: search | f: filter | p: period | g: refresh | q: quit",
-        @display_url,
-        width - 4
-      )
+      controls = "arrows: move | ↵: open | 1-0: open top10 | n: new | s: search | f: filter"
+      controls += " | p: period" if filter == :top
+      controls += " | g: refresh | q: quit"
+
+      top_line = build_header_line(controls, @display_url, width - 4)
       status_label = "Topic List: #{filter.to_s.capitalize}"
       status_label += " (#{top_period.to_s.capitalize})" if filter == :top
       status = loading ? "#{status_label} | Loading more..." : status_label
@@ -1103,7 +1120,11 @@ module Termcourse
           puts line
         end
 
-        key = @reader.read_keypress
+        key = read_keypress_with_tick
+        if key == :__tick__
+          @resized = false
+          next
+        end
         case key
         when "\u001b[A"
           selected = [selected - 1, 0].max
@@ -1141,7 +1162,11 @@ module Termcourse
         count = buffer.length
         clear_screen
         render_composer_box(title, buffer, cursor, count, min_len, context_lines: context_lines, category_label: category_label)
-        key = @reader.read_keypress
+        key = read_keypress_with_tick
+        if key == :__tick__
+          @resized = false
+          next
+        end
 
         if key.start_with?("\u001b")
           seq = key.length > 1 ? key[1..] : @reader.read_keypress
@@ -1400,7 +1425,11 @@ module Termcourse
 
       loop do
         render_search_results(query, posts, topics_map, selected)
-        key = @reader.read_keypress
+        key = read_keypress_with_tick
+        if key == :__tick__
+          @resized = false
+          next
+        end
         if @resized
           @resized = false
           next
@@ -1427,7 +1456,7 @@ module Termcourse
       height = TTY::Screen.height
 
       top_line = build_header_line(
-        "arrows: move | enter: open | esc: back | q: quit",
+        "arrows: move | ↵: open | esc: back | q: quit",
         @display_url,
         width - 4
       )
@@ -1500,6 +1529,15 @@ module Termcourse
     def clear_screen
       print TTY::Cursor.clear_screen
       print TTY::Cursor.move_to(0, 0)
+    end
+
+    def read_keypress_with_tick
+      loop do
+        key = @reader.read_keypress(nonblock: true)
+        return key if key
+        return :__tick__ if @resized
+        sleep(@tick_seconds)
+      end
     end
 
     def trap_resize

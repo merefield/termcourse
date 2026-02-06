@@ -152,6 +152,7 @@ module Termcourse
         ["TERMCOURSE_IMAGE_LINES", "Target image preview height in terminal lines (default: 14)."],
         ["TERMCOURSE_IMAGE_QUALITY_FILTER", "Set to 0 to allow low-quality blocky image previews."],
         ["TERMCOURSE_IMAGE_MAX_BYTES", "Max bytes to download per image preview (default: 5242880)."],
+        ["TERMCOURSE_TICK_MS", "UI resize/input poll tick in ms (default: 100)."],
         ["TERMCOURSE_EMOJI", "Set to 0 to disable emoji substitutions."]
       ]
     end

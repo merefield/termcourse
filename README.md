@@ -73,6 +73,7 @@ You can set any of these in your shell or `.env` file. `.env` is auto-loaded if 
 - `TERMCOURSE_IMAGE_LINES`: Target image preview height in terminal lines (default `14`).
 - `TERMCOURSE_IMAGE_QUALITY_FILTER`: Set to `0` to allow low-quality blocky previews (default filters them out).
 - `TERMCOURSE_IMAGE_MAX_BYTES`: Maximum image download size per preview (default `5242880` bytes).
+- `TERMCOURSE_TICK_MS`: UI resize/input poll interval in milliseconds (default `100`).
 - `TERMCOURSE_EMOJI`: Set to `0` to disable emoji substitutions.
 - `TERMCOURSE_CREDENTIALS_FILE`: Optional path to host-mapped YAML credentials. If unset, termcourse checks `./credentials.yml` first, then `~/.config/termcourse/credentials.yml`.
 
@@ -132,6 +133,12 @@ An aligned env template is included at `.env.example`.
 - Practical guidance for WSL/Windows Terminal:
 - If `viu` looks good in your shell, force `TERMCOURSE_IMAGE_BACKEND=viu`.
 - If output is unstable/noisy, use `TERMCOURSE_IMAGE_BACKEND=chafa` and tune `TERMCOURSE_CHAFA_MODE`.
+
+## Resize Behavior
+
+- Termcourse redraws reactively on terminal resize without requiring a key press.
+- Polling interval is controlled by `TERMCOURSE_TICK_MS` (default `100` ms).
+- Lower values feel more responsive but can increase CPU usage and repaint churn.
 
 ## How To Use
 
