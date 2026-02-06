@@ -56,6 +56,19 @@ module Termcourse
         "list_text" => "#d8f7e4",
         "list_meta" => "#8fd9ad",
         "accent" => "#2a9dff"
+      },
+      "rust" => {
+        "primary" => "#efe2c4",
+        "background" => nil,
+        "highlighted" => "#b5521e",
+        "highlighted_text" => "#fff7e8",
+        "borders" => "#b06c2f",
+        "bar_backgrounds" => "#3a2516",
+        "separators" => "#d2b168",
+        "list_numbers" => "#d58a3d",
+        "list_text" => "#f2e4c8",
+        "list_meta" => "#c9b287",
+        "accent" => "#e0b85f"
       }
     }.freeze
 

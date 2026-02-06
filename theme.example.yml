@@ -3,7 +3,7 @@
 # - ~/.config/termcourse/theme.yml (global), or
 # set TERMCOURSE_THEME_FILE to a custom path.
 #
-# Select a theme name with TERMCOURSE_THEME (for example: default, slate, fairground).
+# Select a theme name with TERMCOURSE_THEME (for example: default, slate, fairground, rust).
 
 default:
   primary: "#f2f2f2"
@@ -43,3 +43,16 @@ fairground:
   list_text: "#d8f7e4"
   list_meta: "#8fd9ad"
   accent: "#2a9dff"
+
+rust:
+  primary: "#efe2c4"
+  background: "none"
+  highlighted: "#b5521e"
+  highlighted_text: "#fff7e8"
+  borders: "#b06c2f"
+  bar_backgrounds: "#3a2516"
+  separators: "#d2b168"
+  list_numbers: "#d58a3d"
+  list_text: "#f2e4c8"
+  list_meta: "#c9b287"
+  accent: "#e0b85f"

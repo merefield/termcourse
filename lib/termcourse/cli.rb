@@ -152,7 +152,7 @@ module Termcourse
         ["TERMCOURSE_HTTP_DEBUG", "Set to 1 to write HTTP/auth debug logs to /tmp/termcourse_http_debug.txt."],
         ["TERMCOURSE_DEBUG", "Set to 1 to write UI render debug logs to /tmp/termcourse_debug.txt."],
         ["TERMCOURSE_LINKS", "Set to 0 to disable clickable links."],
-        ["TERMCOURSE_THEME", "Theme name (default|slate|fairground by default)."],
+        ["TERMCOURSE_THEME", "Theme name (default|slate|fairground|rust by default)."],
         ["TERMCOURSE_THEME_FILE", "Theme YAML path. Lookup order: this path, then ./theme.yml, then ~/.config/termcourse/theme.yml."],
         ["TERMCOURSE_IMAGES", "Set to 0 to disable inline image previews in expanded posts."],
         ["TERMCOURSE_IMAGE_BACKEND", "Image backend: auto|chafa|viu|off (default: auto)."],
