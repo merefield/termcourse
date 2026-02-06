@@ -29,7 +29,11 @@ module Termcourse
       @image_backend_preference = ENV.fetch("TERMCOURSE_IMAGE_BACKEND", "auto").to_s.downcase
       @chafa_mode = ENV.fetch("TERMCOURSE_CHAFA_MODE", "stable").to_s.downcase
       @images_enabled = ENV.fetch("TERMCOURSE_IMAGES", "1") != "0"
+      @image_lines = ENV.fetch("TERMCOURSE_IMAGE_LINES", "14").to_i
+      @image_lines = 14 if @image_lines <= 0
       @image_quality_filter = ENV.fetch("TERMCOURSE_IMAGE_QUALITY_FILTER", "1") != "0"
+      @image_max_bytes = ENV.fetch("TERMCOURSE_IMAGE_MAX_BYTES", "5242880").to_i
+      @image_max_bytes = 5_242_880 if @image_max_bytes <= 0
       @image_backend = detect_image_backend
       @image_cache = {}
       @debug_enabled = ENV.fetch("TERMCOURSE_DEBUG", "0") == "1"
@@ -576,8 +580,7 @@ module Termcourse
       urls = extract_image_urls(raw)
       return [] if urls.empty?
 
-      max_lines = [TTY::Screen.height / 3, 6].max
-      max_lines = [max_lines, 16].min
+      max_lines = @image_lines
       cache_key = [urls.first, width, max_lines, @image_backend]
       cached = @image_cache[cache_key]
       return cached if cached
@@ -613,9 +616,7 @@ module Termcourse
       uri = URI.parse(url)
       ext = File.extname(uri.path)
       Tempfile.create(["termcourse-image", ext]) do |tmp|
-        URI.open(url, read_timeout: 8, open_timeout: 4) do |io|
-          IO.copy_stream(io, tmp)
-        end
+        download_image_with_limit(url, tmp, @image_max_bytes)
         tmp.flush
 
         lines = if @image_backend == :chafa
@@ -636,6 +637,18 @@ module Termcourse
       []
     end
 
+    def download_image_with_limit(url, file, max_bytes)
+      bytes = 0
+      URI.open(url, read_timeout: 8, open_timeout: 4) do |io|
+        while (chunk = io.read(16_384))
+          bytes += chunk.bytesize
+          raise "image too large" if bytes > max_bytes
+
+          file.write(chunk)
+        end
+      end
+    end
+
     def render_with_chafa(path, width, max_lines)
       cmd = if @chafa_mode == "quality"
               "chafa --format symbols --symbols vhalf --colors 256 --size #{width}x#{max_lines} #{Shellwords.escape(path)} 2>/dev/null"
@@ -646,7 +659,7 @@ module Termcourse
     end
 
     def render_with_viu(path, width, max_lines)
-      cmd = "viu -w #{width} -h #{max_lines} --transparent #{Shellwords.escape(path)} 2>/dev/null"
+      cmd = "viu -h #{max_lines} --transparent #{Shellwords.escape(path)} 2>/dev/null"
       `#{cmd}`.split("\n")
     end
 
@@ -799,7 +812,7 @@ module Termcourse
     end
 
     def strip_ansi_residue(text)
-      text.gsub(/\[[0-9;]*m/, "")
+      text.gsub(/(^|[[:space:][:punct:]])\[(?:\d{1,3}(?:;\d{1,3})*)m/, '\1')
     end
 
     def truncate_visible_with_ansi(text, max_width)

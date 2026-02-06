@@ -70,7 +70,9 @@ You can set any of these in your shell or `.env` file. `.env` is auto-loaded if 
 - `TERMCOURSE_IMAGES`: Set to `0` to disable inline image previews.
 - `TERMCOURSE_IMAGE_BACKEND`: Choose image backend: `auto` (default), `chafa`, `viu`, or `off`.
 - `TERMCOURSE_CHAFA_MODE`: Chafa render mode: `stable` (default) or `quality`.
+- `TERMCOURSE_IMAGE_LINES`: Target image preview height in terminal lines (default `14`).
 - `TERMCOURSE_IMAGE_QUALITY_FILTER`: Set to `0` to allow low-quality blocky previews (default filters them out).
+- `TERMCOURSE_IMAGE_MAX_BYTES`: Maximum image download size per preview (default `5242880` bytes).
 - `TERMCOURSE_EMOJI`: Set to `0` to disable emoji substitutions.
 - `TERMCOURSE_CREDENTIALS_FILE`: Optional path to host-mapped YAML credentials. If unset, termcourse checks `./credentials.yml` first, then `~/.config/termcourse/credentials.yml`.
 
@@ -106,6 +108,29 @@ sites:
 
 A ready-to-edit sample is included at `credentials.example.yml`.
 An aligned env template is included at `.env.example`.
+
+## Image Guidelines
+
+- Image previews are shown only for the expanded post in Topic View.
+- Backend selection:
+- `TERMCOURSE_IMAGE_BACKEND=auto` tries `chafa` first, then `viu`.
+- Set `TERMCOURSE_IMAGE_BACKEND=chafa` or `TERMCOURSE_IMAGE_BACKEND=viu` to force one backend.
+- Set `TERMCOURSE_IMAGE_BACKEND=off` or `TERMCOURSE_IMAGES=0` to disable previews.
+- Chafa modes:
+- `TERMCOURSE_CHAFA_MODE=stable` favors stability and conservative output.
+- `TERMCOURSE_CHAFA_MODE=quality` enables higher-detail/color symbol rendering.
+- Height control:
+- `TERMCOURSE_IMAGE_LINES` controls preview height (line count), default `14`.
+- `viu` path uses line-targeted rendering to preserve aspect ratio better.
+- Quality filtering:
+- `TERMCOURSE_IMAGE_QUALITY_FILTER=1` (default) suppresses very noisy block-only previews.
+- Set `TERMCOURSE_IMAGE_QUALITY_FILTER=0` to always show renderer output.
+- Download safety:
+- `TERMCOURSE_IMAGE_MAX_BYTES` limits how much data is fetched per image preview.
+- Discourse `upload://...` markdown image links are resolved to `/uploads/short-url/...` automatically.
+- Practical guidance for WSL/Windows Terminal:
+- If `viu` looks good in your shell, force `TERMCOURSE_IMAGE_BACKEND=viu`.
+- If output is unstable/noisy, use `TERMCOURSE_IMAGE_BACKEND=chafa` and tune `TERMCOURSE_CHAFA_MODE`.
 
 ## How To Use
 

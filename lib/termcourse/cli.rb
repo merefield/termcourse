@@ -104,12 +104,7 @@ module Termcourse
 
       unless ui || have_login_pair || have_api_pair
         prompt = TTY::Prompt.new
-        if username.nil? || username.strip.empty?
-          username = prompt.ask("Username or email:")
-        end
-        if password.nil? || password.strip.empty?
-          password = prompt.mask("Password:")
-        end
+        username, password = prompt_for_missing_login_fields(prompt, username, password)
         have_prompted_login_pair = present?(username) && present?(password)
         return missing_auth_error unless have_prompted_login_pair
 
@@ -154,7 +149,9 @@ module Termcourse
         ["TERMCOURSE_IMAGES", "Set to 0 to disable inline image previews in expanded posts."],
         ["TERMCOURSE_IMAGE_BACKEND", "Image backend: auto|chafa|viu|off (default: auto)."],
         ["TERMCOURSE_CHAFA_MODE", "Chafa mode: stable|quality (default: stable)."],
+        ["TERMCOURSE_IMAGE_LINES", "Target image preview height in terminal lines (default: 14)."],
         ["TERMCOURSE_IMAGE_QUALITY_FILTER", "Set to 0 to allow low-quality blocky image previews."],
+        ["TERMCOURSE_IMAGE_MAX_BYTES", "Max bytes to download per image preview (default: 5242880)."],
         ["TERMCOURSE_EMOJI", "Set to 0 to disable emoji substitutions."]
       ]
     end
@@ -240,11 +237,7 @@ module Termcourse
       prompt ||= TTY::Prompt.new
       client = Client.new(base_url)
       client.set_debug(debug_enabled)
-      if debug_enabled
-        File.open("/tmp/termcourse_http_debug.txt", "a") do |f|
-          f.puts("[#{Time.now.utc.iso8601}] prompt_complete username=#{username}")
-        end
-      end
+      cli_debug_log(debug_enabled, "prompt_complete username=#{username}")
 
       login = client.login(username: username, password: password)
       if mfa_required?(login)
