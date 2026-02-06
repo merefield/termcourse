@@ -6,6 +6,7 @@ require "time"
 require "open-uri"
 require "tempfile"
 require "shellwords"
+require "yaml"
 require "tty-screen"
 require "tty-cursor"
 require "tty-box"
@@ -16,7 +17,49 @@ require "pastel"
 
 module Termcourse
   class UI
-    def initialize(base_url, api_key: nil, api_username: nil, client: nil)
+    BUILTIN_THEMES = {
+      "default" => {
+        "primary" => "#f2f2f2",
+        "background" => nil,
+        "highlighted" => "#2a5ea8",
+        "highlighted_text" => "#ffffff",
+        "borders" => "#a8a8a8",
+        "bar_backgrounds" => "#1f1f1f",
+        "separators" => "#6f6f6f",
+        "list_numbers" => "#f2f2f2",
+        "list_text" => "#e6e6e6",
+        "list_meta" => "#b5b5b5",
+        "accent" => "#6cc4ff"
+      },
+      "slate" => {
+        "primary" => "#e6edf3",
+        "background" => nil,
+        "highlighted" => "#355f8a",
+        "highlighted_text" => "#ffffff",
+        "borders" => "#5f6f80",
+        "bar_backgrounds" => "#1f2733",
+        "separators" => "#8ca0b3",
+        "list_numbers" => "#8fbce6",
+        "list_text" => "#dde7f0",
+        "list_meta" => "#9ab0c6",
+        "accent" => "#66c2ff"
+      },
+      "fairground" => {
+        "primary" => "#f6fff5",
+        "background" => nil,
+        "highlighted" => "#0055aa",
+        "highlighted_text" => "#ffffff",
+        "borders" => "#1f8f5f",
+        "bar_backgrounds" => "#103f33",
+        "separators" => "#ff4b4b",
+        "list_numbers" => "#4ecb71",
+        "list_text" => "#d8f7e4",
+        "list_meta" => "#8fd9ad",
+        "accent" => "#2a9dff"
+      }
+    }.freeze
+
+    def initialize(base_url, api_key: nil, api_username: nil, client: nil, theme_name: nil)
       @client = client || Client.new(base_url, api_key: api_key, api_username: api_username)
       @reader = TTY::Reader.new
       @prompt = TTY::Prompt.new
@@ -24,6 +67,8 @@ module Termcourse
       @api_username = api_username
       @base_url = base_url
       @display_url = base_url.sub(%r{\Ahttps?://}i, "")
+      @theme_name = (theme_name || ENV.fetch("TERMCOURSE_THEME", "default")).to_s.downcase
+      @theme = load_theme(@theme_name)
       @links_enabled = ENV.fetch("TERMCOURSE_LINKS", "1") != "0"
       @emoji_enabled = ENV.fetch("TERMCOURSE_EMOJI", "1") != "0"
       @image_backend_preference = ENV.fetch("TERMCOURSE_IMAGE_BACKEND", "auto").to_s.downcase
@@ -263,8 +308,8 @@ module Termcourse
         line_index = start_index + idx
         replies = topic["posts_count"].to_i - 1
         title = truncate(topic["title"].to_s, width - 10)
-        line = format("%3d  %s  (%d replies)", line_index + 1, title, replies)
-        line = @pastel.inverse(line) if line_index == selected
+        line = themed_topic_list_line(line_index + 1, title, replies)
+        line = theme_highlight(format("%3d  %s  (%d replies)", line_index + 1, title, replies)) if line_index == selected
         puts line
       end
     end
@@ -286,7 +331,7 @@ module Termcourse
         "-" * (width - 4),
         build_header_line(topic_line, category_label, width - 4)
       ]
-      header_box = build_header_box(header_lines, width)
+      header_box = build_themed_header_box(header_lines, width)
       header_lines_rendered = header_box.split("\n")
       header_height = header_lines_rendered.length
 
@@ -396,7 +441,7 @@ module Termcourse
       lines = []
       rendered.each_with_index do |item, idx|
         lines.concat(item[:lines])
-        lines << "-" * width if idx != rendered.length - 1
+        lines << theme_text("-" * width, fg: "separators") if idx != rendered.length - 1
       end
       lines = ["No posts."] if lines.empty?
       lines
@@ -793,10 +838,16 @@ module Termcourse
     end
 
     def render_header(lines, width)
-      header = build_header_box(lines, width)
+      header = build_themed_header_box(lines, width)
       print header.chomp
       print "\n"
       header.split("\n").length + 1
+    end
+
+    def build_themed_header_box(lines, width)
+      themed_lines = theme_header_content(lines)
+      box = build_header_box(themed_lines, width)
+      theme_box_borders(box)
     end
 
     def build_header_box(lines, width)
@@ -996,8 +1047,10 @@ module Termcourse
       bar = "[#{bar_inner}]"
       footer = "#{bar}#{label.rjust(label_width)}"
       footer = footer.ljust(content_width)
+      footer = theme_text(footer, fg: "primary", bg: "bar_backgrounds")
 
-      TTY::Box.frame(width: width, height: 3, padding: [0, 1]) { footer }
+      box = TTY::Box.frame(width: width, height: 3, padding: [0, 1]) { footer }
+      theme_box_borders(box)
     end
 
     def reply_to_topic(topic_id)
@@ -1544,6 +1597,158 @@ module Termcourse
       Signal.trap("WINCH") { @resized = true }
     rescue ArgumentError
       nil
+    end
+
+    def themed_topic_list_line(number, title, replies)
+      num = theme_text(format("%3d", number), fg: "list_numbers")
+      title_text = theme_text(title.to_s, fg: "list_text")
+      meta = theme_text("(#{replies} replies)", fg: "list_meta")
+      "#{num}  #{title_text}  #{meta}"
+    end
+
+    def theme_highlight(text)
+      fg = theme_color("highlighted_text")
+      bg = theme_color("highlighted")
+      return @pastel.inverse(text) if fg.nil? && bg.nil?
+
+      theme_text(text, fg: "highlighted_text", bg: "highlighted")
+    end
+
+    def theme_header_content(lines)
+      return lines if lines.nil? || lines.empty?
+
+      lines.map.with_index do |line, idx|
+        if idx == 1
+          theme_text(line.to_s, fg: "separators", bg: "bar_backgrounds")
+        else
+          theme_text(line.to_s, fg: "primary", bg: "bar_backgrounds")
+        end
+      end
+    end
+
+    def theme_box_borders(box)
+      return box unless box
+
+      border_color = theme_color("borders")
+      return box if border_color.nil?
+
+      box.gsub(/[┌┐└┘│─]/) { |ch| colorize(ch, fg: border_color) }
+    end
+
+    def theme_text(text, fg: nil, bg: nil)
+      fg_value = fg.nil? ? nil : theme_color(fg)
+      bg_value = bg.nil? ? nil : theme_color(bg)
+      return text if fg_value.nil? && bg_value.nil?
+
+      colorize(text, fg: fg_value, bg: bg_value)
+    end
+
+    def colorize(text, fg: nil, bg: nil)
+      prefix = +""
+      prefix << ansi_fg(fg) if fg
+      prefix << ansi_bg(bg) if bg
+      return text if prefix.empty?
+
+      "#{prefix}#{text}\e[0m"
+    end
+
+    def ansi_fg(color)
+      return "" if color.nil?
+      return "\e[38;5;#{color[:index]}m" if color[:index]
+
+      "\e[38;2;#{color[:r]};#{color[:g]};#{color[:b]}m"
+    end
+
+    def ansi_bg(color)
+      return "" if color.nil?
+      return "\e[48;5;#{color[:index]}m" if color[:index]
+
+      "\e[48;2;#{color[:r]};#{color[:g]};#{color[:b]}m"
+    end
+
+    def theme_color(key)
+      value = @theme[key.to_s]
+      parse_color(value)
+    end
+
+    def parse_color(value)
+      return nil if value.nil?
+
+      raw = value.to_s.strip.downcase
+      return nil if raw.empty? || raw == "none"
+
+      if raw.match?(/\A\d{1,3}\z/)
+        idx = raw.to_i
+        return nil if idx.negative? || idx > 255
+
+        return { index: idx }
+      end
+
+      hex = if raw.match?(/\A#[0-9a-f]{6}\z/)
+              raw[1..]
+            elsif raw.match?(/\A[0-9a-f]{6}\z/)
+              raw
+            else
+              named_color_hex(raw)
+            end
+      return nil unless hex
+
+      {
+        r: hex[0, 2].to_i(16),
+        g: hex[2, 2].to_i(16),
+        b: hex[4, 2].to_i(16)
+      }
+    end
+
+    def named_color_hex(name)
+      {
+        "black" => "000000",
+        "white" => "ffffff",
+        "red" => "ff4b4b",
+        "green" => "4ecb71",
+        "blue" => "4a90e2",
+        "yellow" => "ffd166",
+        "cyan" => "66d9ef",
+        "magenta" => "d38cff",
+        "gray" => "9aa0a6",
+        "grey" => "9aa0a6"
+      }[name]
+    end
+
+    def load_theme(theme_name)
+      defaults = BUILTIN_THEMES["default"] || {}
+      built_in = BUILTIN_THEMES[theme_name] || {}
+      file_themes = load_theme_file
+      from_file = file_themes[theme_name] || {}
+      defaults.merge(built_in).merge(from_file)
+    rescue StandardError
+      BUILTIN_THEMES["default"] || {}
+    end
+
+    def load_theme_file
+      path = ENV["TERMCOURSE_THEME_FILE"]
+      path = default_theme_path if path.nil? || path.strip.empty?
+      return {} unless File.file?(path)
+
+      parsed = YAML.safe_load(File.read(path)) || {}
+      themes = parsed["themes"] if parsed.is_a?(Hash)
+      themes = parsed unless themes.is_a?(Hash)
+      return {} unless themes.is_a?(Hash)
+
+      themes.each_with_object({}) do |(name, properties), memo|
+        next unless properties.is_a?(Hash)
+
+        memo[name.to_s.downcase] = properties.transform_keys(&:to_s)
+      end
+    rescue StandardError
+      {}
+    end
+
+    def default_theme_path
+      local = File.expand_path("theme.yml", Dir.pwd)
+      return local if File.file?(local)
+
+      File.expand_path("~/.config/termcourse/theme.yml")
     end
   end
 end

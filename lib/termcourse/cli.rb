@@ -16,7 +16,8 @@ module Termcourse
         api_key: nil,
         api_username: nil,
         username: nil,
-        password: nil
+        password: nil,
+        theme: nil
       }
 
       parser = OptionParser.new do |opts|
@@ -36,6 +37,10 @@ module Termcourse
 
         opts.on("--password PASS", "Discourse password (or DISCOURSE_PASSWORD)") do |value|
           options[:password] = value
+        end
+
+        opts.on("--theme NAME", "Theme name (overrides TERMCOURSE_THEME for this run)") do |value|
+          options[:theme] = value
         end
 
         opts.on("-h", "--help", "Show help") do
@@ -61,6 +66,7 @@ module Termcourse
       site_creds = load_site_credentials(base_url)
       preferred_auth = site_creds[:auth]
       debug_enabled = ENV.fetch("TERMCOURSE_HTTP_DEBUG", "0") == "1"
+      theme_name = options[:theme]
 
       username = options[:username]
       api_key = options[:api_key]
@@ -96,9 +102,9 @@ module Termcourse
 
         cli_debug_log(debug_enabled, "auth_attempt method=#{method}")
         ui = if method == :login
-               build_ui_from_login(base_url, username, password, debug_enabled: debug_enabled)
+               build_ui_from_login(base_url, username, password, theme_name: theme_name, debug_enabled: debug_enabled)
              else
-               build_ui_from_api(base_url, api_key, api_username, debug_enabled: debug_enabled)
+               build_ui_from_api(base_url, api_key, api_username, theme_name: theme_name, debug_enabled: debug_enabled)
              end
       end
 
@@ -109,7 +115,7 @@ module Termcourse
         return missing_auth_error unless have_prompted_login_pair
 
         cli_debug_log(debug_enabled, "auth_attempt method=login source=prompt")
-        ui = build_ui_from_login(base_url, username, password, prompt: prompt, debug_enabled: debug_enabled)
+        ui = build_ui_from_login(base_url, username, password, prompt: prompt, theme_name: theme_name, debug_enabled: debug_enabled)
       end
 
       unless ui
@@ -146,6 +152,8 @@ module Termcourse
         ["TERMCOURSE_HTTP_DEBUG", "Set to 1 to write HTTP/auth debug logs to /tmp/termcourse_http_debug.txt."],
         ["TERMCOURSE_DEBUG", "Set to 1 to write UI render debug logs to /tmp/termcourse_debug.txt."],
         ["TERMCOURSE_LINKS", "Set to 0 to disable clickable links."],
+        ["TERMCOURSE_THEME", "Theme name (default|slate|fairground by default)."],
+        ["TERMCOURSE_THEME_FILE", "Theme YAML path. Lookup order: this path, then ./theme.yml, then ~/.config/termcourse/theme.yml."],
         ["TERMCOURSE_IMAGES", "Set to 0 to disable inline image previews in expanded posts."],
         ["TERMCOURSE_IMAGE_BACKEND", "Image backend: auto|chafa|viu|off (default: auto)."],
         ["TERMCOURSE_CHAFA_MODE", "Chafa mode: stable|quality (default: stable)."],
@@ -228,18 +236,18 @@ module Termcourse
       [username, password]
     end
 
-    def build_ui_from_api(base_url, api_key, api_username, debug_enabled: false)
+    def build_ui_from_api(base_url, api_key, api_username, theme_name: nil, debug_enabled: false)
       client = Client.new(base_url, api_key: api_key, api_username: api_username)
       client.set_debug(debug_enabled)
       current = client.current_user
       return nil unless current.is_a?(Hash) && current["current_user"].is_a?(Hash)
 
-      UI.new(base_url, client: client, api_username: api_username)
+      UI.new(base_url, client: client, api_username: api_username, theme_name: theme_name)
     rescue Faraday::Error
       nil
     end
 
-    def build_ui_from_login(base_url, username, password, prompt: nil, debug_enabled: false)
+    def build_ui_from_login(base_url, username, password, prompt: nil, theme_name: nil, debug_enabled: false)
       prompt ||= TTY::Prompt.new
       client = Client.new(base_url)
       client.set_debug(debug_enabled)
@@ -261,7 +269,7 @@ module Termcourse
                    end
       return nil unless login_user
 
-      UI.new(base_url, client: client, api_username: login_user)
+      UI.new(base_url, client: client, api_username: login_user, theme_name: theme_name)
     rescue Faraday::Error
       nil
     end

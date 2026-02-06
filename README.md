@@ -17,6 +17,7 @@ A terminal UI for browsing and posting to Discourse forums. It behaves like a li
 - Search posts and jump directly to the matching topic context.
 - Inline composer with cursor movement, line breaks, and a live character counter.
 - Emoji replacements for common `:emoji:` tokens and `:)`-style smiles.
+- YAML-driven themes (`default`, `slate`, `fairground`) with per-color overrides.
 - Inline image previews in expanded posts (uses `chafa`, falls back to `viu`).
 - Username/email + password login (cookie-based session login; supports TOTP/backup codes).
 - API key + username login (fallback for SSO-only or locked-down sites).
@@ -30,11 +31,11 @@ bundle install
 
 # Option A: username/password login
 DISCOURSE_USERNAME="you@example.com" DISCOURSE_PASSWORD="your_password" \
-  bundle exec bin/termcourse https://your.discourse.host
+  bundle exec bin/termcourse --theme slate https://your.discourse.host
 
 # Option B: API key fallback
 DISCOURSE_API_KEY="your_key" DISCOURSE_API_USERNAME="your_username" \
-  bundle exec bin/termcourse https://your.discourse.host
+  bundle exec bin/termcourse --theme fairground https://your.discourse.host
 ```
 
 ## Auth
@@ -67,6 +68,9 @@ You can set any of these in your shell or `.env` file. `.env` is auto-loaded if 
 - `DISCOURSE_PASSWORD`: Password for password login.
 - `TERMCOURSE_HTTP_DEBUG`: Set to `1` to log HTTP/auth debug responses to `/tmp/termcourse_http_debug.txt`.
 - `TERMCOURSE_LINKS`: Set to `0` to disable OSC8 clickable links.
+- `TERMCOURSE_THEME`: Theme name (default `default`). Built-ins: `default`, `slate`, `fairground`.
+- `TERMCOURSE_THEME_FILE`: Optional path to theme YAML. If unset, termcourse checks `./theme.yml` first, then `~/.config/termcourse/theme.yml`.
+- CLI override: `--theme NAME` applies only to the current run and overrides `TERMCOURSE_THEME`.
 - `TERMCOURSE_IMAGES`: Set to `0` to disable inline image previews.
 - `TERMCOURSE_IMAGE_BACKEND`: Choose image backend: `auto` (default), `chafa`, `viu`, or `off`.
 - `TERMCOURSE_CHAFA_MODE`: Chafa render mode: `stable` (default) or `quality`.
@@ -110,6 +114,22 @@ sites:
 
 A ready-to-edit sample is included at `credentials.example.yml`.
 An aligned env template is included at `.env.example`.
+A ready-to-edit theme template is included at `theme.example.yml`.
+
+Example `theme.yml`:
+
+```yaml
+slate:
+  primary: "#e6edf3"
+  highlighted: "#355f8a"
+  highlighted_text: "#ffffff"
+  borders: "#5f6f80"
+  bar_backgrounds: "#1f2733"
+  separators: "#8ca0b3"
+  list_numbers: "#8fbce6"
+```
+
+Supported theme keys: `primary`, `background`, `highlighted`, `highlighted_text`, `borders`, `bar_backgrounds`, `separators`, `list_numbers`, `list_text`, `list_meta`, `accent`.
 
 ## Image Guidelines
 

@@ -1,0 +1,45 @@
+# Copy this file to:
+# - ./theme.yml (project-local), or
+# - ~/.config/termcourse/theme.yml (global), or
+# set TERMCOURSE_THEME_FILE to a custom path.
+#
+# Select a theme name with TERMCOURSE_THEME (for example: default, slate, fairground).
+
+default:
+  primary: "#f2f2f2"
+  background: "none"
+  highlighted: "#2a5ea8"
+  highlighted_text: "#ffffff"
+  borders: "#a8a8a8"
+  bar_backgrounds: "#1f1f1f"
+  separators: "#6f6f6f"
+  list_numbers: "#f2f2f2"
+  list_text: "#e6e6e6"
+  list_meta: "#b5b5b5"
+  accent: "#6cc4ff"
+
+slate:
+  primary: "#e6edf3"
+  background: "none"
+  highlighted: "#355f8a"
+  highlighted_text: "#ffffff"
+  borders: "#5f6f80"
+  bar_backgrounds: "#1f2733"
+  separators: "#8ca0b3"
+  list_numbers: "#8fbce6"
+  list_text: "#dde7f0"
+  list_meta: "#9ab0c6"
+  accent: "#66c2ff"
+
+fairground:
+  primary: "#f6fff5"
+  background: "none"
+  highlighted: "#0055aa"
+  highlighted_text: "#ffffff"
+  borders: "#1f8f5f"
+  bar_backgrounds: "#103f33"
+  separators: "#ff4b4b"
+  list_numbers: "#4ecb71"
+  list_text: "#d8f7e4"
+  list_meta: "#8fd9ad"
+  accent: "#2a9dff"
