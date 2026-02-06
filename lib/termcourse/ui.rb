@@ -3,6 +3,9 @@
 require "cgi"
 require "json"
 require "time"
+require "open-uri"
+require "tempfile"
+require "shellwords"
 require "tty-screen"
 require "tty-cursor"
 require "tty-box"
@@ -23,6 +26,12 @@ module Termcourse
       @display_url = base_url.sub(%r{\Ahttps?://}i, "")
       @links_enabled = ENV.fetch("TERMCOURSE_LINKS", "1") != "0"
       @emoji_enabled = ENV.fetch("TERMCOURSE_EMOJI", "1") != "0"
+      @image_backend_preference = ENV.fetch("TERMCOURSE_IMAGE_BACKEND", "auto").to_s.downcase
+      @chafa_mode = ENV.fetch("TERMCOURSE_CHAFA_MODE", "stable").to_s.downcase
+      @images_enabled = ENV.fetch("TERMCOURSE_IMAGES", "1") != "0"
+      @image_quality_filter = ENV.fetch("TERMCOURSE_IMAGE_QUALITY_FILTER", "1") != "0"
+      @image_backend = detect_image_backend
+      @image_cache = {}
       @debug_enabled = ENV.fetch("TERMCOURSE_DEBUG", "0") == "1"
       @resized = false
       trap_resize
@@ -380,8 +389,12 @@ module Termcourse
       header = "#{liked_marker}@#{username}"
 
       body_width = content_width(width)
-      lines = parse_markdown_lines(post["raw"].to_s, body_width)
+      raw = post["raw"].to_s
+      image_lines = expanded ? image_preview_lines(raw, body_width) : []
+      text_raw = (expanded && !image_lines.empty?) ? strip_markdown_images(raw) : raw
+      lines = parse_markdown_lines(text_raw, body_width)
       content_lines = wrap_and_linkify_lines(lines, body_width)
+      content_lines = image_lines + content_lines unless image_lines.empty?
 
       if expanded
         header_line = pad_line(format_line(header, width, heart), width)
@@ -418,6 +431,7 @@ module Termcourse
       content = strip_invisible(content)
       content = strip_control_chars(content)
       content = strip_ansi(content)
+      content = strip_ansi_residue(content)
       lines = content.split("\n").map { |line| emojify(line) }
       lines = [""] if lines.empty?
       lines
@@ -531,6 +545,159 @@ module Termcourse
       output
     end
 
+    def detect_image_backend
+      return nil unless @images_enabled
+
+      case @image_backend_preference
+      when "off", "none", "0"
+        return nil
+      when "viu"
+        return :viu if command_exists?("viu")
+        return nil
+      when "chafa"
+        return :chafa if command_exists?("chafa")
+        return nil
+      end
+
+      return :chafa if command_exists?("chafa")
+      return :viu if command_exists?("viu")
+
+      nil
+    end
+
+    def command_exists?(cmd)
+      system("command -v #{cmd} >/dev/null 2>&1")
+    end
+
+    def image_preview_lines(raw, width)
+      return [] unless @images_enabled
+      return [] if @image_backend.nil?
+
+      urls = extract_image_urls(raw)
+      return [] if urls.empty?
+
+      max_lines = [TTY::Screen.height / 3, 6].max
+      max_lines = [max_lines, 16].min
+      cache_key = [urls.first, width, max_lines, @image_backend]
+      cached = @image_cache[cache_key]
+      return cached if cached
+
+      rendered = render_image_url(urls.first, width, max_lines)
+      @image_cache[cache_key] = rendered
+      rendered
+    rescue StandardError
+      []
+    end
+
+    def extract_image_urls(raw)
+      text = raw.to_s
+      urls = []
+      text.scan(/!\[[^\]]*\]\((https?:\/\/[^\s\)]+)\)/i) { |m| urls << m[0] }
+      text.scan(/!\[[^\]]*\]\((upload:\/\/[^\s\)]+)\)/i) { |m| urls << discourse_upload_url(m[0]) }
+      text.scan(%r{https?://[^\s\)]+}i) do |url|
+        urls << url if url.match?(/\.(png|jpe?g|gif|webp|bmp)(\?.*)?$/i)
+      end
+      urls.uniq
+    end
+
+    def strip_markdown_images(raw)
+      raw.to_s.gsub(/!\[[^\]]*\]\((https?:\/\/[^\s\)]+|upload:\/\/[^\s\)]+)\)/i, "")
+    end
+
+    def discourse_upload_url(upload_uri)
+      path = upload_uri.to_s.sub(/\Aupload:\/\//, "")
+      "#{@base_url}/uploads/short-url/#{path}"
+    end
+
+    def render_image_url(url, width, max_lines)
+      uri = URI.parse(url)
+      ext = File.extname(uri.path)
+      Tempfile.create(["termcourse-image", ext]) do |tmp|
+        URI.open(url, read_timeout: 8, open_timeout: 4) do |io|
+          IO.copy_stream(io, tmp)
+        end
+        tmp.flush
+
+        lines = if @image_backend == :chafa
+                  render_with_chafa(tmp.path, width, max_lines)
+                elsif @image_backend == :viu
+                  render_with_viu(tmp.path, width, max_lines)
+                else
+                  []
+                end
+        lines = sanitize_rendered_lines(lines, width, @image_backend)
+        return [] if lines.empty?
+        skip_quality_filter = (@image_backend == :chafa && @chafa_mode == "quality")
+        return [] if @image_quality_filter && !skip_quality_filter && low_quality_image_preview?(lines)
+
+        [format_line("[image]", width)] + lines
+      end
+    rescue StandardError
+      []
+    end
+
+    def render_with_chafa(path, width, max_lines)
+      cmd = if @chafa_mode == "quality"
+              "chafa --format symbols --symbols vhalf --colors 256 --size #{width}x#{max_lines} #{Shellwords.escape(path)} 2>/dev/null"
+            else
+              "chafa --format symbols --symbols ascii --colors none --size #{width}x#{max_lines} #{Shellwords.escape(path)} 2>/dev/null"
+            end
+      `#{cmd}`.split("\n")
+    end
+
+    def render_with_viu(path, width, max_lines)
+      cmd = "viu -w #{width} -h #{max_lines} --transparent #{Shellwords.escape(path)} 2>/dev/null"
+      `#{cmd}`.split("\n")
+    end
+
+    def sanitize_rendered_lines(lines, width, backend = nil)
+      preserve_sgr = backend == :viu || (backend == :chafa && @chafa_mode == "quality")
+      cleaned = lines
+        .map do |line|
+          clean = line.to_s.gsub(/[\r\n]/, "")
+          clean = if preserve_sgr
+                    keep_sgr_only(clean)
+                  else
+                    strip_all_ansi(clean)
+                  end
+          clean = if preserve_sgr
+                    strip_controls_except_ansi(clean)
+                  else
+                    strip_control_chars(clean)
+                  end
+          clean = strip_invisible(clean)
+          clean
+        end
+        .reject(&:empty?)
+      return cleaned if preserve_sgr
+
+      cleaned.map { |line| clamp_visible(line, width) }
+    end
+
+    def keep_sgr_only(text)
+      out = text.dup
+      out = out.gsub(/\e\]8;;.*?\a/, "")
+      out = out.gsub(/\e\]8;;\a/, "")
+      out = out.gsub(/\e_G.*?\e\\/, "")
+      out = out.gsub(/\e\[(?![0-9;]*m)[0-9;?]*[ -\/]*[@-~]/, "")
+      out
+    end
+
+    def strip_controls_except_ansi(text)
+      text.gsub(/[\u0000-\u0008\u000B\u000C\u000E-\u001A\u001C-\u001F\u007F]/, "")
+    end
+
+    def low_quality_image_preview?(lines)
+      text = lines.join
+      return true if text.empty?
+
+      # Reject previews that are mostly repeated block glyphs/noise.
+      block_chars = text.scan(/[█▀▄▌▐▍▎▏▁▂▃▅▆▇░▒▓]/).length
+      ratio = block_chars.to_f / text.length
+      unique = text.chars.uniq.length
+      ratio > 0.55 && unique <= 8
+    end
+
     def osc8(url, text)
       return text unless @links_enabled
 
@@ -629,6 +796,10 @@ module Termcourse
 
     def strip_ansi(text)
       text.gsub(/\e\[[0-9;]*m/, "")
+    end
+
+    def strip_ansi_residue(text)
+      text.gsub(/\[[0-9;]*m/, "")
     end
 
     def truncate_visible_with_ansi(text, max_width)

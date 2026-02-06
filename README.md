@@ -17,6 +17,7 @@ A terminal UI for browsing and posting to Discourse forums. It behaves like a li
 - Search posts and jump directly to the matching topic context.
 - Inline composer with cursor movement, line breaks, and a live character counter.
 - Emoji replacements for common `:emoji:` tokens and `:)`-style smiles.
+- Inline image previews in expanded posts (uses `chafa`, falls back to `viu`).
 - Username/email + password login (cookie-based session login; supports TOTP/backup codes).
 - API key + username login (fallback for SSO-only or locked-down sites).
 
@@ -66,6 +67,10 @@ You can set any of these in your shell or `.env` file. `.env` is auto-loaded if 
 - `DISCOURSE_PASSWORD`: Password for password login.
 - `TERMCOURSE_HTTP_DEBUG`: Set to `1` to log HTTP/auth debug responses to `/tmp/termcourse_http_debug.txt`.
 - `TERMCOURSE_LINKS`: Set to `0` to disable OSC8 clickable links.
+- `TERMCOURSE_IMAGES`: Set to `0` to disable inline image previews.
+- `TERMCOURSE_IMAGE_BACKEND`: Choose image backend: `auto` (default), `chafa`, `viu`, or `off`.
+- `TERMCOURSE_CHAFA_MODE`: Chafa render mode: `stable` (default) or `quality`.
+- `TERMCOURSE_IMAGE_QUALITY_FILTER`: Set to `0` to allow low-quality blocky previews (default filters them out).
 - `TERMCOURSE_EMOJI`: Set to `0` to disable emoji substitutions.
 - `TERMCOURSE_CREDENTIALS_FILE`: Optional path to host-mapped YAML credentials. If unset, termcourse checks `./credentials.yml` first, then `~/.config/termcourse/credentials.yml`.
 

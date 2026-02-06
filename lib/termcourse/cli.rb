@@ -151,6 +151,10 @@ module Termcourse
         ["TERMCOURSE_HTTP_DEBUG", "Set to 1 to write HTTP/auth debug logs to /tmp/termcourse_http_debug.txt."],
         ["TERMCOURSE_DEBUG", "Set to 1 to write UI render debug logs to /tmp/termcourse_debug.txt."],
         ["TERMCOURSE_LINKS", "Set to 0 to disable clickable links."],
+        ["TERMCOURSE_IMAGES", "Set to 0 to disable inline image previews in expanded posts."],
+        ["TERMCOURSE_IMAGE_BACKEND", "Image backend: auto|chafa|viu|off (default: auto)."],
+        ["TERMCOURSE_CHAFA_MODE", "Chafa mode: stable|quality (default: stable)."],
+        ["TERMCOURSE_IMAGE_QUALITY_FILTER", "Set to 0 to allow low-quality blocky image previews."],
         ["TERMCOURSE_EMOJI", "Set to 0 to disable emoji substitutions."]
       ]
     end
