@@ -165,6 +165,7 @@ Supported theme keys: `primary`, `background`, `highlighted`, `highlighted_text`
 ### Topic List
 - Use Up/Down arrows to navigate.
 - Press Enter to open a topic.
+- Press `1-0` to open the first 10 visible topics directly.
 - Press `n` to create a new topic.
 - Press `s` to search.
 - Press `f` to cycle the list filter (Latest, Hot, Private Messages, New, Unread, Top).
@@ -178,6 +179,8 @@ Private Messages list view:
 - Uses PM-specific columns in wide layouts.
 - No category or views columns.
 - Includes a `Users` column (up to 3 usernames, otherwise `N users`) and `Replies`.
+- In compact view, bracket metadata shows users (not reply count).
+- Compact titles are ellipsized to avoid line wrapping.
 
 ### Composer
 - Enter inserts a new line.
