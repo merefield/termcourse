@@ -17,6 +17,9 @@ require "pastel"
 
 module Termcourse
   class UI
+    TOPIC_LIST_WIDE_CATEGORY_MIN = 125
+    TOPIC_LIST_WIDE_STATS_MIN = 149
+
     BUILTIN_THEMES = {
       "default" => {
         "primary" => "#f2f2f2",
@@ -292,6 +295,7 @@ module Termcourse
       clear_screen
       width = TTY::Screen.width
       height = TTY::Screen.height
+      list_mode = topic_list_mode(width)
 
       controls = "arrows: move | ↵: open | 1-0: open top10 | n: new | s: search | f: filter"
       controls += " | p: period" if filter == :top
@@ -314,15 +318,23 @@ module Termcourse
       end
 
       max_lines = [height - header_height - 1, 1].max
+      if list_mode != :compact
+        puts themed_topic_list_header(width, list_mode)
+        max_lines = [max_lines - 1, 1].max
+      end
       start_index = [selected - (max_lines / 2), 0].max
       end_index = [start_index + max_lines - 1, topics.length - 1].min
 
       topics[start_index..end_index].each_with_index do |topic, idx|
         line_index = start_index + idx
-        replies = topic["posts_count"].to_i - 1
-        title = truncate(topic["title"].to_s, width - 10)
-        line = themed_topic_list_line(line_index + 1, title, replies)
-        line = theme_highlight(format("%3d  %s  (%d replies)", line_index + 1, title, replies)) if line_index == selected
+        line = if list_mode == :compact
+                 replies = topic_reply_count(topic)
+                 title = truncate(topic["title"].to_s, width - 10)
+                 themed_topic_list_line(line_index + 1, title, replies)
+               else
+                 themed_topic_list_row(topic, line_index + 1, width, list_mode)
+               end
+        line = theme_highlight(strip_all_ansi(line)) if line_index == selected
         puts line
       end
     end
@@ -969,7 +981,7 @@ module Termcourse
 
     def display_width(text)
       text.each_codepoint.sum do |cp|
-        if combining_codepoint?(cp)
+        if combining_codepoint?(cp) || zero_width_codepoint?(cp)
           0
         else
           wide_codepoint?(cp) ? 2 : 1
@@ -983,6 +995,13 @@ module Termcourse
         (cp >= 0x1DC0 && cp <= 0x1DFF) ||
         (cp >= 0x20D0 && cp <= 0x20FF) ||
         (cp >= 0xFE20 && cp <= 0xFE2F)
+    end
+
+    def zero_width_codepoint?(cp)
+      cp == 0x200C || # ZERO WIDTH NON-JOINER
+        cp == 0x200D || # ZERO WIDTH JOINER
+        (cp >= 0xFE00 && cp <= 0xFE0F) || # variation selectors
+        (cp >= 0xE0100 && cp <= 0xE01EF)  # supplemental variation selectors
     end
 
     def take_by_display_width(text, max_width)
@@ -1617,6 +1636,145 @@ module Termcourse
       title_text = theme_text(title.to_s, fg: "list_text")
       meta = theme_text("(#{replies} replies)", fg: "list_meta")
       "#{num}  #{title_text}  #{meta}"
+    end
+
+    def topic_list_mode(width)
+      return :stats if width >= TOPIC_LIST_WIDE_STATS_MIN
+      return :category if width >= TOPIC_LIST_WIDE_CATEGORY_MIN
+
+      :compact
+    end
+
+    def themed_topic_list_header(width, mode)
+      if mode == :stats
+        w = topic_list_stats_widths(width)
+        header = build_topic_list_table_row(
+          [
+            { text: "#", width: w[:idx], align: :right },
+            { text: "Title", width: w[:title], align: :left },
+            { text: "Category", width: w[:category], align: :left },
+            { text: "Replies", width: w[:replies], align: :right },
+            { text: "Views", width: w[:views], align: :right },
+            { text: "Users", width: w[:users], align: :right }
+          ]
+        )
+      else
+        w = topic_list_category_widths(width)
+        header = build_topic_list_table_row(
+          [
+            { text: "#", width: w[:idx], align: :right },
+            { text: "Title", width: w[:title], align: :left },
+            { text: "Category", width: w[:category], align: :left },
+            { text: "Replies", width: w[:replies], align: :right }
+          ]
+        )
+      end
+      theme_text(header, fg: "list_meta")
+    end
+
+    def themed_topic_list_row(topic, number, width, mode)
+      title = topic["title"].to_s
+      category = normalize_category_for_table(topic_category_name(topic))
+
+      if mode == :stats
+        w = topic_list_stats_widths(width)
+        row = build_topic_list_table_row(
+          [
+            { text: number.to_s, width: w[:idx], align: :right },
+            { text: title, width: w[:title], align: :left },
+            { text: category, width: w[:category], align: :left },
+            { text: topic_reply_count(topic).to_s, width: w[:replies], align: :right },
+            { text: topic_view_count(topic).to_s, width: w[:views], align: :right },
+            { text: topic_participants_count(topic).to_s, width: w[:users], align: :right }
+          ]
+        )
+      else
+        w = topic_list_category_widths(width)
+        row = build_topic_list_table_row(
+          [
+            { text: number.to_s, width: w[:idx], align: :right },
+            { text: title, width: w[:title], align: :left },
+            { text: category, width: w[:category], align: :left },
+            { text: topic_reply_count(topic).to_s, width: w[:replies], align: :right }
+          ]
+        )
+      end
+
+      theme_text(row, fg: "list_text")
+    end
+
+    def build_topic_list_table_row(columns)
+      columns.map do |col|
+        fit_topic_list_cell(col[:text].to_s, col[:width].to_i, align: col[:align] || :left)
+      end.join("  ")
+    end
+
+    def fit_topic_list_cell(text, width, align: :left)
+      return "" if width <= 0
+
+      clipped = truncate_display(text.to_s, width)
+      gap = [width - display_width(clipped), 0].max
+      align == :right ? (" " * gap) + clipped : clipped + (" " * gap)
+    end
+
+    def truncate_display(text, width)
+      return "" if width <= 0
+      return clamp_visible(text, width) if width <= 3
+      return text if display_width(text) <= width
+
+      head, = take_by_display_width(text, width - 3)
+      "#{head}..."
+    end
+
+    def topic_list_category_widths(width)
+      idx = 3
+      replies = 7
+      category = [[(width * 0.24).to_i + 5, 21].max, 33].min
+      title = [width - idx - category - replies - 6, 20].max
+      { idx: idx, title: title, category: category, replies: replies }
+    end
+
+    def topic_list_stats_widths(width)
+      idx = 3
+      replies = 7
+      views = 7
+      users = 7
+      category = [[(width * 0.24).to_i + 5, 21].max, 33].min
+      title = [width - idx - category - replies - views - users - 10, 20].max
+      { idx: idx, title: title, category: category, replies: replies, views: views, users: users }
+    end
+
+    def topic_category_name(topic)
+      category_id = topic["category_id"]
+      return "none" if category_id.nil?
+
+      site_categories[category_id] || "Category #{category_id}"
+    end
+
+    def topic_reply_count(topic)
+      return topic["reply_count"].to_i if topic.key?("reply_count")
+
+      [topic["posts_count"].to_i - 1, 0].max
+    end
+
+    def topic_view_count(topic)
+      topic["views"].to_i
+    end
+
+    def topic_participants_count(topic)
+      return topic["participant_count"].to_i if topic.key?("participant_count")
+
+      posters = topic["posters"]
+      return 0 unless posters.is_a?(Array)
+
+      posters.map { |p| p["user_id"] }.compact.uniq.length
+    end
+
+    def normalize_category_for_table(text)
+      text.to_s
+        .gsub(/\p{Extended_Pictographic}/, "")
+        .gsub(/\s+/, " ")
+        .strip
     end
 
     def theme_highlight(text)
