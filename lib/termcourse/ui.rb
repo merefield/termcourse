@@ -1634,7 +1634,9 @@ module Termcourse
         if idx == 1
           theme_text(line.to_s, fg: "separators", bg: "bar_backgrounds")
         else
-          theme_text(line.to_s, fg: "primary", bg: "bar_backgrounds")
+          parts = line.to_s.split("|", -1)
+          sep = theme_text("|", fg: "separators", bg: "bar_backgrounds")
+          parts.map { |part| theme_text(part, fg: "primary", bg: "bar_backgrounds") }.join(sep)
         end
       end
     end
