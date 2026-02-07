@@ -1023,6 +1023,7 @@ module Termcourse
     def wide_codepoint?(cp)
       (cp >= 0x1100 && cp <= 0x115F) ||
         (cp >= 0x2329 && cp <= 0x232A) ||
+        (cp >= 0x2600 && cp <= 0x27BF) ||
         (cp >= 0x2E80 && cp <= 0xA4CF) ||
         (cp >= 0xAC00 && cp <= 0xD7A3) ||
         (cp >= 0xF900 && cp <= 0xFAFF) ||
