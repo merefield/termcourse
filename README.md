@@ -8,7 +8,7 @@ A terminal UI for browsing and posting to Discourse forums. It behaves like a li
 
 ## Features
 
-- Browse latest/hot/new/unread/top topic lists.
+- Browse latest/hot/private messages/new/unread/top topic lists.
 - Read full topics with scrollable posts and a progress bar.
 - Create new topics from the topic list.
 - Choose a category when creating a new topic.
@@ -167,12 +167,17 @@ Supported theme keys: `primary`, `background`, `highlighted`, `highlighted_text`
 - Press Enter to open a topic.
 - Press `n` to create a new topic.
 - Press `s` to search.
-- Press `f` to cycle the list filter (Latest, Hot, New, Unread, Top).
+- Press `f` to cycle the list filter (Latest, Hot, Private Messages, New, Unread, Top).
 - Press `p` to change Top period (daily, weekly, monthly, quarterly, yearly).
 - Press `g` to refresh.
 - Press `q` to quit.
 
 The status bar shows the current list filter and your logged-in username.
+
+Private Messages list view:
+- Uses PM-specific columns in wide layouts.
+- No category or views columns.
+- Includes a `Users` column (up to 3 usernames, otherwise `N users`) and `Replies`.
 
 ### Composer
 - Enter inserts a new line.

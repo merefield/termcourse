@@ -27,10 +27,16 @@ module Termcourse
       get_json("/latest.json")
     end
 
-    def list_topics(filter, period: "weekly")
+    def list_topics(filter, period: "weekly", username: nil)
       path = case filter
              when :latest then "/latest.json"
              when :hot then "/hot.json"
+             when :private
+               if username && !username.to_s.strip.empty?
+                 "/topics/private-messages/#{username}.json"
+               else
+                 "/topics/private-messages.json"
+               end
              when :new then "/new.json"
              when :unread then "/unread.json"
              when :top then "/top.json"
@@ -40,6 +46,11 @@ module Termcourse
       params = {}
       params[:period] = period if filter == :top
       get_json(path, params)
+    rescue Faraday::ResourceNotFound
+      if filter == :private && path.include?("/topics/private-messages/")
+        return get_json("/topics/private-messages.json", params)
+      end
+      raise
     end
 
     def search(query)

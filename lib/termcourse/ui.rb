@@ -100,6 +100,7 @@ module Termcourse
       @tick_seconds = @tick_ms / 1000.0
       @image_backend = detect_image_backend
       @image_cache = {}
+      @topic_list_users_by_id = {}
       @debug_enabled = ENV.fetch("TERMCOURSE_DEBUG", "0") == "1"
       @resized = false
       trap_resize
@@ -111,6 +112,7 @@ module Termcourse
       loop do
         topics_data = fetch_list(filter, top_period)
         return if topics_data.nil?
+        merge_topic_list_users(topics_data)
 
         topics = topics_data.dig("topic_list", "topics") || []
         next_url = topics_data.dig("topic_list", "more_topics_url")
@@ -148,7 +150,7 @@ module Termcourse
     def topic_list_loop(topics, next_url, filter, top_period)
       selected = 0
       loading = false
-      filters = %i[latest hot new unread top]
+      filters = %i[latest hot private new unread top]
       filter_index = filters.index(filter) || 0
       top_periods = %i[daily weekly monthly quarterly yearly]
       period_index = top_periods.index(top_period) || 2
@@ -187,6 +189,7 @@ module Termcourse
             )
             more = fetch_more_topics(next_url)
             more_topics = more&.dig("topic_list", "topics") || []
+            merge_topic_list_users(more)
             next_url = more&.dig("topic_list", "more_topics_url")
             topics.concat(more_topics)
             loading = false
@@ -302,7 +305,7 @@ module Termcourse
       controls += " | g: refresh | q: quit"
 
       top_line = build_header_line(controls, @display_url, width - 4)
-      status_label = "Topic List: #{filter.to_s.capitalize}"
+      status_label = "Topic List: #{topic_list_filter_label(filter)}"
       status_label += " (#{top_period.to_s.capitalize})" if filter == :top
       status = loading ? "#{status_label} | Loading more..." : status_label
       content = [
@@ -319,7 +322,7 @@ module Termcourse
 
       max_lines = [height - header_height - 1, 1].max
       if list_mode != :compact
-        puts themed_topic_list_header(width, list_mode)
+        puts themed_topic_list_header(width, list_mode, filter)
         max_lines = [max_lines - 1, 1].max
       end
       start_index = [selected - (max_lines / 2), 0].max
@@ -328,11 +331,15 @@ module Termcourse
       topics[start_index..end_index].each_with_index do |topic, idx|
         line_index = start_index + idx
         line = if list_mode == :compact
-                 replies = topic_reply_count(topic)
                  title = truncate(topic["title"].to_s, width - 10)
-                 themed_topic_list_line(line_index + 1, title, replies)
+                 if filter == :private
+                   themed_pm_topic_list_compact_line(line_index + 1, title, topic, width: width)
+                 else
+                   replies = topic_reply_count(topic)
+                   themed_topic_list_line(line_index + 1, title, replies, width: width)
+                 end
                else
-                 themed_topic_list_row(topic, line_index + 1, width, list_mode)
+                 themed_topic_list_row(topic, line_index + 1, width, list_mode, filter)
                end
         line = theme_highlight(strip_all_ansi(line)) if line_index == selected
         puts line
@@ -1430,7 +1437,7 @@ module Termcourse
     end
 
     def fetch_list(filter, top_period)
-      with_errors { @client.list_topics(filter, period: top_period.to_s) }
+      with_errors { @client.list_topics(filter, period: top_period.to_s, username: @api_username) }
     end
 
     def fetch_more_topics(next_url)
@@ -1632,11 +1639,34 @@ module Termcourse
       nil
     end
 
-    def themed_topic_list_line(number, title, replies)
-      num = theme_text(format("%3d", number), fg: "list_numbers")
-      title_text = theme_text(title.to_s, fg: "list_text")
-      meta = theme_text("(#{replies} replies)", fg: "list_meta")
+    def themed_topic_list_line(number, title, replies, width: nil)
+      num_raw = format("%3d", number)
+      meta_raw = "(#{replies} replies)"
+      safe_title = compact_title_for_width(title, num_raw, meta_raw, width)
+      num = theme_text(num_raw, fg: "list_numbers")
+      title_text = theme_text(safe_title, fg: "list_text")
+      meta = theme_text(meta_raw, fg: "list_meta")
       "#{num}  #{title_text}  #{meta}"
+    end
+
+    def themed_pm_topic_list_compact_line(number, title, topic, width: nil)
+      num_raw = format("%3d", number)
+      meta_raw = "(#{pm_users_label(topic)})"
+      safe_title = compact_title_for_width(title, num_raw, meta_raw, width)
+      num = theme_text(num_raw, fg: "list_numbers")
+      title_text = theme_text(safe_title, fg: "list_text")
+      users_text = theme_text(meta_raw, fg: "list_meta")
+      "#{num}  #{title_text}  #{users_text}"
+    end
+
+    def compact_title_for_width(title, num_raw, meta_raw, width)
+      text = normalize_inline_text(title.to_s)
+      return text if width.nil? || width <= 0
+
+      # Row format: "<num><2 spaces><title><2 spaces><meta>"
+      title_width = width - display_width(num_raw) - display_width(meta_raw) - 4
+      title_width = [title_width, 3].max
+      truncate_display(text, title_width)
     end
 
     def topic_list_mode(width)
@@ -1646,68 +1676,108 @@ module Termcourse
       :compact
     end
 
-    def themed_topic_list_header(width, mode)
-      if mode == :stats
-        w = topic_list_stats_widths(width)
-        header = build_topic_list_table_row(
-          [
-            { text: "#", width: w[:idx], align: :right },
-            { text: "Title", width: w[:title], align: :left },
-            { text: "Category", width: w[:category], align: :left },
-            { text: "Replies", width: w[:replies], align: :right },
-            { text: "Views", width: w[:views], align: :right },
-            { text: "Users", width: w[:users], align: :right }
-          ]
-        )
-      else
-        w = topic_list_category_widths(width)
-        header = build_topic_list_table_row(
-          [
-            { text: "#", width: w[:idx], align: :right },
-            { text: "Title", width: w[:title], align: :left },
-            { text: "Category", width: w[:category], align: :left },
-            { text: "Replies", width: w[:replies], align: :right }
-          ]
-        )
-      end
+    def themed_topic_list_header(width, mode, filter)
+      spec = topic_list_table_spec(width, mode, filter)
+      header = build_topic_list_table_row(
+        spec[:columns].map do |col|
+          { text: col[:label], width: spec[:widths][col[:key]], align: col[:align] }
+        end
+      )
       theme_text(header, fg: "list_meta")
     end
 
-    def themed_topic_list_row(topic, number, width, mode)
-      title = topic["title"].to_s
-      category = normalize_category_for_table(topic_category_name(topic))
-
-      if mode == :stats
-        w = topic_list_stats_widths(width)
-        row = build_topic_list_table_row(
-          [
-            { text: number.to_s, width: w[:idx], align: :right },
-            { text: title, width: w[:title], align: :left },
-            { text: category, width: w[:category], align: :left },
-            { text: topic_reply_count(topic).to_s, width: w[:replies], align: :right },
-            { text: topic_view_count(topic).to_s, width: w[:views], align: :right },
-            { text: topic_participants_count(topic).to_s, width: w[:users], align: :right }
-          ]
-        )
-      else
-        w = topic_list_category_widths(width)
-        row = build_topic_list_table_row(
-          [
-            { text: number.to_s, width: w[:idx], align: :right },
-            { text: title, width: w[:title], align: :left },
-            { text: category, width: w[:category], align: :left },
-            { text: topic_reply_count(topic).to_s, width: w[:replies], align: :right }
-          ]
-        )
-      end
-
+    def themed_topic_list_row(topic, number, width, mode, filter)
+      spec = topic_list_table_spec(width, mode, filter)
+      row = build_topic_list_table_row(
+        spec[:columns].map do |col|
+          {
+            text: topic_list_cell_value(topic, number, col[:key], filter),
+            width: spec[:widths][col[:key]],
+            align: col[:align]
+          }
+        end
+      )
       theme_text(row, fg: "list_text")
+    end
+
+    def topic_list_table_spec(width, mode, filter)
+      {
+        widths: topic_list_widths(width, mode, filter),
+        columns: topic_list_columns(mode, filter)
+      }
+    end
+
+    def topic_list_columns(mode, filter)
+      return pm_topic_list_columns if filter == :private
+
+      cols = [
+        { key: :idx, label: "#", align: :right },
+        { key: :title, label: "Title", align: :left },
+        { key: :category, label: "Category", align: :left },
+        { key: :replies, label: "Replies", align: :right }
+      ]
+      return cols unless mode == :stats
+
+      cols + [
+        { key: :views, label: "Views", align: :right },
+        { key: :users, label: "Users", align: :right }
+      ]
+    end
+
+    def pm_topic_list_columns
+      [
+        { key: :idx, label: "#", align: :right },
+        { key: :title, label: "Title", align: :left },
+        { key: :users, label: "Users", align: :left },
+        { key: :replies, label: "Replies", align: :right }
+      ]
+    end
+
+    def topic_list_cell_value(topic, number, key, filter)
+      case key
+      when :idx
+        number.to_s
+      when :title
+        topic["title"].to_s
+      when :category
+        normalize_category_for_table(topic_category_name(topic))
+      when :replies
+        topic_reply_count(topic).to_s
+      when :views
+        topic_view_count(topic).to_s
+      when :users
+        filter == :private ? pm_users_label(topic) : topic_participants_count(topic).to_s
+      else
+        ""
+      end
+    end
+
+    def topic_list_widths(width, mode, filter)
+      return topic_list_pm_widths(width, mode) if filter == :private
+      return topic_list_stats_widths(width) if mode == :stats
+
+      topic_list_category_widths(width)
+    end
+
+    def topic_list_pm_widths(width, mode)
+      return topic_list_pm_stats_widths(width) if mode == :stats
+
+      topic_list_pm_category_widths(width)
     end
 
     def build_topic_list_table_row(columns)
       columns.map do |col|
-        fit_topic_list_cell(col[:text].to_s, col[:width].to_i, align: col[:align] || :left)
+        text = normalize_inline_text(col[:text].to_s)
+        fit_topic_list_cell(text, col[:width].to_i, align: col[:align] || :left)
       end.join("  ")
+    end
+
+    def normalize_inline_text(text)
+      text
+        .gsub(/\r\n?/, "\n")
+        .tr("\n\t", "  ")
+        .gsub(/\s+/, " ")
+        .strip
     end
 
     def fit_topic_list_cell(text, width, align: :left)
@@ -1745,6 +1815,22 @@ module Termcourse
       { idx: idx, title: title, category: category, replies: replies, views: views, users: users }
     end
 
+    def topic_list_pm_category_widths(width)
+      idx = 3
+      replies = 7
+      users = [[(width * 0.15).to_i, 12].max, 24].min
+      title = [width - idx - users - replies - 6, 20].max
+      { idx: idx, title: title, users: users, replies: replies }
+    end
+
+    def topic_list_pm_stats_widths(width)
+      idx = 3
+      replies = 7
+      users = [[(width * 0.26).to_i, 22].max, 42].min
+      title = [width - idx - users - replies - 6, 20].max
+      { idx: idx, title: title, users: users, replies: replies }
+    end
+
     def topic_category_name(topic)
       category_id = topic["category_id"]
       return "none" if category_id.nil?
@@ -1769,6 +1855,78 @@ module Termcourse
       return 0 unless posters.is_a?(Array)
 
       posters.map { |p| p["user_id"] }.compact.uniq.length
+    end
+
+    def pm_users_label(topic)
+      users = pm_usernames(topic)
+      count = users.length
+      if count <= 0
+        count = topic_participants_count(topic)
+        count -= 1 if logged_in_username && count.positive?
+      end
+
+      return "#{count} users" if count > 3
+      return users.first(3).join(", ") unless users.empty?
+      return "#{count} users" if count.positive?
+
+      "-"
+    end
+
+    def pm_usernames(topic)
+      login = logged_in_username
+      participants = topic["participants"]
+      if participants.is_a?(Array)
+        names = participants.filter_map { |p| p["username"].to_s.strip.downcase }.reject(&:empty?).uniq
+        names.reject! { |name| name == login } if login
+        return names unless names.empty?
+      end
+
+      allowed = topic["allowed_users"]
+      if allowed.is_a?(Array)
+        names = allowed.filter_map { |u| u["username"].to_s.strip.downcase }.reject(&:empty?).uniq
+        names.reject! { |name| name == login } if login
+        return names unless names.empty?
+      end
+
+      posters = topic["posters"]
+      if posters.is_a?(Array)
+        names = posters
+          .filter_map { |p| p["user_id"] }
+          .uniq
+          .filter_map { |id| @topic_list_users_by_id[id].to_s.strip.downcase }
+          .reject(&:empty?)
+          .uniq
+        names.reject! { |name| name == login } if login
+        return names unless names.empty?
+      end
+
+      []
+    end
+
+    def merge_topic_list_users(payload)
+      users = payload&.dig("users")
+      return unless users.is_a?(Array)
+
+      users.each do |user|
+        id = user["id"]
+        username = user["username"].to_s.strip
+        next if id.nil? || username.empty?
+
+        @topic_list_users_by_id[id] = username
+      end
+    end
+
+    def logged_in_username
+      name = @api_username.to_s.strip.downcase
+      return nil if name.empty?
+
+      name
+    end
+
+    def topic_list_filter_label(filter)
+      return "Private Messages" if filter == :private
+
+      filter.to_s.capitalize
     end
 
     def normalize_category_for_table(text)
