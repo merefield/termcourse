@@ -553,7 +553,12 @@ module Termcourse
     end
 
     def parse_markdown_lines(raw, width)
-      content = TTY::Markdown.parse(raw.to_s, width: width)
+      content =
+        begin
+          TTY::Markdown.parse(raw.to_s, width: width)
+        rescue StandardError
+          fallback_markdown_text(raw.to_s)
+        end
       content = content.gsub("\r", "")
       content = content.gsub("\t", "  ")
       content = content.tr("\u2028\u2029\u0085", "   ")
@@ -564,6 +569,16 @@ module Termcourse
       lines = content.split("\n").map { |line| emojify(line) }
       lines = [""] if lines.empty?
       lines
+    end
+
+    def fallback_markdown_text(text)
+      out = text.dup
+      # Guard against malformed HTML anchors that can crash tty-markdown URI parsing.
+      out = out.gsub(/<a\b[^>]*>/i, "")
+      out = out.gsub(%r{</a>}i, "")
+      # Keep visible link text; drop link target when parsing failed.
+      out = out.gsub(/\[([^\]]+)\]\(([^)]+)\)/, '\1')
+      out
     end
 
     def wrap_and_linkify_lines(lines, width)
@@ -808,7 +823,8 @@ module Termcourse
       height = TTY::Screen.height
       image_height = [height - 1, 1].max
       lines = render_image_url(url, width, image_height)
-      lines = (lines.first&.strip == "[image]") ? (lines[1..] || []) : lines
+      lines = strip_image_header(lines)
+      lines = fit_fullscreen_image_lines(url, width, image_height, lines)
       lines = lines.first(image_height).map { |line| center_image_line(line, width) }
       lines.fill("", lines.length...image_height)
       puts lines
@@ -817,9 +833,36 @@ module Termcourse
 
     def center_image_line(line, width)
       trimmed = trim_image_line(line.to_s)
+      trimmed = truncate_visible_with_ansi(trimmed, width) if visible_length(trimmed) > width
       visible = visible_length(trimmed)
       left_pad = [((width - visible) / 2), 0].max
       (" " * left_pad) + trimmed
+    end
+
+    def strip_image_header(lines)
+      return [] if lines.nil? || lines.empty?
+
+      lines.first&.strip == "[image]" ? (lines[1..] || []) : lines
+    end
+
+    def fit_fullscreen_image_lines(url, width, max_height, initial_lines)
+      lines = initial_lines.first(max_height)
+      attempts = 0
+      while attempts < 3
+        current_width = lines.map { |line| visible_length(trim_image_line(line.to_s)) }.max.to_i
+        break if current_width <= width
+
+        scale = width.to_f / current_width.to_f
+        target_height = [(lines.length * scale).floor, 1].max
+        break if target_height >= lines.length
+
+        rerendered = strip_image_header(render_image_url(url, width, target_height))
+        break if rerendered.empty?
+
+        lines = rerendered.first(target_height)
+        attempts += 1
+      end
+      lines
     end
 
     def trim_image_line(line)
