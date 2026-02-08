@@ -6,6 +6,7 @@ require "time"
 require "open-uri"
 require "tempfile"
 require "shellwords"
+require "open3"
 require "yaml"
 require "tty-screen"
 require "tty-cursor"
@@ -88,8 +89,12 @@ module Termcourse
       @links_enabled = ENV.fetch("TERMCOURSE_LINKS", "1") != "0"
       @emoji_enabled = ENV.fetch("TERMCOURSE_EMOJI", "1") != "0"
       @image_backend_preference = ENV.fetch("TERMCOURSE_IMAGE_BACKEND", "auto").to_s.downcase
-      @chafa_mode = ENV.fetch("TERMCOURSE_CHAFA_MODE", "stable").to_s.downcase
+      @image_mode = ENV.fetch("TERMCOURSE_IMAGE_MODE", "stable").to_s.downcase
+      @image_mode = "stable" unless %w[stable quality].include?(@image_mode)
+      @image_colors_preference = ENV.fetch("TERMCOURSE_IMAGE_COLORS", "auto").to_s.downcase
+      @image_colors = resolve_image_colors
       @images_enabled = ENV.fetch("TERMCOURSE_IMAGES", "1") != "0"
+      @image_debug_enabled = ENV.fetch("TERMCOURSE_IMAGE_DEBUG", "0") == "1"
       @image_lines = ENV.fetch("TERMCOURSE_IMAGE_LINES", "14").to_i
       @image_lines = 14 if @image_lines <= 0
       @image_quality_filter = ENV.fetch("TERMCOURSE_IMAGE_QUALITY_FILTER", "1") != "0"
@@ -98,10 +103,14 @@ module Termcourse
       @tick_ms = ENV.fetch("TERMCOURSE_TICK_MS", "100").to_i
       @tick_ms = 100 if @tick_ms <= 0
       @tick_seconds = @tick_ms / 1000.0
+      @resolved_execs = {}
+      @viu_cmd = resolve_executable("viu")
+      @chafa_cmd = resolve_executable("chafa")
       @image_backend = detect_image_backend
       @image_cache = {}
       @topic_list_users_by_id = {}
       @debug_enabled = ENV.fetch("TERMCOURSE_DEBUG", "0") == "1"
+      image_debug_log("init enabled=#{@images_enabled} backend_pref=#{@image_backend_preference} backend=#{@image_backend || 'none'} mode=#{@image_mode} colors=#{@image_colors}") if @image_debug_enabled
       @resized = false
       trap_resize
     end
@@ -286,6 +295,10 @@ module Termcourse
             posts = topic_data.dig("post_stream", "posts") || []
             scroll_offsets = Hash.new(0)
           end
+        when "x"
+          post = posts[selected]
+          image_url = image_expand_url_for_post(post, TTY::Screen.width)
+          fullscreen_image_loop(image_url) if image_url
         when "q"
           return :quit
         when "\u001b", "\u007f"
@@ -350,12 +363,12 @@ module Termcourse
       width = TTY::Screen.width
       height = TTY::Screen.height
       title = topic_data["title"].to_s
+      selected_post = posts[selected]
+      image_expand_url = image_expand_url_for_post(selected_post, width)
 
-      top_line = build_header_line(
-        "arrows: move | l: like | r: reply topic | p: reply post | s: search | esc: back | q: quit",
-        @display_url,
-        width - 4
-      )
+      controls = "arrows: move | l: like | r: reply topic | p: reply post | s: search | esc: back | q: quit"
+      controls += " | x: image" if image_expand_url
+      top_line = build_header_line(controls, @display_url, width - 4)
       topic_line = "Topic: #{truncate(title, width - 4)}"
       category_label = category_label_from_topic_data(topic_data)
       header_lines = [
@@ -488,11 +501,19 @@ module Termcourse
 
       body_width = content_width(width)
       raw = post["raw"].to_s
+      has_images = !extract_image_urls(raw).empty?
+      image_debug_log("post id=#{post['id']} expanded=#{expanded} has_images=#{has_images} body_width=#{body_width}") if @image_debug_enabled
       image_lines = expanded ? image_preview_lines(raw, body_width) : []
-      text_raw = (expanded && !image_lines.empty?) ? strip_markdown_images(raw) : raw
+      image_lines = left_align_image_preview_lines(image_lines) unless image_lines.empty?
+      text_raw = has_images ? strip_markdown_images(raw) : raw
       lines = parse_markdown_lines(text_raw, body_width)
       content_lines = wrap_and_linkify_lines(lines, body_width)
-      content_lines = image_lines + content_lines unless image_lines.empty?
+      if expanded && !image_lines.empty?
+        note = theme_text("x: expand image", fg: "list_meta")
+        content_lines = image_lines + [note] + content_lines
+      elsif has_images
+        content_lines = [format_line("[image]", body_width)] + content_lines
+      end
 
       if expanded
         header_line = pad_line(format_line(header, width, heart), width)
@@ -502,6 +523,16 @@ module Termcourse
         preview = content_lines.first(3)
         preview = [""] if preview.empty?
         [format_line(header, width, heart)] + preview
+      end
+    end
+
+    def left_align_image_preview_lines(lines)
+      lines.map do |line|
+        # Keep ANSI style prefix, but remove plain-space padding around image content.
+        trimmed = line.to_s
+        trimmed = trimmed.gsub(/\A((?:\e\[[0-9;]*m)*) +/, '\1')
+        trimmed = trimmed.gsub(/ +((?:\e\[[0-9;]*m)*)\z/, '\1')
+        trimmed
       end
     end
 
@@ -646,25 +677,79 @@ module Termcourse
     def detect_image_backend
       return nil unless @images_enabled
 
-      case @image_backend_preference
-      when "off", "none", "0"
-        return nil
-      when "viu"
-        return :viu if command_exists?("viu")
-        return nil
-      when "chafa"
-        return :chafa if command_exists?("chafa")
-        return nil
-      end
+      backends =
+        case @image_backend_preference
+        when "off", "none", "0" then []
+        when "viu" then [:viu]
+        when "chafa" then [:chafa]
+        else [:chafa, :viu]
+        end
+      backends.find { |backend| backend_available?(backend) }
+    end
 
-      return :chafa if command_exists?("chafa")
-      return :viu if command_exists?("viu")
+    def resolve_image_colors
+      allowed = %w[none 16 240 256 full]
+      return @image_colors_preference if allowed.include?(@image_colors_preference)
 
-      nil
+      detect_terminal_image_colors
+    end
+
+    def detect_terminal_image_colors
+      return "none" if ENV["NO_COLOR"]
+
+      colorterm = ENV["COLORTERM"].to_s.downcase
+      term = ENV["TERM"].to_s.downcase
+      term_program = ENV["TERM_PROGRAM"].to_s.downcase
+
+      return "full" if colorterm.include?("truecolor") || colorterm.include?("24bit")
+      return "full" if ENV["WT_SESSION"]
+      return "full" if term_program.include?("wezterm")
+      return "full" if term.include?("direct")
+      return "256" if term.include?("256color")
+      return "none" if term == "dumb"
+
+      "16"
     end
 
     def command_exists?(cmd)
-      system("command -v #{cmd} >/dev/null 2>&1")
+      !resolve_executable(cmd).nil?
+    end
+
+    def resolve_executable(cmd)
+      return @resolved_execs[cmd] if @resolved_execs.key?(cmd)
+
+      path_entries = ENV.fetch("PATH", "").split(File::PATH_SEPARATOR)
+      cargo_bin = File.expand_path("~/.cargo/bin")
+      path_entries << cargo_bin unless path_entries.include?(cargo_bin)
+      ext_candidates =
+        if Gem.win_platform?
+          ENV.fetch("PATHEXT", ".EXE;.BAT;.CMD").split(";")
+        else
+          [""]
+        end
+
+      path_entries.each do |dir|
+        next if dir.to_s.strip.empty?
+
+        ext_candidates.each do |ext|
+          candidate = File.join(dir, "#{cmd}#{ext}")
+          if File.file?(candidate) && File.executable?(candidate)
+            @resolved_execs[cmd] = candidate
+            return candidate
+          end
+        end
+      end
+
+      @resolved_execs[cmd] = nil
+      nil
+    end
+
+    def backend_available?(backend)
+      case backend
+      when :viu then !@viu_cmd.nil?
+      when :chafa then !@chafa_cmd.nil?
+      else false
+      end
     end
 
     def image_preview_lines(raw, width)
@@ -672,33 +757,107 @@ module Termcourse
       return [] if @image_backend.nil?
 
       urls = extract_image_urls(raw)
+      image_debug_log("preview urls=#{urls.length} backend=#{@image_backend} width=#{width}")
       return [] if urls.empty?
 
       max_lines = @image_lines
       cache_key = [urls.first, width, max_lines, @image_backend]
       cached = @image_cache[cache_key]
+      image_debug_log("preview cache_hit url=#{urls.first}") if cached
       return cached if cached
 
       rendered = render_image_url(urls.first, width, max_lines)
+      image_debug_log("preview rendered_lines=#{rendered.length} url=#{urls.first}")
       @image_cache[cache_key] = rendered
       rendered
     rescue StandardError
+      image_debug_log("preview exception")
       []
+    end
+
+    def image_expand_url_for_post(post, width)
+      return nil unless @images_enabled
+      return nil if @image_backend.nil?
+      return nil if post.nil?
+
+      raw = post["raw"].to_s
+      urls = extract_image_urls(raw)
+      return nil if urls.empty?
+      return nil if image_preview_lines(raw, content_width(width)).empty?
+
+      urls.first
+    end
+
+    def fullscreen_image_loop(url)
+      return if url.nil?
+
+      loop do
+        render_fullscreen_image(url)
+        key = read_keypress_with_tick
+        if key == :__tick__
+          @resized = false
+          next
+        end
+        return if key == "x" || key == "\u001b"
+      end
+    end
+
+    def render_fullscreen_image(url)
+      clear_screen
+      width = TTY::Screen.width
+      height = TTY::Screen.height
+      image_height = [height - 1, 1].max
+      lines = render_image_url(url, width, image_height)
+      lines = (lines.first&.strip == "[image]") ? (lines[1..] || []) : lines
+      lines = lines.first(image_height).map { |line| center_image_line(line, width) }
+      lines.fill("", lines.length...image_height)
+      puts lines
+      puts theme_text("x/esc: back", fg: "list_meta")
+    end
+
+    def center_image_line(line, width)
+      trimmed = trim_image_line(line.to_s)
+      visible = visible_length(trimmed)
+      left_pad = [((width - visible) / 2), 0].max
+      (" " * left_pad) + trimmed
+    end
+
+    def trim_image_line(line)
+      had_reset = line.end_with?("\e[0m")
+      text = line.sub(/\e\[0m\z/, "")
+      text = text.rstrip
+      text << "\e[0m" if had_reset
+      text
     end
 
     def extract_image_urls(raw)
       text = raw.to_s
       urls = []
-      text.scan(/!\[[^\]]*\]\((https?:\/\/[^\s\)]+)\)/i) { |m| urls << m[0] }
-      text.scan(/!\[[^\]]*\]\((upload:\/\/[^\s\)]+)\)/i) { |m| urls << discourse_upload_url(m[0]) }
+      text.scan(/!\[[^\]]*\]\(([^)]+)\)/i) do |m|
+        candidate = m[0].to_s.strip
+        next if candidate.empty?
+
+        if candidate.start_with?("upload://")
+          urls << discourse_upload_url(candidate)
+        elsif candidate.start_with?("http://", "https://")
+          urls << candidate
+        elsif candidate.start_with?("/uploads/")
+          urls << "#{@base_url}#{candidate}"
+        end
+      end
+      text.scan(/upload:\/\/[^\s\)]+/i) { |m| urls << discourse_upload_url(m) }
+      text.scan(%r{/uploads/[^\s\)]+}i) { |m| urls << "#{@base_url}#{m}" }
       text.scan(%r{https?://[^\s\)]+}i) do |url|
         urls << url if url.match?(/\.(png|jpe?g|gif|webp|bmp)(\?.*)?$/i)
       end
-      urls.uniq
+      urls
+        .map { |u| u.to_s.gsub(/[>"']+\z/, "") }
+        .select { |u| u.match?(/\.(png|jpe?g|gif|webp|bmp)(\?.*)?$/i) }
+        .uniq
     end
 
     def strip_markdown_images(raw)
-      raw.to_s.gsub(/!\[[^\]]*\]\((https?:\/\/[^\s\)]+|upload:\/\/[^\s\)]+)\)/i, "")
+      raw.to_s.gsub(/!\[[^\]]*\]\(([^)]+)\)/i, "")
     end
 
     def discourse_upload_url(upload_uri)
@@ -707,58 +866,121 @@ module Termcourse
     end
 
     def render_image_url(url, width, max_lines)
+      image_debug_log("render start backend=#{@image_backend} mode=#{@image_mode} width=#{width} lines=#{max_lines} url=#{url}")
       uri = URI.parse(url)
       ext = File.extname(uri.path)
       Tempfile.create(["termcourse-image", ext]) do |tmp|
         download_image_with_limit(url, tmp, @image_max_bytes)
         tmp.flush
+        image_debug_log("render downloaded bytes=#{tmp.size} path=#{tmp.path}")
 
-        lines = if @image_backend == :chafa
-                  render_with_chafa(tmp.path, width, max_lines)
-                elsif @image_backend == :viu
-                  render_with_viu(tmp.path, width, max_lines)
-                else
-                  []
-                end
+        lines = render_with_backend(@image_backend, tmp.path, width, max_lines)
+        image_debug_log("render raw_lines=#{lines.length} backend=#{@image_backend}")
         lines = sanitize_rendered_lines(lines, width, @image_backend)
+        image_debug_log("render sanitized_lines=#{lines.length} backend=#{@image_backend}")
+        if lines.empty? && @image_backend == :viu && backend_available?(:chafa)
+          image_debug_log("render viu_empty fallback=chafa")
+          fallback = render_with_backend(:chafa, tmp.path, width, max_lines)
+          image_debug_log("render fallback_raw_lines=#{fallback.length}")
+          lines = sanitize_rendered_lines(fallback, width, :chafa)
+          image_debug_log("render fallback_sanitized_lines=#{lines.length}")
+        end
         return [] if lines.empty?
-        skip_quality_filter = (@image_backend == :chafa && @chafa_mode == "quality")
+        skip_quality_filter = (@image_backend == :viu) || (@image_backend == :chafa && @image_mode == "quality")
         return [] if @image_quality_filter && !skip_quality_filter && low_quality_image_preview?(lines)
 
         [format_line("[image]", width)] + lines
       end
     rescue StandardError
+      image_debug_log("render exception")
       []
     end
 
     def download_image_with_limit(url, file, max_bytes)
-      bytes = 0
-      URI.open(url, read_timeout: 8, open_timeout: 4) do |io|
-        while (chunk = io.read(16_384))
-          bytes += chunk.bytesize
-          raise "image too large" if bytes > max_bytes
+      body = nil
+      begin
+        body = @client.get_bytes(url, max_bytes: max_bytes)
+      rescue StandardError
+        body = nil
+      end
 
-          file.write(chunk)
+      if body.nil?
+        bytes = 0
+        URI.open(url, read_timeout: 8, open_timeout: 4) do |io|
+          while (chunk = io.read(16_384))
+            bytes += chunk.bytesize
+            raise "image too large" if bytes > max_bytes
+
+            file.write(chunk)
+          end
         end
+      else
+        file.write(body)
       end
     end
 
     def render_with_chafa(path, width, max_lines)
-      cmd = if @chafa_mode == "quality"
-              "chafa --format symbols --symbols vhalf --colors 256 --size #{width}x#{max_lines} #{Shellwords.escape(path)} 2>/dev/null"
-            else
-              "chafa --format symbols --symbols ascii --colors none --size #{width}x#{max_lines} #{Shellwords.escape(path)} 2>/dev/null"
-            end
+      cmd = chafa_command(path, width, max_lines)
       `#{cmd}`.split("\n")
     end
 
     def render_with_viu(path, width, max_lines)
-      cmd = "viu -h #{max_lines} --transparent #{Shellwords.escape(path)} 2>/dev/null"
-      `#{cmd}`.split("\n")
+      viu_bin = @viu_cmd || "viu"
+      shell_prefix = (@image_mode == "quality" && @image_colors == "full") ? "COLORTERM=truecolor " : ""
+      argv = viu_argv(viu_bin, path, max_lines)
+      shell_cmd = "#{shell_prefix}#{argv.map { |a| Shellwords.escape(a) }.join(' ')} 2>/dev/null"
+      image_debug_log("viu shell cmd=#{shell_cmd}")
+      shell_lines = `#{shell_cmd}`.split("\n")
+      image_debug_log("viu shell lines=#{shell_lines.length}")
+      return shell_lines if shell_lines.any? { |line| !line.strip.empty? }
+
+      attempts = [{}, { "TERM" => "xterm-256color", "COLORTERM" => "falsecolor" }]
+      attempts[0]["COLORTERM"] = "truecolor" if @image_mode == "quality" && @image_colors == "full"
+
+      attempts.each do |env|
+        stdout, _status = Open3.capture2e(env, *argv)
+        lines = stdout.to_s.split("\n")
+        image_debug_log("viu argv=#{argv.join(' ')} lines=#{lines.length} env_term=#{env['TERM'] || 'default'}")
+        return lines if lines.any? { |line| !line.strip.empty? }
+      end
+
+      []
+    end
+
+    def chafa_command(path, width, max_lines)
+      chafa_bin = Shellwords.escape(@chafa_cmd || "chafa")
+      image = Shellwords.escape(path)
+      if @image_mode == "quality"
+        "#{chafa_bin} --format symbols --symbols vhalf --colors #{@image_colors} --size #{width}x#{max_lines} #{image} 2>/dev/null"
+      else
+        "#{chafa_bin} --format symbols --symbols ascii --colors none --size #{width}x#{max_lines} #{image} 2>/dev/null"
+      end
+    end
+
+    def viu_argv(viu_bin, path, max_lines)
+      [viu_bin, "-h", max_lines.to_s, "--blocks", "--transparent", path.to_s]
+    end
+
+    def render_with_backend(backend, path, width, max_lines)
+      case backend
+      when :chafa then render_with_chafa(path, width, max_lines)
+      when :viu then render_with_viu(path, width, max_lines)
+      else []
+      end
+    end
+
+    def image_debug_log(message)
+      return unless @image_debug_enabled
+
+      File.open("/tmp/termcourse_image_debug.txt", "a") do |f|
+        f.puts "[#{Time.now.utc.iso8601}] #{message}"
+      end
+    rescue StandardError
+      nil
     end
 
     def sanitize_rendered_lines(lines, width, backend = nil)
-      preserve_sgr = backend == :viu || (backend == :chafa && @chafa_mode == "quality")
+      preserve_sgr = backend == :viu || (backend == :chafa && @image_mode == "quality")
       cleaned = lines
         .map do |line|
           clean = line.to_s.gsub(/[\r\n]/, "")
@@ -776,7 +998,11 @@ module Termcourse
           clean
         end
         .reject(&:empty?)
-      return cleaned if preserve_sgr
+      if preserve_sgr
+        visible = cleaned.map { |line| strip_all_ansi(line).strip }.reject(&:empty?)
+        return [] if visible.empty?
+        return cleaned
+      end
 
       cleaned.map { |line| clamp_visible(line, width) }
     end
@@ -912,7 +1138,7 @@ module Termcourse
     end
 
     def strip_ansi_residue(text)
-      text.gsub(/(^|[[:space:][:punct:]])\[(?:\d{1,3}(?:;\d{1,3})*)m/, '\1')
+      text.gsub(/\[(?:\d{1,3}(?:;\d{1,3})*)m/, "")
     end
 
     def truncate_visible_with_ansi(text, max_width)

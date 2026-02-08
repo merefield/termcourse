@@ -73,8 +73,10 @@ You can set any of these in your shell or `.env` file. `.env` is auto-loaded if 
 - CLI override: `--theme NAME` applies only to the current run and overrides `TERMCOURSE_THEME`.
 - `TERMCOURSE_IMAGES`: Set to `0` to disable inline image previews.
 - `TERMCOURSE_IMAGE_BACKEND`: Choose image backend: `auto` (default), `chafa`, `viu`, or `off`.
-- `TERMCOURSE_CHAFA_MODE`: Chafa render mode: `stable` (default) or `quality`.
+- `TERMCOURSE_IMAGE_MODE`: Generic image mode for both `chafa` and `viu`: `stable` (default) or `quality`.
+- `TERMCOURSE_IMAGE_COLORS`: Chafa quality color mode: `auto` (default), `none`, `16`, `240`, `256`, `full`.
 - `TERMCOURSE_IMAGE_LINES`: Target image preview height in terminal lines (default `14`).
+- `TERMCOURSE_IMAGE_DEBUG`: Set to `1` to write image debug logs to `/tmp/termcourse_image_debug.txt`.
 - `TERMCOURSE_IMAGE_QUALITY_FILTER`: Set to `0` to allow low-quality blocky previews (default filters them out).
 - `TERMCOURSE_IMAGE_MAX_BYTES`: Maximum image download size per preview (default `5242880` bytes).
 - `TERMCOURSE_TICK_MS`: UI resize/input poll interval in milliseconds (default `100`).
@@ -139,11 +141,16 @@ Supported theme keys: `primary`, `background`, `highlighted`, `highlighted_text`
 - Set `TERMCOURSE_IMAGE_BACKEND=chafa` or `TERMCOURSE_IMAGE_BACKEND=viu` to force one backend.
 - Set `TERMCOURSE_IMAGE_BACKEND=off` or `TERMCOURSE_IMAGES=0` to disable previews.
 - Chafa modes:
-- `TERMCOURSE_CHAFA_MODE=stable` favors stability and conservative output.
-- `TERMCOURSE_CHAFA_MODE=quality` enables higher-detail/color symbol rendering.
+- `TERMCOURSE_IMAGE_MODE=stable` favors stability and conservative output.
+- `TERMCOURSE_IMAGE_MODE=quality` enables higher-detail/color symbol rendering.
+- Color depth:
+- `TERMCOURSE_IMAGE_COLORS=auto` detects terminal support (`truecolor`, `256`, etc.) for chafa quality mode.
+- Set `TERMCOURSE_IMAGE_COLORS=full` to force 24-bit if your terminal supports it.
 - Height control:
 - `TERMCOURSE_IMAGE_LINES` controls preview height (line count), default `14`.
 - `viu` path uses line-targeted rendering to preserve aspect ratio better.
+- Image debugging:
+- `TERMCOURSE_IMAGE_DEBUG=1` writes renderer diagnostics to `/tmp/termcourse_image_debug.txt` (backend choice, URL detection, download and render line counts, fallback decisions).
 - Quality filtering:
 - `TERMCOURSE_IMAGE_QUALITY_FILTER=1` (default) suppresses very noisy block-only previews.
 - Set `TERMCOURSE_IMAGE_QUALITY_FILTER=0` to always show renderer output.
@@ -152,7 +159,7 @@ Supported theme keys: `primary`, `background`, `highlighted`, `highlighted_text`
 - Discourse `upload://...` markdown image links are resolved to `/uploads/short-url/...` automatically.
 - Practical guidance for WSL/Windows Terminal:
 - If `viu` looks good in your shell, force `TERMCOURSE_IMAGE_BACKEND=viu`.
-- If output is unstable/noisy, use `TERMCOURSE_IMAGE_BACKEND=chafa` and tune `TERMCOURSE_CHAFA_MODE`.
+- If output is unstable/noisy, use `TERMCOURSE_IMAGE_BACKEND=chafa` and tune `TERMCOURSE_IMAGE_MODE`.
 
 ## Resize Behavior
 
@@ -196,10 +203,12 @@ Private Messages list view:
 - `r` reply to the topic.
 - `p` reply to the selected post.
 - `s` search from within a topic.
+- `x` toggle fullscreen image view when the selected post shows an image preview.
 - `esc` goes back to the list.
 - `q` quits.
 
 The bottom bar shows your position in the topic (current/total).
+In fullscreen image view, press `x` or `esc` to return to the topic.
 
 ### Search
 - Press `s` to open search.

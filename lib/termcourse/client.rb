@@ -57,6 +57,30 @@ module Termcourse
       get_json("/search.json", q: query)
     end
 
+    def get_bytes(path_or_url, max_bytes: nil, redirect_limit: 4)
+      response = perform_request(:get, path_or_url, nil)
+      if response.status >= 300 && response.status < 400
+        raise "too many redirects" if redirect_limit <= 0
+
+        location = response.headers["location"] || response.headers["Location"]
+        raise "redirect without location" if location.nil? || location.to_s.strip.empty?
+
+        next_url = if location.start_with?("http://", "https://")
+                     location
+                   else
+                     URI.join("#{@base_url}/", location).to_s
+                   end
+        return get_bytes(next_url, max_bytes: max_bytes, redirect_limit: redirect_limit - 1)
+      end
+
+      body = response.body.to_s
+      if max_bytes && body.bytesize > max_bytes
+        raise "image too large"
+      end
+      raise "empty image body" if body.empty?
+      body
+    end
+
     def get_url(path_or_url)
       if path_or_url.start_with?("http://", "https://")
         response = @connection.get(path_or_url, nil, headers)
