@@ -137,10 +137,19 @@ module Termcourse
           next
         end
         if result.is_a?(Hash) && result[:search]
-          search_result = search_loop(result[:search])
-          next if search_result.nil?
-          topic_result = topic_loop(search_result[:topic_id], search_result[:post_id])
-          break if topic_result == :quit
+          query = result[:search]
+          loop do
+            search_result = search_loop(query)
+            break if search_result.nil?
+
+            topic_result = topic_loop(
+              search_result[:topic_id],
+              search_result[:post_id],
+              back_result: :back_to_search
+            )
+            break if topic_result == :quit
+            next if topic_result == :back_to_search
+          end
           next
         end
         if result.is_a?(Hash) && result[:new_topic]
@@ -232,7 +241,7 @@ module Termcourse
       end
     end
 
-    def topic_loop(topic_id, selected_post_id = nil)
+    def topic_loop(topic_id, selected_post_id = nil, back_result: nil)
       topic_data = fetch_topic(topic_id)
       return if topic_data.nil?
 
@@ -302,7 +311,7 @@ module Termcourse
         when "q"
           return :quit
         when "\u001b", "\u007f"
-          return
+          return back_result
         end
       end
     end
@@ -1100,6 +1109,8 @@ module Termcourse
         .gsub(":thumbsup:", "👍")
         .gsub(":fire:", "🔥")
         .gsub(":star:", "⭐")
+        .gsub(":robot:", "🤖")
+        .gsub(":robot_face:", "🤖")
     end
 
     def highlight(line)
@@ -1802,7 +1813,7 @@ module Termcourse
           selected = [selected - 1, 0].max
         when "\u001b[B"
           selected = [selected + 1, posts.length - 1].min
-        when "\r"
+        when "\r", "\n"
           post = posts[selected]
           return nil unless post
           return { topic_id: post["topic_id"], post_id: post["id"] }
@@ -1816,6 +1827,7 @@ module Termcourse
       clear_screen
       width = TTY::Screen.width
       height = TTY::Screen.height
+      row_width = [width - 1, 1].max
 
       top_line = build_header_line(
         "arrows: move | ↵: open | esc: back | q: quit",
@@ -1838,13 +1850,20 @@ module Termcourse
       max_lines = [height - header_height - 1, 1].max
       start_index = [selected - (max_lines / 2), 0].max
       end_index = [start_index + max_lines - 1, posts.length - 1].min
+      separator_width = 3
+      title_width = [[(row_width / 3.0).floor, 10].max, row_width - separator_width - 10].min
+      blurb_width = [row_width - separator_width - title_width, 10].max
 
       posts[start_index..end_index].each_with_index do |post, idx|
         line_index = start_index + idx
-        title = topics_map[post["topic_id"]] || "Topic #{post["topic_id"]}"
-        blurb = strip_html(post["blurb"].to_s)
-        line = "#{truncate(title, width / 2)} - #{truncate(blurb, width / 2)}"
-        line = @pastel.inverse(line) if line_index == selected
+        title = normalize_inline_text(emojify(topics_map[post["topic_id"]] || "Topic #{post["topic_id"]}"))
+        blurb = normalize_inline_text(emojify(strip_html(post["blurb"].to_s)))
+        title_cell = fit_topic_list_cell(title, title_width, align: :left)
+        blurb_cell = fit_topic_list_cell(blurb, blurb_width, align: :left)
+        line = "#{title_cell} - #{blurb_cell}"
+        line = fit_topic_list_cell(strip_all_ansi(line), row_width, align: :left)
+        line = highlight_search_term(line, query)
+        line = inverse_preserve_ansi(line) if line_index == selected
         puts line
       end
     end
@@ -1879,6 +1898,21 @@ module Termcourse
 
     def strip_html(text)
       text.gsub(/<[^>]*>/, "")
+    end
+
+    def highlight_search_term(text, query)
+      q = query.to_s.strip
+      return text if q.empty?
+
+      pattern = Regexp.new(Regexp.escape(q), Regexp::IGNORECASE)
+      text.gsub(pattern) { |m| @pastel.bold(m) }
+    rescue RegexpError
+      text
+    end
+
+    def inverse_preserve_ansi(text)
+      # If text contains resets (e.g. bold search matches), restore inverse after each reset.
+      "\e[7m#{text.to_s.gsub("\e[0m", "\e[0m\e[7m")}\e[0m"
     end
 
     def truncate(text, width)
