@@ -214,6 +214,8 @@ In fullscreen image view, press `x` or `esc` to return to the topic.
 - Press `s` to open search.
 - Type your query; Enter runs the search.
 - Arrow keys move through results; Enter opens the topic at the matching post.
+- From a search-opened topic, `esc` returns to search results.
+- From search results, `esc` returns to the topic list.
 
 ## Debug & Logging
 
