@@ -153,6 +153,7 @@ module Termcourse
         ["TERMCOURSE_DEBUG", "Set to 1 to write UI render debug logs to /tmp/termcourse_debug.txt."],
         ["TERMCOURSE_LINKS", "Set to 0 to disable clickable links."],
         ["TERMCOURSE_THEME", "Theme name (default|slate|fairground|rust by default)."],
+        ["TERMCOURSE_COLOR_MODE", "UI color mode: auto|truecolor|256|16 (default: auto; auto uses 256 on macOS)."],
         ["TERMCOURSE_THEME_FILE", "Theme YAML path. Lookup order: this path, then ./theme.yml, then ~/.config/termcourse/theme.yml."],
         ["TERMCOURSE_IMAGES", "Set to 0 to disable inline image previews in expanded posts."],
         ["TERMCOURSE_IMAGE_BACKEND", "Image backend: auto|chafa|viu|off (default: auto)."],

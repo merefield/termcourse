@@ -8,6 +8,7 @@ require "tempfile"
 require "shellwords"
 require "open3"
 require "yaml"
+require "rbconfig"
 require "tty-screen"
 require "tty-cursor"
 require "tty-box"
@@ -86,6 +87,7 @@ module Termcourse
       @display_url = base_url.sub(%r{\Ahttps?://}i, "")
       @theme_name = (theme_name || ENV.fetch("TERMCOURSE_THEME", "default")).to_s.downcase
       @theme = load_theme(@theme_name)
+      @color_mode = resolve_color_mode
       @links_enabled = ENV.fetch("TERMCOURSE_LINKS", "1") != "0"
       @emoji_enabled = ENV.fetch("TERMCOURSE_EMOJI", "1") != "0"
       @image_backend_preference = ENV.fetch("TERMCOURSE_IMAGE_BACKEND", "auto").to_s.downcase
@@ -112,7 +114,7 @@ module Termcourse
       @pm_unread_count = 0
       @last_read_post_sent = {}
       @debug_enabled = ENV.fetch("TERMCOURSE_DEBUG", "0") == "1"
-      image_debug_log("init enabled=#{@images_enabled} backend_pref=#{@image_backend_preference} backend=#{@image_backend || 'none'} mode=#{@image_mode} colors=#{@image_colors}") if @image_debug_enabled
+      image_debug_log("init enabled=#{@images_enabled} backend_pref=#{@image_backend_preference} backend=#{@image_backend || 'none'} mode=#{@image_mode} colors=#{@image_colors} color_mode=#{@color_mode}") if @image_debug_enabled
       @resized = false
       trap_resize
     end
@@ -720,6 +722,20 @@ module Termcourse
       return @image_colors_preference if allowed.include?(@image_colors_preference)
 
       detect_terminal_image_colors
+    end
+
+    def resolve_color_mode
+      raw = ENV.fetch("TERMCOURSE_COLOR_MODE", "auto").to_s.downcase
+      return raw if %w[truecolor 256 16].include?(raw)
+
+      detect_color_mode
+    end
+
+    def detect_color_mode
+      host_os = RbConfig::CONFIG["host_os"].to_s.downcase
+      return "256" if host_os.include?("darwin")
+
+      "truecolor"
     end
 
     def detect_terminal_image_colors
@@ -2381,6 +2397,7 @@ module Termcourse
 
     def ansi_fg(color)
       return "" if color.nil?
+      return "\e[#{ansi16_fg_code(color[:ansi16])}m" if color[:ansi16]
       return "\e[38;5;#{color[:index]}m" if color[:index]
 
       "\e[38;2;#{color[:r]};#{color[:g]};#{color[:b]}m"
@@ -2388,6 +2405,7 @@ module Termcourse
 
     def ansi_bg(color)
       return "" if color.nil?
+      return "\e[#{ansi16_bg_code(color[:ansi16])}m" if color[:ansi16]
       return "\e[48;5;#{color[:index]}m" if color[:index]
 
       "\e[48;2;#{color[:r]};#{color[:g]};#{color[:b]}m"
@@ -2408,7 +2426,7 @@ module Termcourse
         idx = raw.to_i
         return nil if idx.negative? || idx > 255
 
-        return { index: idx }
+        return translate_color({ index: idx })
       end
 
       hex = if raw.match?(/\A#[0-9a-f]{6}\z/)
@@ -2424,7 +2442,80 @@ module Termcourse
         r: hex[0, 2].to_i(16),
         g: hex[2, 2].to_i(16),
         b: hex[4, 2].to_i(16)
-      }
+      }.then { |c| translate_color(c) }
+    end
+
+    def translate_color(color)
+      return color if color.nil?
+      if color[:index]
+        return { ansi16: (color[:index].to_i % 16) } if @color_mode == "16"
+        return color
+      end
+
+      case @color_mode
+      when "256"
+        rgb_to_256(color[:r], color[:g], color[:b])
+      when "16"
+        rgb_to_16(color[:r], color[:g], color[:b])
+      else
+        color
+      end
+    end
+
+    def rgb_to_256(r, g, b)
+      cube_steps = [0, 95, 135, 175, 215, 255]
+      ri = nearest_index(cube_steps, r)
+      gi = nearest_index(cube_steps, g)
+      bi = nearest_index(cube_steps, b)
+      cube_index = 16 + (36 * ri) + (6 * gi) + bi
+      cube_rgb = [cube_steps[ri], cube_steps[gi], cube_steps[bi]]
+      cube_dist = color_distance_sq([r, g, b], cube_rgb)
+
+      gray_level = nearest_gray_level(r, g, b)
+      gray_index = 232 + gray_level
+      gray_value = 8 + (gray_level * 10)
+      gray_dist = color_distance_sq([r, g, b], [gray_value, gray_value, gray_value])
+
+      { index: (gray_dist < cube_dist ? gray_index : cube_index) }
+    end
+
+    def rgb_to_16(r, g, b)
+      ansi16 = [
+        [0, 0, 0], [205, 0, 0], [0, 205, 0], [205, 205, 0],
+        [0, 0, 238], [205, 0, 205], [0, 205, 205], [229, 229, 229],
+        [127, 127, 127], [255, 0, 0], [0, 255, 0], [255, 255, 0],
+        [92, 92, 255], [255, 0, 255], [0, 255, 255], [255, 255, 255]
+      ]
+      idx = nearest_index(ansi16, [r, g, b]) { |a, target| color_distance_sq(a, target) }
+      { ansi16: idx }
+    end
+
+    def ansi16_fg_code(idx)
+      i = idx.to_i
+      i < 8 ? (30 + i) : (90 + (i - 8))
+    end
+
+    def ansi16_bg_code(idx)
+      i = idx.to_i
+      i < 8 ? (40 + i) : (100 + (i - 8))
+    end
+
+    def nearest_gray_level(r, g, b)
+      avg = (r + g + b) / 3.0
+      level = ((avg - 8) / 10.0).round
+      [[level, 0].max, 23].min
+    end
+
+    def color_distance_sq(a, b)
+      dr = a[0] - b[0]
+      dg = a[1] - b[1]
+      db = a[2] - b[2]
+      (dr * dr) + (dg * dg) + (db * db)
+    end
+
+    def nearest_index(list, target)
+      comparator = block_given? ? proc { |item| yield(item, target) } : proc { |item| (item - target).abs }
+      list.each_with_index.min_by { |item, _idx| comparator.call(item) }[1]
     end
 
     def named_color_hex(name)

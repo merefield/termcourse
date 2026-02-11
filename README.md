@@ -69,6 +69,7 @@ You can set any of these in your shell or `.env` file. `.env` is auto-loaded if 
 - `TERMCOURSE_HTTP_DEBUG`: Set to `1` to log HTTP/auth debug responses to `/tmp/termcourse_http_debug.txt`.
 - `TERMCOURSE_LINKS`: Set to `0` to disable OSC8 clickable links.
 - `TERMCOURSE_THEME`: Theme name (default `default`). Built-ins: `default`, `slate`, `fairground`, `rust`.
+- `TERMCOURSE_COLOR_MODE`: UI color mode: `auto` (default), `truecolor`, `256`, `16`. `auto` uses `256` on macOS and `truecolor` elsewhere.
 - `TERMCOURSE_THEME_FILE`: Optional path to theme YAML. If unset, termcourse checks `./theme.yml` first, then `~/.config/termcourse/theme.yml`.
 - CLI override: `--theme NAME` applies only to the current run and overrides `TERMCOURSE_THEME`.
 - `TERMCOURSE_IMAGES`: Set to `0` to disable inline image previews.
@@ -132,6 +133,10 @@ slate:
 ```
 
 Supported theme keys: `primary`, `background`, `highlighted`, `highlighted_text`, `borders`, `bar_backgrounds`, `separators`, `list_numbers`, `list_text`, `list_meta`, `accent`.
+
+Color translation:
+- When `TERMCOURSE_COLOR_MODE=256` or `16`, theme hex colors are translated to the nearest terminal palette color.
+- This is applied automatically when `TERMCOURSE_COLOR_MODE=auto` on macOS.
 
 ## Image Guidelines
 
