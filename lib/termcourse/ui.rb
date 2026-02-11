@@ -1762,7 +1762,9 @@ module Termcourse
       last_sent = @last_read_post_sent[topic_key].to_i
       return if post_number <= last_sent
 
-      @client.update_topic_read_state(topic_id: topic_key, post_number: post_number)
+      result = @client.update_topic_read_state(topic_id: topic_key, post_number: post_number)
+      return if result.nil?
+
       @last_read_post_sent[topic_key] = post_number
     rescue StandardError
       nil
