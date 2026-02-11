@@ -249,11 +249,8 @@ module Termcourse
       return if topic_data.nil?
 
       posts = topic_data.dig("post_stream", "posts") || []
-      selected = 0
-      if selected_post_id
-        idx = posts.find_index { |p| p["id"] == selected_post_id }
-        selected = idx if idx
-      end
+      topic_key = topic_id.to_i
+      selected = initial_topic_selected_index(posts, topic_data, selected_post_id, topic_key)
       scroll_offsets = Hash.new(0)
 
       loop do
@@ -283,6 +280,7 @@ module Termcourse
           search_result = search_loop(query) if query
           if search_result
             topic_id = search_result[:topic_id]
+            topic_key = topic_id.to_i
             topic_data = fetch_topic(search_result[:topic_id])
             posts = topic_data.dig("post_stream", "posts") || []
             selected = posts.find_index { |p| p["id"] == search_result[:post_id] } || 0
@@ -1750,6 +1748,27 @@ module Termcourse
 
     def fetch_topic(topic_id)
       with_errors { @client.topic(topic_id) }
+    end
+
+    def initial_topic_selected_index(posts, topic_data, selected_post_id, topic_key)
+      return 0 if posts.empty?
+
+      if selected_post_id
+        idx = posts.find_index { |p| p["id"] == selected_post_id }
+        return idx if idx
+      end
+
+      last_read = topic_data["last_read_post_number"].to_i
+      if last_read.positive?
+        idx = posts.find_index { |p| p["post_number"].to_i > last_read }
+        return idx if idx
+
+        # If everything is read, land on the last-read post (or closest earlier post).
+        idx = posts.rindex { |p| p["post_number"].to_i <= last_read }
+        return idx if idx
+      end
+
+      0
     end
 
     def maybe_update_read_state(topic_id, post)
