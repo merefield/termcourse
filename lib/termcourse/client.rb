@@ -118,6 +118,33 @@ module Termcourse
       get_json("/site.json")
     end
 
+    def update_topic_read_state(topic_id:, post_number:, topic_time_ms: 1200)
+      pn = post_number.to_i
+      return nil if pn <= 0
+
+      topic_id = topic_id.to_i
+      timing_key = pn.to_s
+      timing_val = topic_time_ms.to_i
+      payloads = [
+        ["/topics/timings", { topic_id: topic_id, topic_time: timing_val, timings: { timing_key => timing_val } }],
+        ["/topics/timings", { topic_id: topic_id, topic_time: timing_val, timings: { timing_key => timing_val.to_s } }],
+        ["/t/#{topic_id}/timings", { topic_time: timing_val, timings: { timing_key => timing_val } }],
+        ["/t/#{topic_id}/timings", { topic_time: timing_val, timings: { timing_key => timing_val.to_s } }]
+      ]
+
+      payloads.each do |path, payload|
+        begin
+          response = perform_request(:post, path, payload)
+          return parse_json(response.body)
+        rescue Faraday::ClientError
+          next
+        end
+      end
+      nil
+    rescue Faraday::Error
+      nil
+    end
+
     def login(username:, password:, otp: nil, otp_method: 1)
       debug_log("login_start")
       ensure_csrf

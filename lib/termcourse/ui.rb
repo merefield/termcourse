@@ -109,6 +109,8 @@ module Termcourse
       @image_backend = detect_image_backend
       @image_cache = {}
       @topic_list_users_by_id = {}
+      @pm_unread_count = 0
+      @last_read_post_sent = {}
       @debug_enabled = ENV.fetch("TERMCOURSE_DEBUG", "0") == "1"
       image_debug_log("init enabled=#{@images_enabled} backend_pref=#{@image_backend_preference} backend=#{@image_backend || 'none'} mode=#{@image_mode} colors=#{@image_colors}") if @image_debug_enabled
       @resized = false
@@ -119,6 +121,7 @@ module Termcourse
       filter = :latest
       top_period = :monthly
       loop do
+        refresh_pm_unread_count
         topics_data = fetch_list(filter, top_period)
         return if topics_data.nil?
         merge_topic_list_users(topics_data)
@@ -254,6 +257,7 @@ module Termcourse
       scroll_offsets = Hash.new(0)
 
       loop do
+        maybe_update_read_state(topic_id, posts[selected])
         render_topic(topic_data, posts, selected, scroll_offsets)
         key = read_keypress_with_tick
         if key == :__tick__
@@ -278,6 +282,7 @@ module Termcourse
           query = prompt_search_query
           search_result = search_loop(query) if query
           if search_result
+            topic_id = search_result[:topic_id]
             topic_data = fetch_topic(search_result[:topic_id])
             posts = topic_data.dig("post_stream", "posts") || []
             selected = posts.find_index { |p| p["id"] == search_result[:post_id] } || 0
@@ -330,10 +335,11 @@ module Termcourse
       status_label = "Topic List: #{topic_list_filter_label(filter)}"
       status_label += " (#{top_period.to_s.capitalize})" if filter == :top
       status = loading ? "#{status_label} | Loading more..." : status_label
+      right_status = topic_list_right_status
       content = [
         top_line,
         "-" * (width - 4),
-        build_header_line(status, login_label, width - 4)
+        build_header_line(status, right_status, width - 4)
       ]
       header_height = render_header(content, width)
 
@@ -1149,6 +1155,20 @@ module Termcourse
       "Logged in: #{username}"
     end
 
+    def topic_list_right_status
+      parts = []
+      parts << pm_unread_label
+      parts << login_label
+      parts.compact.join(" | ")
+    end
+
+    def pm_unread_label
+      count = @pm_unread_count.to_i
+      return nil if count <= 0
+
+      "PM Unread (#{count})"
+    end
+
     def render_header(lines, width)
       header = build_themed_header_box(lines, width)
       print header.chomp
@@ -1730,6 +1750,57 @@ module Termcourse
 
     def fetch_topic(topic_id)
       with_errors { @client.topic(topic_id) }
+    end
+
+    def maybe_update_read_state(topic_id, post)
+      return if post.nil?
+
+      post_number = post["post_number"].to_i
+      return if post_number <= 0
+
+      topic_key = topic_id.to_i
+      last_sent = @last_read_post_sent[topic_key].to_i
+      return if post_number <= last_sent
+
+      @client.update_topic_read_state(topic_id: topic_key, post_number: post_number)
+      @last_read_post_sent[topic_key] = post_number
+    rescue StandardError
+      nil
+    end
+
+    def refresh_pm_unread_count
+      data = begin
+        @client.get_url("/topics/private-messages-unread.json")
+      rescue StandardError
+        begin
+          @client.list_topics(:private, username: @api_username)
+        rescue StandardError
+          nil
+        end
+      end
+      @pm_unread_count = unread_private_messages_count(data)
+    rescue StandardError
+      @pm_unread_count = 0
+    end
+
+    def unread_private_messages_count(data)
+      topics = data&.dig("topic_list", "topics")
+      return 0 unless topics.is_a?(Array)
+
+      topics.count { |topic| private_topic_unread?(topic) }
+    end
+
+    def private_topic_unread?(topic)
+      return true if topic["unread"] == true || topic["unseen"] == true
+
+      unread_posts = topic["unread_posts"]
+      return true if unread_posts.is_a?(Numeric) && unread_posts.positive?
+
+      highest = topic["highest_post_number"]
+      last_read = topic["last_read_post_number"]
+      return false unless highest.is_a?(Numeric) && last_read.is_a?(Numeric)
+
+      highest > last_read
     end
 
     def with_errors
