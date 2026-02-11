@@ -175,7 +175,7 @@ Supported theme keys: `primary`, `background`, `highlighted`, `highlighted_text`
 - Press `1-0` to open the first 10 visible topics directly.
 - Press `n` to create a new topic.
 - Press `s` to search.
-- Press `f` to cycle the list filter (Latest, Hot, Private Messages, New, Unread, Top).
+- Press `f` to cycle the list filter (Latest, Unread, Private Messages, Hot, New, Top).
 - Press `p` to change Top period (daily, weekly, monthly, quarterly, yearly).
 - Press `g` to refresh.
 - Press `q` to quit.

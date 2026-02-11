@@ -168,7 +168,7 @@ module Termcourse
     def topic_list_loop(topics, next_url, filter, top_period)
       selected = 0
       loading = false
-      filters = %i[latest hot private new unread top]
+      filters = %i[latest unread private hot new top]
       filter_index = filters.index(filter) || 0
       top_periods = %i[daily weekly monthly quarterly yearly]
       period_index = top_periods.index(top_period) || 2
