@@ -56,3 +56,16 @@ rust:
   list_text: "#f2e4c8"
   list_meta: "#c9b287"
   accent: "#e0b85f"
+
+hacker:
+  primary: "#2cfc03"
+  background: "none"
+  highlighted: "#1a9402"
+  highlighted_text: "#000000"
+  borders: "#23c602"
+  bar_backgrounds: "#0a1f02"
+  separators: "#145c01"
+  list_numbers: "#2cfc03"
+  list_text: "#1df002"
+  list_meta: "#158a01"
+  accent: "#8cff00"
