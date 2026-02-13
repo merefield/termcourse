@@ -130,9 +130,10 @@ slate:
   bar_backgrounds: "#1f2733"
   separators: "#8ca0b3"
   list_numbers: "#8fbce6"
+  post_username: "#9ab0c6"
 ```
 
-Supported theme keys: `primary`, `background`, `highlighted`, `highlighted_text`, `borders`, `bar_backgrounds`, `separators`, `list_numbers`, `list_text`, `list_meta`, `accent`.
+Supported theme keys: `primary`, `background`, `highlighted`, `highlighted_text`, `borders`, `bar_backgrounds`, `separators`, `list_numbers`, `list_text`, `post_username`, `list_meta`, `accent`.
 
 Color translation:
 - When `TERMCOURSE_COLOR_MODE=256` or `16`, theme hex colors are translated to the nearest terminal palette color.

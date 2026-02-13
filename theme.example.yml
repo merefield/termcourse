@@ -15,6 +15,7 @@ default:
   separators: "#6f6f6f"
   list_numbers: "#f2f2f2"
   list_text: "#e6e6e6"
+  post_username: "#b5b5b5"
   list_meta: "#b5b5b5"
   accent: "#6cc4ff"
 
@@ -28,6 +29,7 @@ slate:
   separators: "#8ca0b3"
   list_numbers: "#8fbce6"
   list_text: "#dde7f0"
+  post_username: "#9ab0c6"
   list_meta: "#9ab0c6"
   accent: "#66c2ff"
 
@@ -41,6 +43,7 @@ fairground:
   separators: "#ff4b4b"
   list_numbers: "#4ecb71"
   list_text: "#d8f7e4"
+  post_username: "#8fd9ad"
   list_meta: "#8fd9ad"
   accent: "#2a9dff"
 
@@ -54,6 +57,7 @@ rust:
   separators: "#d2b168"
   list_numbers: "#d58a3d"
   list_text: "#f2e4c8"
+  post_username: "#c9b287"
   list_meta: "#c9b287"
   accent: "#e0b85f"
 
@@ -67,5 +71,6 @@ hacker:
   separators: "#145c01"
   list_numbers: "#2cfc03"
   list_text: "#1df002"
+  post_username: "#158a01"
   list_meta: "#158a01"
   accent: "#8cff00"

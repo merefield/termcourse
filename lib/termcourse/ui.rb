@@ -33,6 +33,7 @@ module Termcourse
         "separators" => "#6f6f6f",
         "list_numbers" => "#f2f2f2",
         "list_text" => "#e6e6e6",
+        "post_username" => "#e6e6e6",
         "list_meta" => "#b5b5b5",
         "accent" => "#6cc4ff"
       },
@@ -46,6 +47,7 @@ module Termcourse
         "separators" => "#8ca0b3",
         "list_numbers" => "#8fbce6",
         "list_text" => "#dde7f0",
+        "post_username" => "#dde7f0",
         "list_meta" => "#9ab0c6",
         "accent" => "#66c2ff"
       },
@@ -59,6 +61,7 @@ module Termcourse
         "separators" => "#ff4b4b",
         "list_numbers" => "#4ecb71",
         "list_text" => "#d8f7e4",
+        "post_username" => "#d8f7e4",
         "list_meta" => "#8fd9ad",
         "accent" => "#2a9dff"
       },
@@ -72,6 +75,7 @@ module Termcourse
         "separators" => "#d2b168",
         "list_numbers" => "#d58a3d",
         "list_text" => "#f2e4c8",
+        "post_username" => "#f2e4c8",
         "list_meta" => "#c9b287",
         "accent" => "#e0b85f"
       }
@@ -512,7 +516,8 @@ module Termcourse
       liked_marker = ""
       username = post["username"].to_s
       heart = liked ? "❤️" : "🤍"
-      header = "#{liked_marker}@#{username}"
+      username_text = theme_text("@#{username}", fg: "post_username")
+      header = "#{liked_marker}#{username_text}"
 
       body_width = content_width(width)
       raw = post["raw"].to_s
@@ -523,11 +528,12 @@ module Termcourse
       text_raw = has_images ? strip_markdown_images(raw) : raw
       lines = parse_markdown_lines(text_raw, body_width)
       content_lines = wrap_and_linkify_lines(lines, body_width)
+      content_lines = content_lines.map { |line| theme_text(line, fg: "list_text") }
       if expanded && !image_lines.empty?
         note = theme_text("x: expand image", fg: "list_meta")
         content_lines = image_lines + [note] + content_lines
       elsif has_images
-        content_lines = [format_line("[image]", body_width)] + content_lines
+        content_lines = [theme_text(format_line("[image]", body_width), fg: "list_text")] + content_lines
       end
 
       if expanded
@@ -2413,6 +2419,7 @@ module Termcourse
 
     def theme_color(key)
       value = @theme[key.to_s]
+      value = @theme["list_text"] if value.nil? && key.to_s == "post_username"
       parse_color(value)
     end
 
