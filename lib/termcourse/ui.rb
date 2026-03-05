@@ -19,6 +19,74 @@ require "pastel"
 
 module Termcourse
   class UI
+    class ScreenRenderer
+      def initialize(pad_line:)
+        @pad_line = pad_line
+        reset!
+      end
+
+      def reset!
+        @last_lines = nil
+        @last_width = nil
+        @last_height = nil
+        @last_view_key = nil
+      end
+
+      def render(lines, width:, height:, view_key:, cursor: nil, force: false)
+        normalized = Array.new(height) do |idx|
+          @pad_line.call(lines[idx].to_s, width)
+        end
+
+        full_repaint =
+          force ||
+          @last_lines.nil? ||
+          @last_width != width ||
+          @last_height != height ||
+          @last_view_key != view_key
+
+        output = +""
+
+        if full_repaint
+          output << TTY::Cursor.hide
+          output << TTY::Cursor.clear_screen
+          normalized.each_with_index do |line, row|
+            paint_row(output, row, line)
+          end
+        else
+          normalized.each_with_index do |line, row|
+            next if @last_lines[row] == line
+
+            paint_row(output, row, line)
+          end
+        end
+
+        if cursor
+          output << TTY::Cursor.move_to(cursor[:x], cursor[:y])
+          output << TTY::Cursor.show
+        else
+          output << TTY::Cursor.move_to(0, height - 1)
+          output << TTY::Cursor.hide
+        end
+
+        print output unless output.empty?
+        $stdout.flush
+
+        @last_lines = normalized
+        @last_width = width
+        @last_height = height
+        @last_view_key = view_key
+      end
+
+      private
+
+      def paint_row(output, row, line)
+        output << TTY::Cursor.move_to(0, row)
+        output << "\e[0m"
+        output << "\e[2K"
+        output << line
+      end
+    end
+
     TOPIC_LIST_WIDE_CATEGORY_MIN = 125
     TOPIC_LIST_WIDE_STATS_MIN = 149
 
@@ -112,6 +180,7 @@ module Termcourse
       @resolved_execs = {}
       @viu_cmd = resolve_executable("viu")
       @chafa_cmd = resolve_executable("chafa")
+      @renderer = ScreenRenderer.new(pad_line: method(:pad_line))
       @image_backend = detect_image_backend
       @image_cache = {}
       @topic_list_users_by_id = {}
@@ -175,77 +244,79 @@ module Termcourse
     private
 
     def topic_list_loop(topics, next_url, filter, top_period)
-      selected = 0
-      loading = false
-      filters = %i[latest unread private hot new top]
-      filter_index = filters.index(filter) || 0
-      top_periods = %i[daily weekly monthly quarterly yearly]
-      period_index = top_periods.index(top_period) || 2
+      with_raw_input_mode do
+        selected = 0
+        loading = false
+        filters = %i[latest unread private hot new top]
+        filter_index = filters.index(filter) || 0
+        top_periods = %i[daily weekly monthly quarterly yearly]
+        period_index = top_periods.index(top_period) || 2
 
-      loop do
-        render_topic_list(
-          topics,
-          selected,
-          filter: filters[filter_index],
-          top_period: top_periods[period_index],
-          loading: loading
-        )
-        key = read_keypress_with_tick
-        if key == :__tick__
-          @resized = false
-          next
-        end
-        if @resized
-          @resized = false
-          next
-        end
-
-        case key
-        when "\u001b[A" # up
-          selected = [selected - 1, 0].max
-        when "\u001b[B" # down
-          selected = [selected + 1, topics.length - 1].min
-          if next_url && selected >= topics.length - 3 && !loading
-            loading = true
-            render_topic_list(
-              topics,
-              selected,
-              filter: filters[filter_index],
-              top_period: top_periods[period_index],
-              loading: loading
-            )
-            more = fetch_more_topics(next_url)
-            more_topics = more&.dig("topic_list", "topics") || []
-            merge_topic_list_users(more)
-            next_url = more&.dig("topic_list", "more_topics_url")
-            topics.concat(more_topics)
-            loading = false
+        loop do
+          render_topic_list(
+            topics,
+            selected,
+            filter: filters[filter_index],
+            top_period: top_periods[period_index],
+            loading: loading
+          )
+          key = read_keypress_with_tick
+          if key == :__tick__
+            @resized = false
+            next
           end
-        when "\r", "\n" # enter
-          topic = topics[selected]
-          return topic["id"] if topic
-        when "1", "2", "3", "4", "5", "6", "7", "8", "9", "0"
-          index = (key == "0") ? 9 : (key.to_i - 1)
-          topic = topics[index]
-          return topic["id"] if topic
-        when "f"
-          filter_index = (filter_index + 1) % filters.length
-          return { filter: filters[filter_index] }
-        when "p"
-          next unless filters[filter_index] == :top
+          if @resized
+            @resized = false
+            next
+          end
 
-          period_index = (period_index + 1) % top_periods.length
-          return { top_period: top_periods[period_index] }
-        when "s"
-          query = prompt_search_query
-          return { search: query } if query
-        when "n"
-          new_topic = new_topic_flow
-          return { new_topic: new_topic } if new_topic
-        when "g"
-          return :reload
-        when "q", "\u001b"
-          return :quit
+          case key
+          when "\u001b[A" # up
+            selected = [selected - 1, 0].max
+          when "\u001b[B" # down
+            selected = [selected + 1, topics.length - 1].min
+            if next_url && selected >= topics.length - 3 && !loading
+              loading = true
+              render_topic_list(
+                topics,
+                selected,
+                filter: filters[filter_index],
+                top_period: top_periods[period_index],
+                loading: loading
+              )
+              more = fetch_more_topics(next_url)
+              more_topics = more&.dig("topic_list", "topics") || []
+              merge_topic_list_users(more)
+              next_url = more&.dig("topic_list", "more_topics_url")
+              topics.concat(more_topics)
+              loading = false
+            end
+          when "\r", "\n" # enter
+            topic = topics[selected]
+            return topic["id"] if topic
+          when "1", "2", "3", "4", "5", "6", "7", "8", "9", "0"
+            index = (key == "0") ? 9 : (key.to_i - 1)
+            topic = topics[index]
+            return topic["id"] if topic
+          when "f"
+            filter_index = (filter_index + 1) % filters.length
+            return { filter: filters[filter_index] }
+          when "p"
+            next unless filters[filter_index] == :top
+
+            period_index = (period_index + 1) % top_periods.length
+            return { top_period: top_periods[period_index] }
+          when "s"
+            query = prompt_search_query
+            return { search: query } if query
+          when "n"
+            new_topic = new_topic_flow
+            return { new_topic: new_topic } if new_topic
+          when "g"
+            return :reload
+          when "q", "\u001b"
+            return :quit
+          end
         end
       end
     end
@@ -259,74 +330,75 @@ module Termcourse
       selected = initial_topic_selected_index(posts, topic_data, selected_post_id, topic_key)
       scroll_offsets = Hash.new(0)
 
-      loop do
-        maybe_update_read_state(topic_id, posts[selected])
-        render_topic(topic_data, posts, selected, scroll_offsets)
-        key = read_keypress_with_tick
-        if key == :__tick__
-          @resized = false
-          next
-        end
-        if @resized
-          @resized = false
-          next
-        end
-
-        case key
-        when "\u001b[A" # up
-          selected = [selected - 1, 0].max
-        when "\u001b[B" # down
-          selected = [selected + 1, posts.length - 1].min
-        when "\u001b[C" # right
-          scroll_offsets[selected] += 3
-        when "\u001b[D" # left
-          scroll_offsets[selected] = [scroll_offsets[selected] - 3, 0].max
-        when "s"
-          query = prompt_search_query
-          search_result = search_loop(query) if query
-          if search_result
-            topic_id = search_result[:topic_id]
-            topic_key = topic_id.to_i
-            topic_data = fetch_topic(search_result[:topic_id])
-            posts = topic_data.dig("post_stream", "posts") || []
-            selected = posts.find_index { |p| p["id"] == search_result[:post_id] } || 0
-            scroll_offsets = Hash.new(0)
+      with_raw_input_mode do
+        loop do
+          maybe_update_read_state(topic_id, posts[selected])
+          render_topic(topic_data, posts, selected, scroll_offsets)
+          key = read_keypress_with_tick
+          if key == :__tick__
+            @resized = false
+            next
           end
-        when "l"
-          post = posts[selected]
-          next unless post
+          if @resized
+            @resized = false
+            next
+          end
 
-          toggle_like(post)
-          topic_data = fetch_topic(topic_id)
-          posts = topic_data.dig("post_stream", "posts") || []
-          selected = [selected, posts.length - 1].min
-        when "r"
-          if reply_to_topic(topic_id)
+          case key
+          when "\u001b[A" # up
+            selected = [selected - 1, 0].max
+          when "\u001b[B" # down
+            selected = [selected + 1, posts.length - 1].min
+          when "\u001b[C" # right
+            scroll_offsets[selected] += 3
+          when "\u001b[D" # left
+            scroll_offsets[selected] = [scroll_offsets[selected] - 3, 0].max
+          when "s"
+            query = prompt_search_query
+            search_result = search_loop(query) if query
+            if search_result
+              topic_id = search_result[:topic_id]
+              topic_key = topic_id.to_i
+              topic_data = fetch_topic(search_result[:topic_id])
+              posts = topic_data.dig("post_stream", "posts") || []
+              selected = posts.find_index { |p| p["id"] == search_result[:post_id] } || 0
+              scroll_offsets = Hash.new(0)
+            end
+          when "l"
+            post = posts[selected]
+            next unless post
+
+            toggle_like(post)
             topic_data = fetch_topic(topic_id)
             posts = topic_data.dig("post_stream", "posts") || []
-            scroll_offsets = Hash.new(0)
+            selected = [selected, posts.length - 1].min
+          when "r"
+            if reply_to_topic(topic_id)
+              topic_data = fetch_topic(topic_id)
+              posts = topic_data.dig("post_stream", "posts") || []
+              scroll_offsets = Hash.new(0)
+            end
+          when "p"
+            post = posts[selected]
+            if post && reply_to_post(topic_id, post)
+              topic_data = fetch_topic(topic_id)
+              posts = topic_data.dig("post_stream", "posts") || []
+              scroll_offsets = Hash.new(0)
+            end
+          when "x"
+            post = posts[selected]
+            image_url = image_expand_url_for_post(post, TTY::Screen.width)
+            fullscreen_image_loop(image_url) if image_url
+          when "q"
+            return :quit
+          when "\u001b", "\u007f"
+            return back_result
           end
-        when "p"
-          post = posts[selected]
-          if post && reply_to_post(topic_id, post)
-            topic_data = fetch_topic(topic_id)
-            posts = topic_data.dig("post_stream", "posts") || []
-            scroll_offsets = Hash.new(0)
-          end
-        when "x"
-          post = posts[selected]
-          image_url = image_expand_url_for_post(post, TTY::Screen.width)
-          fullscreen_image_loop(image_url) if image_url
-        when "q"
-          return :quit
-        when "\u001b", "\u007f"
-          return back_result
         end
       end
     end
 
     def render_topic_list(topics, selected, filter:, top_period:, loading: false)
-      clear_screen
       width = TTY::Screen.width
       height = TTY::Screen.height
       list_mode = topic_list_mode(width)
@@ -345,16 +417,29 @@ module Termcourse
         "-" * (width - 4),
         build_header_line(status, right_status, width - 4)
       ]
-      header_height = render_header(content, width)
+      header_box = build_themed_header_box(content, width)
+      header_lines = header_box.split("\n")
+      header_height = header_lines.length + 1
+
+      screen = Array.new(height, "")
+      header_lines.each_with_index do |line, idx|
+        break if idx >= height
+
+        screen[idx] = line
+      end
 
       if topics.empty?
-        puts "No topics found."
+        row = [header_height, height - 1].min
+        screen[row] = "No topics found."
+        render_screen(screen, width: width, height: height, view_key: [:topic_list, filter, top_period, list_mode])
         return
       end
 
+      list_row = header_height
       max_lines = [height - header_height - 1, 1].max
       if list_mode != :compact
-        puts themed_topic_list_header(width, list_mode, filter)
+        screen[list_row] = themed_topic_list_header(width, list_mode, filter)
+        list_row += 1
         max_lines = [max_lines - 1, 1].max
       end
       start_index = [selected - (max_lines / 2), 0].max
@@ -374,8 +459,13 @@ module Termcourse
                  themed_topic_list_row(topic, line_index + 1, width, list_mode, filter)
                end
         line = theme_highlight(strip_all_ansi(line)) if line_index == selected
-        puts line
+        row = list_row + idx
+        break if row >= height
+
+        screen[row] = line
       end
+
+      render_screen(screen, width: width, height: height, view_key: [:topic_list, filter, top_period, list_mode])
     end
 
     def render_topic(topic_data, posts, selected, scroll_offsets)
@@ -428,8 +518,7 @@ module Termcourse
         screen[row] = pad_line(line, width)
       end
 
-      clear_screen
-      print screen.join("\n")
+      render_screen(screen, width: width, height: height, view_key: [:topic, topic_data["id"] || title])
     end
 
     def debug_selected_post(posts, selected, width, height)
@@ -841,19 +930,20 @@ module Termcourse
     def fullscreen_image_loop(url)
       return if url.nil?
 
-      loop do
-        render_fullscreen_image(url)
-        key = read_keypress_with_tick
-        if key == :__tick__
-          @resized = false
-          next
+      with_raw_input_mode do
+        loop do
+          render_fullscreen_image(url)
+          key = read_keypress_with_tick
+          if key == :__tick__
+            @resized = false
+            next
+          end
+          return if key == "x" || key == "\u001b"
         end
-        return if key == "x" || key == "\u001b"
       end
     end
 
     def render_fullscreen_image(url)
-      clear_screen
       width = TTY::Screen.width
       height = TTY::Screen.height
       image_height = [height - 1, 1].max
@@ -862,8 +952,8 @@ module Termcourse
       lines = fit_fullscreen_image_lines(url, width, image_height, lines)
       lines = lines.first(image_height).map { |line| center_image_line(line, width) }
       lines.fill("", lines.length...image_height)
-      puts lines
-      puts theme_text("x/esc: back", fg: "list_meta")
+      screen = lines + [theme_text("x/esc: back", fg: "list_meta")]
+      render_screen(screen, width: width, height: height, view_key: [:fullscreen_image, url])
     end
 
     def center_image_line(line, width)
@@ -1442,17 +1532,12 @@ module Termcourse
     def new_topic_flow
       buffer = +""
       loop do
-        clear_screen
-        width = TTY::Screen.width
-        content = [
-          build_header_line("New Topic", @display_url, width - 4),
-          "-" * (width - 4),
-          "Enter title and press Enter"
-        ]
-        render_header(content, width)
-        print "Title: "
-        print buffer
-        key = @reader.read_keypress
+        render_new_topic_title_prompt(buffer)
+        key = read_keypress_with_tick
+        if key == :__tick__
+          @resized = false
+          next
+        end
 
         case key
         when "\r"
@@ -1513,16 +1598,24 @@ module Termcourse
 
     def category_picker(options, selected)
       loop do
-        clear_screen
         width = TTY::Screen.width
+        height = TTY::Screen.height
         content = [
           build_header_line("Select Category", @display_url, width - 4),
           "-" * (width - 4),
           "Use arrows, Enter to select, Esc to cancel"
         ]
-        header_height = render_header(content, width)
+        header_box = build_themed_header_box(content, width)
+        header_lines = header_box.split("\n")
+        header_height = header_lines.length + 1
+        screen = Array.new(height, "")
+        header_lines.each_with_index do |line, idx|
+          break if idx >= height
 
-        max_lines = [TTY::Screen.height - header_height - 1, 1].max
+          screen[idx] = line
+        end
+
+        max_lines = [height - header_height - 1, 1].max
         start_index = [selected - (max_lines / 2), 0].max
         end_index = [start_index + max_lines - 1, options.length - 1].min
 
@@ -1530,8 +1623,13 @@ module Termcourse
           line_index = start_index + idx
           line = opt[:name]
           line = @pastel.inverse(line) if line_index == selected
-          puts line
+          row = header_height + idx
+          break if row >= height
+
+          screen[row] = line
         end
+
+        render_screen(screen, width: width, height: height, view_key: [:category_picker, selected])
 
         key = read_keypress_with_tick
         if key == :__tick__
@@ -1573,7 +1671,6 @@ module Termcourse
 
       loop do
         count = buffer.length
-        clear_screen
         render_composer_box(title, buffer, cursor, count, min_len, context_lines: context_lines, category_label: category_label)
         key = read_keypress_with_tick
         if key == :__tick__
@@ -1618,13 +1715,22 @@ module Termcourse
       return nil if buffer.strip.empty?
       return buffer if buffer.strip.length >= min_len
 
-      render_composer_box(title, buffer, cursor, buffer.strip.length, min_len, context_lines: context_lines, category_label: category_label, invalid: true)
-      puts "Press any key to try again..."
+      render_composer_box(
+        title,
+        buffer,
+        cursor,
+        buffer.strip.length,
+        min_len,
+        context_lines: context_lines,
+        category_label: category_label,
+        invalid: true,
+        notice: "Press any key to try again..."
+      )
       @reader.read_keypress
       compose_body(title, context_lines: context_lines, category_label: category_label)
     end
 
-    def render_composer_box(title, buffer, cursor, count, min_len, context_lines: [], category_label: nil, invalid: false)
+    def render_composer_box(title, buffer, cursor, count, min_len, context_lines: [], category_label: nil, invalid: false, notice: nil)
       width = TTY::Screen.width
       content_width = width - 4
       status = "#{count} / #{min_len}"
@@ -1668,13 +1774,52 @@ module Termcourse
         screen[row] = pad_line(" #{line}", width)
       end
 
-      clear_screen
-      print screen.join("\n")
+      if notice
+        notice_row = [input_start_row + input_lines.length + 1, screen.length - 1].min
+        screen[notice_row] = pad_line(notice, width)
+      end
 
       line_idx, col = cursor_line_col(buffer, cursor)
       row = input_start_row + line_idx
       col = [col + 1, width - 1].min
-      print TTY::Cursor.move_to(col, row)
+      render_screen(
+        screen,
+        width: width,
+        height: TTY::Screen.height,
+        view_key: [:composer, title, category_label, invalid, !notice.nil?],
+        cursor: { x: col, y: row }
+      )
+    end
+
+    def render_new_topic_title_prompt(buffer)
+      width = TTY::Screen.width
+      height = TTY::Screen.height
+      content = [
+        build_header_line("New Topic", @display_url, width - 4),
+        "-" * (width - 4),
+        "Enter title and press Enter"
+      ]
+      header_box = build_themed_header_box(content, width)
+      header_lines = header_box.split("\n")
+      header_height = header_lines.length + 1
+      screen = Array.new(height, "")
+      header_lines.each_with_index do |line, idx|
+        break if idx >= height
+
+        screen[idx] = line
+      end
+
+      prompt_line = "Title: #{buffer}"
+      prompt_row = [header_height, height - 1].min
+      screen[prompt_row] = prompt_line
+      cursor_x = [prompt_line.length, width - 1].min
+      render_screen(
+        screen,
+        width: width,
+        height: height,
+        view_key: [:new_topic_title],
+        cursor: { x: cursor_x, y: prompt_row }
+      )
     end
 
     def cursor_line_col(buffer, cursor)
@@ -1910,35 +2055,36 @@ module Termcourse
       posts = results["posts"] || []
       selected = 0
 
-      loop do
-        render_search_results(query, posts, topics_map, selected)
-        key = read_keypress_with_tick
-        if key == :__tick__
-          @resized = false
-          next
-        end
-        if @resized
-          @resized = false
-          next
-        end
+      with_raw_input_mode do
+        loop do
+          render_search_results(query, posts, topics_map, selected)
+          key = read_keypress_with_tick
+          if key == :__tick__
+            @resized = false
+            next
+          end
+          if @resized
+            @resized = false
+            next
+          end
 
-        case key
-        when "\u001b[A"
-          selected = [selected - 1, 0].max
-        when "\u001b[B"
-          selected = [selected + 1, posts.length - 1].min
-        when "\r", "\n"
-          post = posts[selected]
-          return nil unless post
-          return { topic_id: post["topic_id"], post_id: post["id"] }
-        when "q", "\u001b"
-          return nil
+          case key
+          when "\u001b[A"
+            selected = [selected - 1, 0].max
+          when "\u001b[B"
+            selected = [selected + 1, posts.length - 1].min
+          when "\r", "\n"
+            post = posts[selected]
+            return nil unless post
+            return { topic_id: post["topic_id"], post_id: post["id"] }
+          when "q", "\u001b"
+            return nil
+          end
         end
       end
     end
 
     def render_search_results(query, posts, topics_map, selected)
-      clear_screen
       width = TTY::Screen.width
       height = TTY::Screen.height
       row_width = [width - 1, 1].max
@@ -1954,10 +2100,20 @@ module Termcourse
         "-" * (width - 4),
         status
       ]
-      header_height = render_header(content, width)
+      header_box = build_themed_header_box(content, width)
+      header_lines = header_box.split("\n")
+      header_height = header_lines.length + 1
+      screen = Array.new(height, "")
+      header_lines.each_with_index do |line, idx|
+        break if idx >= height
+
+        screen[idx] = line
+      end
 
       if posts.empty?
-        puts "No results."
+        row = [header_height, height - 1].min
+        screen[row] = "No results."
+        render_screen(screen, width: width, height: height, view_key: [:search_results, query])
         return
       end
 
@@ -1978,23 +2134,46 @@ module Termcourse
         line = fit_topic_list_cell(strip_all_ansi(line), row_width, align: :left)
         line = highlight_search_term(line, query)
         line = inverse_preserve_ansi(line) if line_index == selected
-        puts line
+        row = header_height + idx
+        break if row >= height
+
+        screen[row] = line
       end
+
+      render_screen(screen, width: width, height: height, view_key: [:search_results, query])
     end
 
     def prompt_search_query
       buffer = +""
       loop do
-        clear_screen
         width = TTY::Screen.width
+        height = TTY::Screen.height
         content = [
           build_header_line("Search", @display_url, width - 4),
           "-" * (width - 4),
           "Type query and press Enter"
         ]
-        render_header(content, width)
-        print "Search: "
-        print buffer
+        header_box = build_themed_header_box(content, width)
+        header_lines = header_box.split("\n")
+        header_height = header_lines.length + 1
+        screen = Array.new(height, "")
+        header_lines.each_with_index do |line, idx|
+          break if idx >= height
+
+          screen[idx] = line
+        end
+
+        prompt_line = "Search: #{buffer}"
+        prompt_row = [header_height, height - 1].min
+        screen[prompt_row] = prompt_line
+        cursor_x = [prompt_line.length, width - 1].min
+        render_screen(
+          screen,
+          width: width,
+          height: height,
+          view_key: [:search_prompt],
+          cursor: { x: cursor_x, y: prompt_row }
+        )
         key = @reader.read_keypress
 
         case key
@@ -2037,17 +2216,66 @@ module Termcourse
     end
 
     def clear_screen
+      @renderer.reset!
+      print TTY::Cursor.show
       print TTY::Cursor.clear_screen
       print TTY::Cursor.move_to(0, 0)
     end
 
-    def read_keypress_with_tick
-      loop do
-        key = @reader.read_keypress(nonblock: true)
-        return key if key
-        return :__tick__ if @resized
-        sleep(@tick_seconds)
+    def render_screen(lines, width:, height:, view_key:, cursor: nil, force: false)
+      @renderer.render(
+        lines,
+        width: width,
+        height: height,
+        view_key: view_key,
+        cursor: cursor,
+        force: force
+      )
+    end
+
+    def with_raw_input_mode
+      @reader.input.raw do
+        @reader.input.noecho do
+          yield
+        end
       end
+    end
+
+    def read_keypress_with_tick
+      @reader.input.raw do
+        @reader.input.noecho do
+          loop do
+            return :__tick__ if @resized
+
+            readable = @reader.input.wait_readable(@tick_seconds)
+            return :__tick__ unless readable
+
+            key = @reader.read_keypress(echo: false, raw: false, nonblock: true)
+            return read_escape_sequence(key) if key
+          end
+        end
+      end
+    end
+
+    def read_escape_sequence(key)
+      return key unless key == "\e"
+
+      sequence = +""
+      deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + 0.03
+
+      loop do
+        chunk = @reader.read_keypress(nonblock: true)
+        if chunk
+          sequence << chunk
+          deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + 0.01
+          next
+        end
+
+        break if Process.clock_gettime(Process::CLOCK_MONOTONIC) >= deadline
+        sleep(0.001)
+      end
+
+      sequence.empty? ? key : "#{key}#{sequence}"
     end
 
     def trap_resize

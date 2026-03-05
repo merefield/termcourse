@@ -1,0 +1,362 @@
+# frozen_string_literal: true
+
+require_relative "test_helper"
+
+module Termcourse
+  class UIScreenRendererTest < Minitest::Test
+    def setup
+      @renderer = UI::ScreenRenderer.new(pad_line: ->(line, width) { line.ljust(width) })
+    end
+
+    def test_first_render_repaints_full_screen
+      output = capture_stdout do
+        @renderer.render(
+          ["one", "two"],
+          width: 5,
+          height: 2,
+          view_key: :topic_list
+        )
+      end
+
+      assert_includes output, TTY::Cursor.clear_screen
+      assert_includes output, "one  "
+      assert_includes output, "two  "
+    end
+
+    def test_second_render_only_repaints_changed_rows
+      capture_stdout do
+        @renderer.render(
+          ["one", "two"],
+          width: 5,
+          height: 2,
+          view_key: :topic_list
+        )
+      end
+
+      output = capture_stdout do
+        @renderer.render(
+          ["one", "too"],
+          width: 5,
+          height: 2,
+          view_key: :topic_list
+        )
+      end
+
+      refute_includes output, TTY::Cursor.clear_screen
+      refute_includes output, "one  "
+      assert_includes output, "too  "
+    end
+
+    def test_view_key_change_forces_full_repaint
+      capture_stdout do
+        @renderer.render(
+          ["one"],
+          width: 5,
+          height: 1,
+          view_key: :topic_list
+        )
+      end
+
+      output = capture_stdout do
+        @renderer.render(
+          ["one"],
+          width: 5,
+          height: 1,
+          view_key: :search
+        )
+      end
+
+      assert_includes output, TTY::Cursor.clear_screen
+    end
+
+    def test_render_shows_cursor_when_cursor_position_is_provided
+      output = capture_stdout do
+        @renderer.render(
+          ["one"],
+          width: 5,
+          height: 1,
+          view_key: :search_prompt,
+          cursor: { x: 3, y: 0 }
+        )
+      end
+
+      assert_includes output, TTY::Cursor.move_to(3, 0)
+      assert_includes output, TTY::Cursor.show
+    end
+
+    private
+
+    def capture_stdout
+      stdout = $stdout
+      fake = StringIO.new
+      $stdout = fake
+      yield
+      fake.string
+    ensure
+      $stdout = stdout
+    end
+  end
+
+  class UIEscapeSequenceTest < Minitest::Test
+    FakeReader = Struct.new(:responses) do
+      def read_keypress(**)
+        responses.shift
+      end
+    end
+
+    def test_read_escape_sequence_returns_plain_key_unchanged
+      ui = build_ui_with_reader([])
+
+      assert_equal "j", ui.send(:read_escape_sequence, "j")
+    end
+
+    def test_read_escape_sequence_returns_escape_when_sequence_is_incomplete
+      ui = build_ui_with_reader([])
+
+      assert_equal "\e", ui.send(:read_escape_sequence, "\e")
+    end
+
+    def test_read_escape_sequence_assembles_arrow_key_sequence
+      ui = build_ui_with_reader(["[", "B", nil])
+
+      assert_equal "\e[B", ui.send(:read_escape_sequence, "\e")
+    end
+
+    private
+
+    def build_ui_with_reader(responses)
+      ui = UI.allocate
+      ui.instance_variable_set(:@reader, FakeReader.new(responses))
+      ui
+    end
+  end
+
+  class UIOutputHelpersTest < Minitest::Test
+    FakeRenderer = Struct.new(:reset_called, :render_args) do
+      def reset!
+        self.reset_called = true
+      end
+
+      def render(*args, **kwargs)
+        self.render_args = [args, kwargs]
+      end
+    end
+
+    def test_clear_screen_resets_renderer_and_clears_terminal
+      renderer = FakeRenderer.new(false, nil)
+      ui = UI.allocate
+      ui.instance_variable_set(:@renderer, renderer)
+
+      output = capture_stdout { ui.send(:clear_screen) }
+
+      assert renderer.reset_called
+      assert_includes output, TTY::Cursor.show
+      assert_includes output, TTY::Cursor.clear_screen
+      assert_includes output, TTY::Cursor.move_to(0, 0)
+    end
+
+    def test_render_screen_delegates_to_renderer
+      renderer = FakeRenderer.new(false, nil)
+      ui = UI.allocate
+      ui.instance_variable_set(:@renderer, renderer)
+
+      ui.send(:render_screen, ["alpha"], width: 10, height: 3, view_key: :topic_list, cursor: { x: 2, y: 1 }, force: true)
+
+      args, kwargs = renderer.render_args
+      assert_equal [["alpha"]], args
+      assert_equal 10, kwargs[:width]
+      assert_equal 3, kwargs[:height]
+      assert_equal :topic_list, kwargs[:view_key]
+      assert_equal({ x: 2, y: 1 }, kwargs[:cursor])
+      assert_equal true, kwargs[:force]
+    end
+
+    private
+
+    def capture_stdout
+      stdout = $stdout
+      fake = StringIO.new
+      $stdout = fake
+      yield
+      fake.string
+    ensure
+      $stdout = stdout
+    end
+  end
+
+  class UIReadKeypressWithTickTest < Minitest::Test
+    class FakeInput
+      def initialize(waitables)
+        @waitables = waitables
+      end
+
+      def raw
+        yield
+      end
+
+      def noecho
+        yield
+      end
+
+      def wait_readable(_timeout)
+        @waitables.shift
+      end
+    end
+
+    class FakeReader
+      attr_reader :input
+
+      def initialize(waitables:, responses:)
+        @input = FakeInput.new(waitables)
+        @responses = responses
+      end
+
+      def read_keypress(**)
+        @responses.shift
+      end
+    end
+
+    def test_read_keypress_with_tick_returns_tick_on_timeout
+      ui = UI.allocate
+      ui.instance_variable_set(:@reader, FakeReader.new(waitables: [false], responses: []))
+      ui.instance_variable_set(:@tick_seconds, 0.001)
+      ui.instance_variable_set(:@resized, false)
+
+      assert_equal :__tick__, ui.send(:read_keypress_with_tick)
+    end
+
+    def test_read_keypress_with_tick_returns_tick_when_resized
+      ui = UI.allocate
+      ui.instance_variable_set(:@reader, FakeReader.new(waitables: [], responses: []))
+      ui.instance_variable_set(:@tick_seconds, 0.001)
+      ui.instance_variable_set(:@resized, true)
+
+      assert_equal :__tick__, ui.send(:read_keypress_with_tick)
+    end
+
+    def test_read_keypress_with_tick_assembles_escape_sequence
+      ui = UI.allocate
+      ui.instance_variable_set(
+        :@reader,
+        FakeReader.new(waitables: [true], responses: ["\e", "[", "B", nil])
+      )
+      ui.instance_variable_set(:@tick_seconds, 0.001)
+      ui.instance_variable_set(:@resized, false)
+
+      assert_equal "\e[B", ui.send(:read_keypress_with_tick)
+    end
+  end
+
+  class UITopicListFormattingTest < Minitest::Test
+    def setup
+      @ui = UI.allocate
+      @ui.instance_variable_set(:@theme, UI::BUILTIN_THEMES["default"])
+      @ui.instance_variable_set(:@color_mode, "truecolor")
+      @ui.instance_variable_set(:@api_username, "turnitaround")
+      @ui.instance_variable_set(:@topic_list_users_by_id, {})
+    end
+
+    def test_themed_topic_list_line_ellipsizes_to_fit_width
+      line = @ui.send(
+        :themed_topic_list_line,
+        1,
+        "An extremely long topic title that should never wrap in compact mode",
+        42,
+        width: 36
+      )
+
+      visible = @ui.send(:strip_all_ansi, line)
+      assert_operator @ui.send(:display_width, visible), :<=, 36
+      assert_includes visible, "..."
+    end
+
+    def test_themed_pm_topic_list_compact_line_ellipsizes_to_fit_width
+      topic = {
+        "title" => "ignored",
+        "participants" => [
+          { "username" => "turnitaround" },
+          { "username" => "dizzydan" },
+          { "username" => "maclunkey" }
+        ],
+        "reply_count" => 2
+      }
+
+      line = @ui.send(
+        :themed_pm_topic_list_compact_line,
+        4,
+        "A very long PM title that should be shortened before it can wrap",
+        topic,
+        width: 42
+      )
+
+      visible = @ui.send(:strip_all_ansi, line)
+      assert_operator @ui.send(:display_width, visible), :<=, 42
+      assert_includes visible, "..."
+      assert_includes visible, "(dizzydan, maclunkey)"
+    end
+
+    def test_topic_list_mode_uses_exact_thresholds
+      assert_equal :compact, @ui.send(:topic_list_mode, UI::TOPIC_LIST_WIDE_CATEGORY_MIN - 1)
+      assert_equal :category, @ui.send(:topic_list_mode, UI::TOPIC_LIST_WIDE_CATEGORY_MIN)
+      assert_equal :category, @ui.send(:topic_list_mode, UI::TOPIC_LIST_WIDE_STATS_MIN - 1)
+      assert_equal :stats, @ui.send(:topic_list_mode, UI::TOPIC_LIST_WIDE_STATS_MIN)
+    end
+  end
+
+  class UISearchFormattingTest < Minitest::Test
+    def setup
+      @ui = UI.allocate
+      @ui.instance_variable_set(:@display_url, "meta.discourse.org")
+      @ui.instance_variable_set(:@pastel, Pastel.new(enabled: true))
+
+      @ui.define_singleton_method(:build_header_line) { |_left, _right, _width| "HEADER" }
+      @ui.define_singleton_method(:build_themed_header_box) { |content, _width| content.join("\n") }
+      @ui.define_singleton_method(:emojify) { |text| text }
+      @ui.define_singleton_method(:render_screen) do |lines, **kwargs|
+        @_captured_render = { lines: lines, kwargs: kwargs }
+      end
+    end
+
+    def test_render_search_results_keeps_rows_single_line_and_truncates
+      posts = [
+        {
+          "topic_id" => 101,
+          "blurb" => "<p>This chatbot result has a very long explanation that should be shortened to one visible line in the results pane.</p>"
+        }
+      ]
+      topics_map = {
+        101 => "Discourse Chatbot :robot: with a very long title that must be truncated"
+      }
+
+      with_tty_screen(width: 60, height: 10) do
+        @ui.send(:render_search_results, "chatbot", posts, topics_map, 0)
+      end
+
+      captured = @ui.instance_variable_get(:@_captured_render)
+      refute_nil captured
+
+      result_line = captured[:lines][4]
+      visible = @ui.send(:strip_all_ansi, result_line)
+
+      refute_includes visible, "\n"
+      assert_operator @ui.send(:display_width, visible), :<=, 59
+      assert_includes visible, "..."
+      assert_match(/\e\[1mchatbot\e\[0m/i, result_line)
+    end
+
+    private
+
+    def with_tty_screen(width:, height:)
+      screen = TTY::Screen.singleton_class
+      original_width = TTY::Screen.method(:width)
+      original_height = TTY::Screen.method(:height)
+
+      screen.send(:define_method, :width) { width }
+      screen.send(:define_method, :height) { height }
+      yield
+    ensure
+      screen.send(:define_method, :width, original_width)
+      screen.send(:define_method, :height, original_height)
+    end
+  end
+end
