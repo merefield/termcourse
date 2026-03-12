@@ -366,6 +366,21 @@ module Termcourse
       assert_match(/#{Regexp.escape(list_text_ansi)}\s+0/, line)
     end
 
+    def test_themed_topic_list_row_themes_inter_column_separators
+      topic = {
+        "title" => "Fresh topic",
+        "unseen" => true,
+        "category_id" => 2,
+        "reply_count" => 0
+      }
+      @ui.define_singleton_method(:site_categories) { { 2 => "Staff" } }
+
+      line = @ui.send(:themed_topic_list_row, topic, 1, 130, :category, :latest)
+      list_text_ansi = @ui.send(:ansi_fg, @ui.send(:theme_color, "list_text"))
+
+      assert_includes line, "#{list_text_ansi}  "
+    end
+
     def test_fit_topic_list_cell_preserves_ansi_when_clipping_styled_text
       styled = "#{@ui.send(:theme_text, '•', fg: 'accent')}#{@ui.send(:theme_text, 'abcdef', fg: 'list_text')}"
       fitted = @ui.send(:fit_topic_list_cell, styled, 3, align: :left)

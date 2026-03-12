@@ -2392,6 +2392,7 @@ module Termcourse
 
     def themed_topic_list_row(topic, number, width, mode, filter)
       spec = topic_list_table_spec(width, mode, filter)
+      separator = theme_text("  ", fg: "list_text")
       spec[:columns].map do |col|
         text = topic_list_cell_value(topic, number, col[:key], filter)
         width = spec[:widths][col[:key]].to_i
@@ -2405,7 +2406,7 @@ module Termcourse
         else
           theme_text(fit_topic_list_cell(text, width, align: align), fg: "list_text")
         end
-      end.join("  ")
+      end.join(separator)
     end
 
     def topic_list_table_spec(width, mode, filter)
