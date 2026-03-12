@@ -461,7 +461,7 @@ module Termcourse
                    themed_pm_topic_list_compact_line(line_index + 1, title, topic, width: width)
                  else
                    replies = topic_reply_count(topic)
-                   themed_topic_list_line(line_index + 1, title, replies, width: width)
+                   themed_topic_list_line(line_index + 1, title, replies, width: width, topic: topic)
                  end
                else
                  themed_topic_list_row(topic, line_index + 1, width, list_mode, filter)
@@ -2340,12 +2340,13 @@ module Termcourse
       nil
     end
 
-    def themed_topic_list_line(number, title, replies, width: nil)
+    def themed_topic_list_line(number, title, replies, width: nil, topic: nil)
       num_raw = format("%3d", number)
       meta_raw = "(#{replies} replies)"
-      safe_title = compact_title_for_width(title, num_raw, meta_raw, width)
+      badge_text = compact_topic_state_badge_text(topic, num_raw, meta_raw, width)
+      safe_title = compact_title_for_width(title, num_raw, meta_raw, width, badge_text: badge_text)
       num = theme_text(num_raw, fg: "list_numbers")
-      title_text = theme_text(safe_title, fg: "list_text")
+      title_text = themed_title_with_badge(safe_title, badge_text)
       meta = theme_text(meta_raw, fg: "list_meta")
       "#{num}  #{title_text}  #{meta}"
     end
@@ -2353,20 +2354,22 @@ module Termcourse
     def themed_pm_topic_list_compact_line(number, title, topic, width: nil)
       num_raw = format("%3d", number)
       meta_raw = "(#{pm_users_label(topic)})"
-      safe_title = compact_title_for_width(title, num_raw, meta_raw, width)
+      badge_text = compact_topic_state_badge_text(topic, num_raw, meta_raw, width)
+      safe_title = compact_title_for_width(title, num_raw, meta_raw, width, badge_text: badge_text)
       num = theme_text(num_raw, fg: "list_numbers")
-      title_text = theme_text(safe_title, fg: "list_text")
+      title_text = themed_title_with_badge(safe_title, badge_text)
       users_text = theme_text(meta_raw, fg: "list_meta")
       "#{num}  #{title_text}  #{users_text}"
     end
 
-    def compact_title_for_width(title, num_raw, meta_raw, width)
+    def compact_title_for_width(title, num_raw, meta_raw, width, badge_text: nil)
       text = normalize_inline_text(title.to_s)
       return text if width.nil? || width <= 0
 
       # Row format: "<num><2 spaces><title><2 spaces><meta>"
-      title_width = width - display_width(num_raw) - display_width(meta_raw) - 4
-      title_width = [title_width, 3].max
+      badge_width = badge_text.to_s.empty? ? 0 : display_width(badge_text) + 1
+      title_width = width - display_width(num_raw) - display_width(meta_raw) - 4 - badge_width
+      title_width = [title_width, 0].max
       truncate_display(text, title_width)
     end
 
@@ -2389,16 +2392,20 @@ module Termcourse
 
     def themed_topic_list_row(topic, number, width, mode, filter)
       spec = topic_list_table_spec(width, mode, filter)
-      row = build_topic_list_table_row(
-        spec[:columns].map do |col|
-          {
-            text: topic_list_cell_value(topic, number, col[:key], filter),
-            width: spec[:widths][col[:key]],
-            align: col[:align]
-          }
+      spec[:columns].map do |col|
+        text = topic_list_cell_value(topic, number, col[:key], filter)
+        width = spec[:widths][col[:key]].to_i
+        align = col[:align] || :left
+
+        if col[:key] == :title
+          badge_text = topic_state_badge_text(topic)
+          reserve = badge_text.to_s.empty? ? 0 : display_width(badge_text) + 1
+          title_text = truncate_display(normalize_inline_text(text.to_s), [width - reserve, 0].max)
+          fit_topic_list_cell(themed_title_with_badge(title_text, badge_text), width, align: align)
+        else
+          theme_text(fit_topic_list_cell(text, width, align: align), fg: "list_text")
         end
-      )
-      theme_text(row, fg: "list_text")
+      end.join("  ")
     end
 
     def topic_list_table_spec(width, mode, filter)
@@ -2468,7 +2475,7 @@ module Termcourse
 
     def build_topic_list_table_row(columns)
       columns.map do |col|
-        text = normalize_inline_text(col[:text].to_s)
+        text = col[:text].to_s
         fit_topic_list_cell(text, col[:width].to_i, align: col[:align] || :left)
       end.join("  ")
     end
@@ -2484,9 +2491,47 @@ module Termcourse
     def fit_topic_list_cell(text, width, align: :left)
       return "" if width <= 0
 
-      clipped = truncate_display(text.to_s, width)
-      gap = [width - display_width(clipped), 0].max
-      align == :right ? (" " * gap) + clipped : clipped + (" " * gap)
+      normalized = normalize_inline_text(text.to_s)
+      visible = strip_all_ansi(normalized)
+      if display_width(visible) > width
+        if visible == normalized
+          normalized = truncate_display(visible, width)
+          visible = normalized
+        else
+          normalized = clamp_visible(visible, width)
+          visible = normalized
+        end
+      end
+      gap = [width - display_width(visible), 0].max
+      align == :right ? (" " * gap) + normalized : normalized + (" " * gap)
+    end
+
+    def compact_topic_state_badge_text(topic, num_raw, meta_raw, width)
+      badge_text = topic_state_badge_text(topic)
+      return badge_text if badge_text.empty? || width.nil? || width <= 0
+
+      title_width = width - display_width(num_raw) - display_width(meta_raw) - 4
+      reserve = display_width(badge_text) + 1
+      return "" if title_width <= reserve
+
+      badge_text
+    end
+
+    def themed_title_with_badge(title, badge_text)
+      title_text = theme_text(title, fg: "list_text")
+      return title_text if badge_text.to_s.empty?
+
+      "#{title_text} #{theme_text(badge_text, fg: 'accent')}"
+    end
+
+    def topic_state_badge_text(topic)
+      return "" unless topic.is_a?(Hash)
+
+      unread_count = topic["unread_posts"].to_i
+      unread_count = topic["new_posts"].to_i if unread_count <= 0
+      return "[#{unread_count}]" if unread_count.positive?
+
+      topic["unseen"] == true ? "•" : ""
     end
 
     def truncate_display(text, width)
