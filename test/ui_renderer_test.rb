@@ -389,6 +389,147 @@ module Termcourse
       assert_operator @ui.send(:display_width, @ui.send(:strip_all_ansi, fitted)), :<=, 3
       assert_includes fitted, accent_ansi
     end
+
+    def test_login_label_appends_unread_notifications_badge
+      @ui.instance_variable_set(:@notification_unread_count, 4)
+
+      label = @ui.send(:login_label)
+
+      assert_includes @ui.send(:strip_all_ansi, label), "Logged in: turnitaround [4]"
+    end
+
+    def test_build_header_line_visible_right_aligns_login_badge_without_losing_width
+      @ui.instance_variable_set(:@notification_unread_count, 4)
+
+      line = @ui.send(:build_header_line_visible, "Topic List: Latest", @ui.send(:login_label), 60)
+
+      assert_equal 60, @ui.send(:visible_length, line)
+      assert_includes @ui.send(:strip_all_ansi, line), "Logged in: turnitaround [4]"
+    end
+
+    def test_themed_notification_row_ellipsizes_to_fit_width
+      @ui.define_singleton_method(:site_notification_types_by_id) { { 5 => "liked" } }
+      notification = {
+        "read" => false,
+        "notification_type" => 5,
+        "created_at" => (Time.now - 7200).iso8601,
+        "fancy_title" => "A very long topic title that should be shortened cleanly in the notifications list",
+        "data" => { "display_username" => "merefield" }
+      }
+
+      line = @ui.send(:themed_notification_row, notification, 48)
+      visible = @ui.send(:strip_all_ansi, line)
+
+      assert_operator @ui.send(:display_width, visible), :<=, 48
+      assert_includes visible, "•"
+      assert_includes visible, "2h"
+    end
+
+    def test_filter_notifications_by_likes
+      @ui.define_singleton_method(:site_notification_types_by_id) { { 5 => "liked", 2 => "replied" } }
+      notifications = [
+        { "notification_type" => 5 },
+        { "notification_type" => 2 }
+      ]
+
+      filtered = @ui.send(:filter_notifications, notifications, :likes)
+
+      assert_equal [5], filtered.map { |notification| notification["notification_type"] }
+    end
+
+    def test_initial_topic_selected_index_accepts_selected_post_number
+      posts = [
+        { "id" => 10, "post_number" => 1 },
+        { "id" => 11, "post_number" => 2 },
+        { "id" => 12, "post_number" => 3 }
+      ]
+
+      selected = @ui.send(:initial_topic_selected_index, posts, {}, { post_number: 2 }, 123)
+
+      assert_equal 1, selected
+    end
+  end
+
+  class UINotificationStateTest < Minitest::Test
+    FakeLiveUpdates = Struct.new(:unread_notification_count) do
+      def set_unread_notification_count(count)
+        self.unread_notification_count = count
+      end
+    end
+
+    def setup
+      @ui = UI.allocate
+    end
+
+    def test_refresh_notification_unread_count_preserves_existing_count_on_failed_refresh
+      live_updates = FakeLiveUpdates.new(6)
+      @ui.instance_variable_set(:@live_updates, live_updates)
+      @ui.instance_variable_set(:@notification_unread_count, 6)
+      @ui.define_singleton_method(:with_errors) { nil }
+
+      @ui.send(:refresh_notification_unread_count)
+
+      assert_equal 6, @ui.instance_variable_get(:@notification_unread_count)
+      assert_equal 6, live_updates.unread_notification_count
+    end
+
+    def test_unread_notification_count_uses_live_zero_value
+      @ui.instance_variable_set(:@live_updates, FakeLiveUpdates.new(0))
+      @ui.instance_variable_set(:@notification_unread_count, 6)
+
+      assert_equal 0, @ui.send(:unread_notification_count)
+    end
+
+    def test_mark_notification_read_only_updates_local_state_after_success
+      notification = { "id" => 8, "read" => false }
+      @ui.define_singleton_method(:with_errors) { nil }
+
+      @ui.send(:mark_notification_read, notification)
+
+      assert_equal false, notification["read"]
+
+      @ui.define_singleton_method(:with_errors) { {} }
+
+      @ui.send(:mark_notification_read, notification)
+
+      assert_equal true, notification["read"]
+    end
+
+    def test_notification_relative_time_uses_weeks_until_one_year
+      value = (Time.now - (60 * 24 * 60 * 60)).iso8601
+
+      assert_equal "8w", @ui.send(:notification_relative_time, value)
+    end
+  end
+
+  class UISiteInfoCachingTest < Minitest::Test
+    def setup
+      @ui = UI.allocate
+    end
+
+    def test_site_info_retries_after_transient_failure
+      responses = [nil, { "categories" => [{ "id" => 2, "name" => "Staff" }] }]
+      @ui.define_singleton_method(:with_errors) { responses.shift }
+
+      assert_equal({}, @ui.send(:site_info))
+      assert_equal({ "categories" => [{ "id" => 2, "name" => "Staff" }] }, @ui.send(:site_info))
+    end
+
+    def test_site_categories_do_not_cache_empty_result_after_failed_site_info
+      responses = [nil, { "categories" => [{ "id" => 2, "name" => "Staff" }] }]
+      @ui.define_singleton_method(:with_errors) { responses.shift }
+
+      assert_equal({}, @ui.send(:site_categories))
+      assert_equal({ 2 => "Staff" }, @ui.send(:site_categories))
+    end
+
+    def test_notification_types_do_not_cache_empty_result_after_failed_site_info
+      responses = [nil, { "notification_types" => { "liked" => 5 } }]
+      @ui.define_singleton_method(:with_errors) { responses.shift }
+
+      assert_equal({}, @ui.send(:site_notification_types_by_id))
+      assert_equal({ 5 => "liked" }, @ui.send(:site_notification_types_by_id))
+    end
   end
 
   class UISearchFormattingTest < Minitest::Test

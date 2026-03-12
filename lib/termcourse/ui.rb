@@ -89,6 +89,7 @@ module Termcourse
 
     TOPIC_LIST_WIDE_CATEGORY_MIN = 125
     TOPIC_LIST_WIDE_STATS_MIN = 149
+    NOTIFICATION_FILTERS = %i[all responses likes mentions edits links messages].freeze
 
     BUILTIN_THEMES = {
       "default" => {
@@ -186,6 +187,7 @@ module Termcourse
       @image_cache = {}
       @topic_list_users_by_id = {}
       @pm_unread_count = 0
+      @notification_unread_count = 0
       @live_updates = nil
       @last_read_post_sent = {}
       @debug_enabled = ENV.fetch("TERMCOURSE_DEBUG", "0") == "1"
@@ -200,6 +202,7 @@ module Termcourse
       start_live_updates
       loop do
         refresh_pm_unread_count
+        refresh_notification_unread_count
         reset_live_updates(filter)
         topics_data = fetch_list(filter, top_period)
         return if topics_data.nil?
@@ -222,6 +225,7 @@ module Termcourse
           query = result[:search]
           loop do
             search_result = search_loop(query)
+            return if search_result == :quit
             break if search_result.nil?
 
             topic_result = topic_loop(
@@ -317,9 +321,12 @@ module Termcourse
           when "s"
             query = prompt_search_query
             return { search: query } if query
-          when "n"
+          when "c"
             new_topic = new_topic_flow
             return { new_topic: new_topic } if new_topic
+          when "n"
+            result = notifications_browser
+            return :quit if result == :quit
           when "g"
             return :reload
           when "q", "\u001b"
@@ -364,7 +371,8 @@ module Termcourse
           when "s"
             query = prompt_search_query
             search_result = search_loop(query) if query
-            if search_result
+            return :quit if search_result == :quit
+            if search_result.is_a?(Hash)
               topic_id = search_result[:topic_id]
               topic_key = topic_id.to_i
               topic_data = fetch_topic(search_result[:topic_id])
@@ -372,6 +380,9 @@ module Termcourse
               selected = posts.find_index { |p| p["id"] == search_result[:post_id] } || 0
               scroll_offsets = Hash.new(0)
             end
+          when "n"
+            result = notifications_browser
+            return :quit if result == :quit
           when "l"
             post = posts[selected]
             next unless post
@@ -411,7 +422,7 @@ module Termcourse
       height = TTY::Screen.height
       list_mode = topic_list_mode(width)
 
-      controls = "arrows: move | ↵: open | 1-0: open top10 | n: new | s: search | f: filter"
+      controls = "arrows: move | ↵, 1-0: open | c: new | n: notifs | s: search | f: filter"
       controls += " | p: period" if filter == :top
       controls += " | g: refresh | q: quit"
 
@@ -423,7 +434,7 @@ module Termcourse
       content = [
         top_line,
         "-" * (width - 4),
-        build_header_line(status, right_status, width - 4)
+        build_header_line_visible(status, right_status, width - 4)
       ]
       header_box = build_themed_header_box(content, width)
       header_lines = header_box.split("\n")
@@ -483,7 +494,7 @@ module Termcourse
       selected_post = posts[selected]
       image_expand_url = image_expand_url_for_post(selected_post, width)
 
-      controls = "arrows: move | l: like | r: reply topic | p: reply post | s: search | esc: back | q: quit"
+      controls = "arrows: move | l: like | r: reply topic | p: reply post | s: search | n: notifs | esc: back | q: quit"
       controls += " | x: image" if image_expand_url
       top_line = build_header_line(controls, @display_url, width - 4)
       topic_line = "Topic: #{truncate(title, width - 4)}"
@@ -1270,7 +1281,8 @@ module Termcourse
     def login_label
       username = @api_username.to_s
       username = "unknown" if username.strip.empty?
-      "Logged in: #{username}"
+      badge = unread_notifications_badge
+      badge ? "Logged in: #{username} #{badge}" : "Logged in: #{username}"
     end
 
     def topic_list_right_status
@@ -1293,6 +1305,20 @@ module Termcourse
       return nil if count <= 0
 
       "PM Unread (#{count})"
+    end
+
+    def unread_notifications_badge
+      count = unread_notification_count
+      return nil if count <= 0
+
+      theme_text("[#{count}]", fg: "accent")
+    end
+
+    def unread_notification_count
+      live_count = @live_updates&.unread_notification_count
+      return live_count unless live_count.nil?
+
+      @notification_unread_count.to_i
     end
 
     def render_header(lines, width)
@@ -1892,11 +1918,35 @@ module Termcourse
       "Category: #{name}"
     end
 
+    def site_info
+      return @site_info if defined?(@site_info) && @site_info.is_a?(Hash)
+
+      result = with_errors { @client.site_info }
+      @site_info = result if result.is_a?(Hash)
+      @site_info || {}
+    end
+
     def site_categories
-      @site_categories ||= begin
-        info = with_errors { @client.site_info }
-        list = info&.dig("categories") || []
+      return @site_categories if defined?(@site_categories) && @site_categories
+
+      info = site_info
+      return {} unless defined?(@site_info) && @site_info.is_a?(Hash)
+
+      @site_categories = begin
+        list = info["categories"] || []
         list.each_with_object({}) { |cat, memo| memo[cat["id"]] = cat["name"].to_s }
+      end
+    end
+
+    def site_notification_types_by_id
+      return @site_notification_types_by_id if defined?(@site_notification_types_by_id) && @site_notification_types_by_id
+
+      info = site_info
+      return {} unless defined?(@site_info) && @site_info.is_a?(Hash)
+
+      @site_notification_types_by_id = begin
+        types = info["notification_types"] || {}
+        types.each_with_object({}) { |(name, id), memo| memo[id.to_i] = name.to_s }
       end
     end
 
@@ -1933,11 +1983,24 @@ module Termcourse
       with_errors { @client.topic(topic_id) }
     end
 
+    def fetch_notifications
+      with_errors { @client.notifications }
+    end
+
+    def fetch_more_notifications(path)
+      with_errors { @client.get_url(path) }
+    end
+
     def initial_topic_selected_index(posts, topic_data, selected_post_id, topic_key)
       return 0 if posts.empty?
 
       if selected_post_id
-        idx = posts.find_index { |p| p["id"] == selected_post_id }
+        idx =
+          if selected_post_id.is_a?(Hash) && selected_post_id[:post_number]
+            posts.find_index { |p| p["post_number"].to_i == selected_post_id[:post_number].to_i }
+          else
+            posts.find_index { |p| p["id"] == selected_post_id }
+          end
         return idx if idx
       end
 
@@ -1985,6 +2048,15 @@ module Termcourse
       @pm_unread_count = unread_private_messages_count(data)
     rescue StandardError
       @pm_unread_count = 0
+    end
+
+    def refresh_notification_unread_count
+      data = with_errors { @client.notification_totals }
+      return unless data.is_a?(Hash)
+
+      count = data["unread_notifications"].to_i
+      @notification_unread_count = [count, 0].max
+      @live_updates&.set_unread_notification_count(@notification_unread_count)
     end
 
     def start_live_updates
@@ -2133,6 +2205,9 @@ module Termcourse
             post = posts[selected]
             return nil unless post
             return { topic_id: post["topic_id"], post_id: post["id"] }
+          when "n"
+            result = notifications_browser
+            return :quit if result == :quit
           when "q", "\u001b"
             return nil
           end
@@ -2146,7 +2221,7 @@ module Termcourse
       row_width = [width - 1, 1].max
 
       top_line = build_header_line(
-        "arrows: move | ↵: open | esc: back | q: quit",
+        "arrows: move | ↵: open | n: notifs | esc: back | q: quit",
         @display_url,
         width - 4
       )
@@ -2247,6 +2322,296 @@ module Termcourse
 
     def strip_html(text)
       text.gsub(/<[^>]*>/, "")
+    end
+
+    def notifications_browser
+      data = fetch_notifications
+      return :back if data.nil?
+
+      notifications = data["notifications"] || []
+      next_url = data["load_more_notifications"]
+      selected = 0
+      loading = false
+      filter_index = 0
+
+      with_raw_input_mode do
+        loop do
+          filter = NOTIFICATION_FILTERS[filter_index]
+          filtered_notifications = filter_notifications(notifications, filter)
+          selected = [[selected, filtered_notifications.length - 1].min, 0].max
+          render_notifications(filtered_notifications, selected, filter: filter, loading: loading)
+          key = read_keypress_with_tick
+          if key == :__tick__
+            @resized = false
+            next
+          end
+          if @resized
+            @resized = false
+            next
+          end
+
+          case key
+          when "\u001b[A"
+            selected = [selected - 1, 0].max
+          when "\u001b[B"
+            selected = [selected + 1, filtered_notifications.length - 1].min
+            if next_url && selected >= filtered_notifications.length - 3 && !loading
+              loading = true
+              render_notifications(filtered_notifications, selected, filter: filter, loading: loading)
+              more = fetch_more_notifications(next_url)
+              more_notifications = more&.fetch("notifications", []) || []
+              next_url = more&.fetch("load_more_notifications", nil)
+              notifications.concat(more_notifications)
+              loading = false
+            end
+          when "f"
+            filter_index = (filter_index + 1) % NOTIFICATION_FILTERS.length
+            selected = 0
+          when "\r", "\n"
+            notification = filtered_notifications[selected]
+            next unless notification
+
+            mark_notification_read(notification)
+            next unless notification["topic_id"].to_i.positive?
+
+            topic_result = topic_loop(
+              notification["topic_id"],
+              { post_number: notification["post_number"] },
+              back_result: :back_to_notifications
+            )
+            return :quit if topic_result == :quit
+          when "q"
+            return :quit
+          when "\u001b"
+            return :back
+          end
+        end
+      end
+    end
+
+    def mark_notification_read(notification)
+      return if notification.nil? || notification["read"] == true
+
+      result = with_errors { @client.mark_notification_read(notification["id"]) }
+      return if result.nil?
+
+      notification["read"] = true
+    end
+
+    def render_notifications(notifications, selected, filter:, loading: false)
+      width = TTY::Screen.width
+      height = TTY::Screen.height
+
+      controls = "arrows: move | ↵: open | f: filter | esc: back | q: quit"
+      top_line = build_header_line(controls, @display_url, width - 4)
+      status = "Notifications: #{notification_filter_label(filter)}"
+      status += " | Loading more..." if loading
+      content = [
+        top_line,
+        "-" * (width - 4),
+        build_header_line_visible(status, login_label, width - 4)
+      ]
+      header_box = build_themed_header_box(content, width)
+      header_lines = header_box.split("\n")
+      header_height = header_lines.length + 1
+      screen = Array.new(height, "")
+      header_lines.each_with_index do |line, idx|
+        break if idx >= height
+
+        screen[idx] = line
+      end
+
+      if notifications.empty?
+        row = [header_height, height - 1].min
+        screen[row] = "No notifications."
+        render_screen(screen, width: width, height: height, view_key: [:notifications, filter])
+        return
+      end
+
+      screen[header_height] = themed_notification_table_header(width - 1)
+      max_lines = [height - header_height - 2, 1].max
+      start_index = [selected - (max_lines / 2), 0].max
+      end_index = [start_index + max_lines - 1, notifications.length - 1].min
+
+      notifications[start_index..end_index].each_with_index do |notification, idx|
+        line_index = start_index + idx
+        line = themed_notification_row(notification, width - 1)
+        line = inverse_preserve_ansi(line) if line_index == selected
+        row = header_height + 1 + idx
+        break if row >= height
+
+        screen[row] = line
+      end
+
+      render_screen(screen, width: width, height: height, view_key: [:notifications, filter])
+    end
+
+    def themed_notification_table_header(width)
+      spec = notification_table_spec(width)
+      row = build_topic_list_table_row(
+        spec[:columns].map do |col|
+          { text: col[:label], width: spec[:widths][col[:key]], align: col[:align] || :left }
+        end
+      )
+      theme_text(row, fg: "list_meta")
+    end
+
+    def themed_notification_row(notification, width)
+      spec = notification_table_spec(width)
+      separator = theme_text("  ", fg: "list_text")
+      spec[:columns].map do |col|
+        text = notification_cell_value(notification, col[:key])
+        cell = fit_topic_list_cell(text, spec[:widths][col[:key]].to_i, align: col[:align] || :left)
+        if col[:key] == :user && notification["read"] != true
+          theme_text(cell, fg: "accent")
+        else
+          theme_text(cell, fg: "list_text")
+        end
+      end.join(separator)
+    end
+
+    def notification_table_spec(width)
+      username_width = [[(width * 0.18).floor, 12].max, 20].min
+      type_width = [[(width * 0.14).floor, 10].max, 14].min
+      time_width = 6
+      title_width = [width - username_width - type_width - time_width - 6, 12].max
+
+      {
+        widths: {
+          user: username_width,
+          type: type_width,
+          title: title_width,
+          time: time_width
+        },
+        columns: [
+          { key: :user, label: "User", align: :left },
+          { key: :type, label: "Type", align: :left },
+          { key: :title, label: "Title", align: :left },
+          { key: :time, label: "Ago", align: :right }
+        ]
+      }
+    end
+
+    def notification_cell_value(notification, key)
+      case key
+      when :user
+        unread = notification["read"] == true ? "  " : "• "
+        "#{unread}#{notification_actor_label(notification)}"
+      when :type
+        notification_type_label(notification)
+      when :title
+        notification_title(notification)
+      when :time
+        notification_relative_time(notification["created_at"])
+      else
+        ""
+      end
+    end
+
+    def filter_notifications(notifications, filter)
+      return notifications if filter == :all
+
+      names = notification_filter_type_names(filter)
+      notifications.select { |notification| names.include?(notification_type_name(notification)) }
+    end
+
+    def notification_filter_label(filter)
+      humanize_identifier(filter.to_s)
+    end
+
+    def notification_filter_type_names(filter)
+      case filter
+      when :responses
+        %w[replied quoted following_replied]
+      when :likes
+        %w[liked liked_consolidated reaction]
+      when :mentions
+        %w[mentioned group_mentioned]
+      when :edits
+        %w[edited]
+      when :links
+        %w[linked linked_consolidated]
+      when :messages
+        %w[private_message invited_to_private_message group_message_summary]
+      else
+        []
+      end
+    end
+
+    def notification_type_name(notification)
+      site_notification_types_by_id[notification["notification_type"].to_i].to_s
+    end
+
+    def notification_summary(notification)
+      parts = []
+      actor = notification_actor_label(notification)
+      type = notification_type_label(notification)
+      title = notification_title(notification)
+      parts << actor unless actor.empty?
+      parts << type unless type.empty?
+      parts << title unless title.empty?
+      summary = parts.join(" - ")
+      summary = notification_excerpt(notification) if summary.empty?
+      normalize_inline_text(emojify(summary))
+    end
+
+    def notification_actor_label(notification)
+      data = notification["data"].is_a?(Hash) ? notification["data"] : {}
+      name = notification["acting_user_name"].to_s.strip
+      name = data["display_username"].to_s.strip if name.empty?
+      name
+    end
+
+    def notification_type_label(notification)
+      data = notification["data"].is_a?(Hash) ? notification["data"] : {}
+      raw =
+        if data["message"].to_s.strip.empty?
+          site_notification_types_by_id[notification["notification_type"].to_i]
+        else
+          data["message"].to_s
+        end
+      humanize_identifier(raw)
+    end
+
+    def notification_title(notification)
+      text = notification["fancy_title"].to_s
+      data = notification["data"].is_a?(Hash) ? notification["data"] : {}
+      text = data["topic_title"].to_s if text.strip.empty?
+      CGI.unescapeHTML(strip_html(text.to_s)).strip
+    end
+
+    def notification_excerpt(notification)
+      data = notification["data"].is_a?(Hash) ? notification["data"] : {}
+      CGI.unescapeHTML(strip_html(data["excerpt"].to_s)).strip
+    end
+
+    def notification_relative_time(value)
+      time = value.is_a?(Time) ? value : Time.parse(value.to_s)
+      seconds = [Time.now - time, 0].max.to_i
+      return "#{seconds}s" if seconds < 60
+
+      minutes = seconds / 60
+      return "#{minutes}m" if minutes < 60
+
+      hours = minutes / 60
+      return "#{hours}h" if hours < 24
+
+      days = hours / 24
+      return "#{days}d" if days < 7
+
+      weeks = days / 7
+      return "#{weeks}w" if days < 365
+
+      "#{days / 365}y"
+    rescue StandardError
+      ""
+    end
+
+    def humanize_identifier(text)
+      raw = text.to_s.strip
+      return "" if raw.empty?
+
+      raw.gsub(/[_-]+/, " ").split.map(&:capitalize).join(" ")
     end
 
     def highlight_search_term(text, query)
