@@ -79,6 +79,28 @@ module Termcourse
       assert_equal 1, updates.incoming_count
     end
 
+    def test_incoming_topic_window_is_bounded
+      client = FakeClient.new
+      updates = LiveUpdates.new(
+        "https://meta.discourse.org",
+        headers: { "Cookie" => "_forum_session=abc" },
+        current_user_id: 42,
+        client: client,
+        max_incoming_topic_ids: 3
+      )
+      updates.track!(:latest)
+
+      emit(client, "/latest", "topic_id" => 51, "message_type" => "latest", "payload" => {})
+      emit(client, "/latest", "topic_id" => 52, "message_type" => "latest", "payload" => {})
+      emit(client, "/latest", "topic_id" => 53, "message_type" => "latest", "payload" => {})
+      emit(client, "/latest", "topic_id" => 54, "message_type" => "latest", "payload" => {})
+
+      assert_equal 3, updates.incoming_count
+
+      emit(client, "/latest", "topic_id" => 51, "message_type" => "latest", "payload" => {})
+      assert_equal 3, updates.incoming_count
+    end
+
     private
 
     def build_updates(filter:)

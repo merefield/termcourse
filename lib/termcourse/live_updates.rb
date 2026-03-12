@@ -5,13 +5,17 @@ require "message_bus/http_client"
 
 module Termcourse
   class LiveUpdates
-    def initialize(base_url, headers:, current_user_id: nil, client: nil, debug: nil)
+    MAX_INCOMING_TOPIC_IDS = 500
+
+    def initialize(base_url, headers:, current_user_id: nil, client: nil, debug: nil, max_incoming_topic_ids: MAX_INCOMING_TOPIC_IDS)
       @client = client || MessageBus::HTTPClient.new(base_url, headers: headers)
       @current_user_id = current_user_id
       @debug = debug
+      @max_incoming_topic_ids = [max_incoming_topic_ids.to_i, 1].max
       @mutex = Mutex.new
       @filter = :latest
       @incoming_topic_ids = Set.new
+      @incoming_topic_order = []
 
       subscribe_channels
     end
@@ -33,7 +37,7 @@ module Termcourse
     def track!(filter)
       @mutex.synchronize do
         @filter = filter.to_sym
-        @incoming_topic_ids.clear
+        clear_incoming!
       end
     end
 
@@ -71,7 +75,7 @@ module Termcourse
       topic_id = payload["topic_id"].to_i
       return if topic_id <= 0
 
-      @mutex.synchronize { @incoming_topic_ids << topic_id }
+      @mutex.synchronize { add_incoming_topic_id(topic_id) }
       debug_log("live_updates_incoming filter=#{current_filter} channel=#{channel} topic_id=#{topic_id}")
     end
 
@@ -101,6 +105,23 @@ module Termcourse
 
     def private_message?(data)
       data.dig("payload", "archetype").to_s == "private_message"
+    end
+
+    def clear_incoming!
+      @incoming_topic_ids.clear
+      @incoming_topic_order.clear
+    end
+
+    def add_incoming_topic_id(topic_id)
+      return if @incoming_topic_ids.include?(topic_id)
+
+      @incoming_topic_ids << topic_id
+      @incoming_topic_order << topic_id
+
+      while @incoming_topic_order.length > @max_incoming_topic_ids
+        expired_topic_id = @incoming_topic_order.shift
+        @incoming_topic_ids.delete(expired_topic_id)
+      end
     end
 
     def debug_log(message)
