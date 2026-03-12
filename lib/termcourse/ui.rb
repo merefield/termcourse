@@ -1919,19 +1919,33 @@ module Termcourse
     end
 
     def site_info
-      @site_info ||= with_errors { @client.site_info } || {}
+      return @site_info if defined?(@site_info) && @site_info.is_a?(Hash)
+
+      result = with_errors { @client.site_info }
+      @site_info = result if result.is_a?(Hash)
+      @site_info || {}
     end
 
     def site_categories
-      @site_categories ||= begin
-        list = site_info["categories"] || []
+      return @site_categories if defined?(@site_categories) && @site_categories
+
+      info = site_info
+      return {} unless defined?(@site_info) && @site_info.is_a?(Hash)
+
+      @site_categories = begin
+        list = info["categories"] || []
         list.each_with_object({}) { |cat, memo| memo[cat["id"]] = cat["name"].to_s }
       end
     end
 
     def site_notification_types_by_id
-      @site_notification_types_by_id ||= begin
-        types = site_info["notification_types"] || {}
+      return @site_notification_types_by_id if defined?(@site_notification_types_by_id) && @site_notification_types_by_id
+
+      info = site_info
+      return {} unless defined?(@site_info) && @site_info.is_a?(Hash)
+
+      @site_notification_types_by_id = begin
+        types = info["notification_types"] || {}
         types.each_with_object({}) { |(name, id), memo| memo[id.to_i] = name.to_s }
       end
     end

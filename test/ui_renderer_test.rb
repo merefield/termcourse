@@ -502,6 +502,36 @@ module Termcourse
     end
   end
 
+  class UISiteInfoCachingTest < Minitest::Test
+    def setup
+      @ui = UI.allocate
+    end
+
+    def test_site_info_retries_after_transient_failure
+      responses = [nil, { "categories" => [{ "id" => 2, "name" => "Staff" }] }]
+      @ui.define_singleton_method(:with_errors) { responses.shift }
+
+      assert_equal({}, @ui.send(:site_info))
+      assert_equal({ "categories" => [{ "id" => 2, "name" => "Staff" }] }, @ui.send(:site_info))
+    end
+
+    def test_site_categories_do_not_cache_empty_result_after_failed_site_info
+      responses = [nil, { "categories" => [{ "id" => 2, "name" => "Staff" }] }]
+      @ui.define_singleton_method(:with_errors) { responses.shift }
+
+      assert_equal({}, @ui.send(:site_categories))
+      assert_equal({ 2 => "Staff" }, @ui.send(:site_categories))
+    end
+
+    def test_notification_types_do_not_cache_empty_result_after_failed_site_info
+      responses = [nil, { "notification_types" => { "liked" => 5 } }]
+      @ui.define_singleton_method(:with_errors) { responses.shift }
+
+      assert_equal({}, @ui.send(:site_notification_types_by_id))
+      assert_equal({ 5 => "liked" }, @ui.send(:site_notification_types_by_id))
+    end
+  end
+
   class UISearchFormattingTest < Minitest::Test
     def setup
       @ui = UI.allocate
