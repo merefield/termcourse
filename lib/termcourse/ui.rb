@@ -149,12 +149,13 @@ module Termcourse
       }
     }.freeze
 
-    def initialize(base_url, api_key: nil, api_username: nil, client: nil, theme_name: nil)
+    def initialize(base_url, api_key: nil, api_username: nil, client: nil, theme_name: nil, current_user_id: nil)
       @client = client || Client.new(base_url, api_key: api_key, api_username: api_username)
       @reader = TTY::Reader.new
       @prompt = TTY::Prompt.new
       @pastel = Pastel.new
       @api_username = api_username
+      @current_user_id = current_user_id
       @base_url = base_url
       @display_url = base_url.sub(%r{\Ahttps?://}i, "")
       @theme_name = (theme_name || ENV.fetch("TERMCOURSE_THEME", "default")).to_s.downcase
@@ -185,6 +186,7 @@ module Termcourse
       @image_cache = {}
       @topic_list_users_by_id = {}
       @pm_unread_count = 0
+      @live_updates = nil
       @last_read_post_sent = {}
       @debug_enabled = ENV.fetch("TERMCOURSE_DEBUG", "0") == "1"
       image_debug_log("init enabled=#{@images_enabled} backend_pref=#{@image_backend_preference} backend=#{@image_backend || 'none'} mode=#{@image_mode} colors=#{@image_colors} color_mode=#{@color_mode}") if @image_debug_enabled
@@ -195,8 +197,10 @@ module Termcourse
     def run
       filter = :latest
       top_period = :monthly
+      start_live_updates
       loop do
         refresh_pm_unread_count
+        reset_live_updates(filter)
         topics_data = fetch_list(filter, top_period)
         return if topics_data.nil?
         merge_topic_list_users(topics_data)
@@ -227,6 +231,8 @@ module Termcourse
             )
             break if topic_result == :quit
             next if topic_result == :back_to_search
+
+            break
           end
           next
         end
@@ -239,6 +245,8 @@ module Termcourse
         topic_result = topic_loop(result)
         break if topic_result == :quit
       end
+    ensure
+      stop_live_updates
     end
 
     private
@@ -1267,9 +1275,17 @@ module Termcourse
 
     def topic_list_right_status
       parts = []
+      parts << incoming_topics_label
       parts << pm_unread_label
       parts << login_label
       parts.compact.join(" | ")
+    end
+
+    def incoming_topics_label
+      count = @live_updates&.incoming_count.to_i
+      return nil if count <= 0
+
+      "New/updated (#{count})"
     end
 
     def pm_unread_label
@@ -1971,6 +1987,36 @@ module Termcourse
       @pm_unread_count = 0
     end
 
+    def start_live_updates
+      headers = @client.message_bus_headers
+      return if headers["Cookie"].to_s.strip.empty?
+
+      @live_updates = LiveUpdates.new(
+        @base_url,
+        headers: headers,
+        current_user_id: @current_user_id,
+        debug: method(:debug_log_line)
+      )
+      @live_updates.start
+    rescue StandardError => e
+      debug_log_line("live_updates_init_error #{e.class}: #{e.message}")
+      @live_updates = nil
+    end
+
+    def stop_live_updates
+      @live_updates&.stop
+    rescue StandardError
+      nil
+    ensure
+      @live_updates = nil
+    end
+
+    def reset_live_updates(filter)
+      @live_updates&.track!(filter)
+    rescue StandardError => e
+      debug_log_line("live_updates_reset_error #{e.class}: #{e.message}")
+    end
+
     def unread_private_messages_count(data)
       topics = data&.dig("topic_list", "topics")
       return 0 unless topics.is_a?(Array)
@@ -1998,6 +2044,16 @@ module Termcourse
       nil
     rescue JSON::ParserError => e
       show_error(e)
+      nil
+    end
+
+    def debug_log_line(message)
+      return unless @debug_enabled
+
+      File.open("/tmp/termcourse_debug.txt", "a") do |f|
+        f.puts("[#{Time.now.utc.iso8601}] #{message}")
+      end
+    rescue StandardError
       nil
     end
 

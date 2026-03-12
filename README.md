@@ -22,6 +22,19 @@ A terminal UI for browsing and posting to Discourse forums. It behaves like a li
 - Username/email + password login (cookie-based session login; supports TOTP/backup codes).
 - API key + username login (fallback for SSO-only or locked-down sites).
 
+## Capability Matrix
+
+| Capability | Status | Notes |
+| --- | --- | --- |
+| Topic lists (`latest`, `unread`, `private`, `hot`, `new`, `top`) | Full | Includes Top period cycling and PM-specific layouts. |
+| Topic reading and navigation | Full | Scrollable topic view with progress/footer bar. |
+| Posting and replying | Full | New topics, topic replies, and post replies. |
+| Likes | Full | Like/unlike from Topic View. |
+| Search | Full | Search results open directly into matching topic/post context. |
+| Theming | Full | Built-in themes plus YAML overrides. |
+| Inline images | Full | `chafa` primary, `viu` fallback/override. |
+| Live list update notification | Partial | Uses Discourse MessageBus channels and shows `New/updated (n)` in the topic-list status area. Current implementation tracks core list filters only; category/tag-scoped refinement is planned. |
+
 ## Quickstart
 
 ```bash

@@ -2,6 +2,7 @@
 
 require "termcourse/cli"
 require "termcourse/client"
+require "termcourse/live_updates"
 require "termcourse/ui"
 require "termcourse/version"
 

@@ -173,6 +173,13 @@ module Termcourse
       nil
     end
 
+    def message_bus_headers
+      out = { "User-Agent" => headers["User-Agent"] }
+      cookie = cookie_header
+      out["Cookie"] = cookie unless cookie.empty?
+      out
+    end
+
     def ensure_csrf
       return @csrf_token if @csrf_token
 
@@ -283,6 +290,14 @@ module Termcourse
           f.adapter Faraday.default_adapter
         end
       end
+    end
+
+    def cookie_header
+      uri = URI("#{@base_url}/")
+      cookies = @cookie_jar.cookies(uri)
+      cookies.map { |cookie| "#{cookie.name}=#{cookie.value}" }.join("; ")
+    rescue StandardError
+      ""
     end
 
     def resolve_ipv4_address

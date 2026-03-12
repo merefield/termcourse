@@ -245,7 +245,13 @@ module Termcourse
       current = client.current_user
       return nil unless current.is_a?(Hash) && current["current_user"].is_a?(Hash)
 
-      UI.new(base_url, client: client, api_username: api_username, theme_name: theme_name)
+      UI.new(
+        base_url,
+        client: client,
+        api_username: api_username,
+        current_user_id: current.dig("current_user", "id"),
+        theme_name: theme_name
+      )
     rescue Faraday::Error
       nil
     end
@@ -272,7 +278,13 @@ module Termcourse
                    end
       return nil unless login_user
 
-      UI.new(base_url, client: client, api_username: login_user, theme_name: theme_name)
+      UI.new(
+        base_url,
+        client: client,
+        api_username: login_user,
+        current_user_id: current.is_a?(Hash) ? current.dig("current_user", "id") : nil,
+        theme_name: theme_name
+      )
     rescue Faraday::Error
       nil
     end
