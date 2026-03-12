@@ -89,6 +89,65 @@ module Termcourse
 
     TOPIC_LIST_WIDE_CATEGORY_MIN = 125
     TOPIC_LIST_WIDE_STATS_MIN = 149
+    SHORTCUT_HELP_SECTIONS = [
+      {
+        title: "General",
+        entries: [
+          { action: "Open shortcut help", termcourse: "?", discourse: "?" }
+        ]
+      },
+      {
+        title: "Topic List",
+        entries: [
+          { action: "Move selection", termcourse: "Up/Down arrows", discourse: "j / k" },
+          { action: "Open selected topic", termcourse: "Enter", discourse: "o / Enter" },
+          { action: "Open the first 10 visible topics", termcourse: "1-0", discourse: "-" },
+          { action: "Create a new topic", termcourse: "n", discourse: "c" },
+          { action: "Search", termcourse: "s", discourse: "/" },
+          { action: "Cycle list filter", termcourse: "f", discourse: "-" },
+          { action: "Cycle Top period", termcourse: "p", discourse: "-" },
+          { action: "Refresh / apply incoming updates", termcourse: "g", discourse: "." },
+          { action: "Quit", termcourse: "q", discourse: "-" }
+        ]
+      },
+      {
+        title: "Topic View",
+        entries: [
+          { action: "Move between posts", termcourse: "Up/Down arrows", discourse: "j / k" },
+          { action: "Scroll the expanded post", termcourse: "Left/Right arrows", discourse: "-" },
+          { action: "Like selected post", termcourse: "l", discourse: "l" },
+          { action: "Reply to topic", termcourse: "r", discourse: "Shift+r" },
+          { action: "Reply to selected post", termcourse: "p", discourse: "r" },
+          { action: "Search", termcourse: "s", discourse: "/" },
+          { action: "Expand image fullscreen", termcourse: "x", discourse: "-" },
+          { action: "Back", termcourse: "Esc", discourse: "u" },
+          { action: "Quit", termcourse: "q", discourse: "-" }
+        ]
+      },
+      {
+        title: "Search Results",
+        entries: [
+          { action: "Move selection", termcourse: "Up/Down arrows", discourse: "j / k" },
+          { action: "Open selected result", termcourse: "Enter", discourse: "o / Enter" },
+          { action: "Back", termcourse: "Esc", discourse: "u / Esc" }
+        ]
+      },
+      {
+        title: "Fullscreen Image",
+        entries: [
+          { action: "Exit fullscreen image", termcourse: "x / Esc", discourse: "-" }
+        ]
+      },
+      {
+        title: "Composer",
+        entries: [
+          { action: "Move cursor", termcourse: "Arrow keys", discourse: "Arrow keys" },
+          { action: "Insert a new line", termcourse: "Enter", discourse: "Enter" },
+          { action: "Submit", termcourse: "Ctrl+D", discourse: "Ctrl+Enter / Cmd+Enter" },
+          { action: "Cancel", termcourse: "Esc", discourse: "Esc" }
+        ]
+      }
+    ].freeze
 
     BUILTIN_THEMES = {
       "default" => {
@@ -279,9 +338,9 @@ module Termcourse
           end
 
           case key
-          when "\u001b[A" # up
+          when "\u001b[A", "k" # up
             selected = [selected - 1, 0].max
-          when "\u001b[B" # down
+          when "\u001b[B", "j" # down
             selected = [selected + 1, topics.length - 1].min
             if next_url && selected >= topics.length - 3 && !loading
               loading = true
@@ -299,7 +358,7 @@ module Termcourse
               topics.concat(more_topics)
               loading = false
             end
-          when "\r", "\n" # enter
+          when "\r", "\n", "o" # enter/open
             topic = topics[selected]
             return topic["id"] if topic
           when "1", "2", "3", "4", "5", "6", "7", "8", "9", "0"
@@ -309,18 +368,20 @@ module Termcourse
           when "f"
             filter_index = (filter_index + 1) % filters.length
             return { filter: filters[filter_index] }
+          when "?"
+            shortcuts_help_loop
           when "p"
             next unless filters[filter_index] == :top
 
             period_index = (period_index + 1) % top_periods.length
             return { top_period: top_periods[period_index] }
-          when "s"
+          when "s", "/"
             query = prompt_search_query
             return { search: query } if query
-          when "n"
+          when "n", "c"
             new_topic = new_topic_flow
             return { new_topic: new_topic } if new_topic
-          when "g"
+          when "g", "."
             return :reload
           when "q", "\u001b"
             return :quit
@@ -353,15 +414,15 @@ module Termcourse
           end
 
           case key
-          when "\u001b[A" # up
+          when "\u001b[A", "k" # up
             selected = [selected - 1, 0].max
-          when "\u001b[B" # down
+          when "\u001b[B", "j" # down
             selected = [selected + 1, posts.length - 1].min
           when "\u001b[C" # right
             scroll_offsets[selected] += 3
           when "\u001b[D" # left
             scroll_offsets[selected] = [scroll_offsets[selected] - 3, 0].max
-          when "s"
+          when "s", "/"
             query = prompt_search_query
             search_result = search_loop(query) if query
             if search_result
@@ -372,6 +433,8 @@ module Termcourse
               selected = posts.find_index { |p| p["id"] == search_result[:post_id] } || 0
               scroll_offsets = Hash.new(0)
             end
+          when "?"
+            shortcuts_help_loop
           when "l"
             post = posts[selected]
             next unless post
@@ -399,7 +462,7 @@ module Termcourse
             fullscreen_image_loop(image_url) if image_url
           when "q"
             return :quit
-          when "\u001b", "\u007f"
+          when "\u001b", "\u007f", "u"
             return back_result
           end
         end
@@ -411,7 +474,7 @@ module Termcourse
       height = TTY::Screen.height
       list_mode = topic_list_mode(width)
 
-      controls = "arrows: move | ↵: open | 1-0: open top10 | n: new | s: search | f: filter"
+      controls = "arrows: move | ↵: open | 1-0: open top10 | n: new | s: search | f: filter | ?: help"
       controls += " | p: period" if filter == :top
       controls += " | g: refresh | q: quit"
 
@@ -483,7 +546,7 @@ module Termcourse
       selected_post = posts[selected]
       image_expand_url = image_expand_url_for_post(selected_post, width)
 
-      controls = "arrows: move | l: like | r: reply topic | p: reply post | s: search | esc: back | q: quit"
+      controls = "arrows: move | l: like | r: reply topic | p: reply post | s: search | ?: help | esc: back | q: quit"
       controls += " | x: image" if image_expand_url
       top_line = build_header_line(controls, @display_url, width - 4)
       topic_line = "Topic: #{truncate(title, width - 4)}"
@@ -946,7 +1009,8 @@ module Termcourse
             @resized = false
             next
           end
-          return if key == "x" || key == "\u001b"
+          shortcuts_help_loop if key == "?"
+          return if key == "x" || key == "\u001b" || key == "u"
         end
       end
     end
@@ -2125,15 +2189,17 @@ module Termcourse
           end
 
           case key
-          when "\u001b[A"
+          when "\u001b[A", "k"
             selected = [selected - 1, 0].max
-          when "\u001b[B"
+          when "\u001b[B", "j"
             selected = [selected + 1, posts.length - 1].min
-          when "\r", "\n"
+          when "?"
+            shortcuts_help_loop
+          when "\r", "\n", "o"
             post = posts[selected]
             return nil unless post
             return { topic_id: post["topic_id"], post_id: post["id"] }
-          when "q", "\u001b"
+          when "q", "\u001b", "u"
             return nil
           end
         end
@@ -2146,7 +2212,7 @@ module Termcourse
       row_width = [width - 1, 1].max
 
       top_line = build_header_line(
-        "arrows: move | ↵: open | esc: back | q: quit",
+        "arrows: move | ↵: open | ?: help | esc: back | q: quit",
         @display_url,
         width - 4
       )
@@ -2269,6 +2335,89 @@ module Termcourse
       return text[0, width] if width <= 3
 
       text[0, width - 3] + "..."
+    end
+
+    def shortcuts_help_loop
+      offset = 0
+      loop do
+        max_offset = render_shortcuts_help(offset)
+        key = read_keypress_with_tick
+        if key == :__tick__
+          @resized = false
+          next
+        end
+        if @resized
+          @resized = false
+          next
+        end
+
+        case key
+        when "\u001b[A", "k"
+          offset = [offset - 1, 0].max
+        when "\u001b[B", "j"
+          offset = [offset + 1, max_offset].min
+        when "\u001b", "\u007f"
+          return
+        end
+      end
+    end
+
+    def render_shortcuts_help(offset)
+      width = TTY::Screen.width
+      height = TTY::Screen.height
+      top_line = build_header_line("Shortcut Keys | arrows/jk: scroll | esc: back", @display_url, width - 4)
+      content = [
+        top_line,
+        "-" * (width - 4),
+        "Termcourse shortcuts with corresponding Discourse core keys where applicable"
+      ]
+      header_box = build_themed_header_box(content, width)
+      header_lines = header_box.split("\n")
+      header_height = header_lines.length + 1
+      screen = Array.new(height, "")
+      header_lines.each_with_index do |line, idx|
+        break if idx >= height
+
+        screen[idx] = line
+      end
+
+      body_lines = build_shortcuts_help_lines([width - 2, 20].max)
+      available_rows = [height - header_height, 1].max
+      max_offset = [body_lines.length - available_rows, 0].max
+      offset = [[offset, 0].max, max_offset].min
+
+      body_lines[offset, available_rows].to_a.each_with_index do |line, idx|
+        row = header_height + idx
+        break if row >= height
+
+        screen[row] = line
+      end
+
+      render_screen(screen, width: width, height: height, view_key: [:shortcut_help, offset])
+      max_offset
+    end
+
+    def build_shortcuts_help_lines(width)
+      lines = []
+      SHORTCUT_HELP_SECTIONS.each_with_index do |section, section_index|
+        lines << theme_text(section[:title], fg: "accent")
+        section[:entries].each do |entry|
+          lines.concat(shortcuts_help_entry_lines(entry, width))
+        end
+        lines << "" if section_index < SHORTCUT_HELP_SECTIONS.length - 1
+      end
+      lines
+    end
+
+    def shortcuts_help_entry_lines(entry, width)
+      action_lines = wrap_and_linkify_line(entry[:action].to_s, width)
+      alternatives = [entry[:termcourse], entry[:discourse]].compact.reject { |value| value == "-" }
+      detail = "  #{alternatives.join(' | ')}"
+      detail_lines = wrap_and_linkify_line(detail, width)
+
+      action_lines.map! { |line| theme_text(line, fg: "list_text") }
+      detail_lines.map! { |line| theme_text(line, fg: "list_meta") }
+      action_lines + detail_lines
     end
 
     def clear_screen

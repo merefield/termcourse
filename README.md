@@ -196,6 +196,7 @@ Color translation:
 - Press `s` to search.
 - Press `f` to cycle the list filter (Latest, Unread, Private Messages, Hot, New, Top).
 - Press `p` to change Top period (daily, weekly, monthly, quarterly, yearly).
+- Press `?` to open the shortcut help page.
 - Press `g` to refresh.
 - Press `q` to quit.
 
@@ -223,6 +224,7 @@ Private Messages list view:
 - `p` reply to the selected post.
 - `s` search from within a topic.
 - `x` toggle fullscreen image view when the selected post shows an image preview.
+- `?` opens the shortcut help page.
 - `esc` goes back to the list.
 - `q` quits.
 
@@ -233,6 +235,7 @@ In fullscreen image view, press `x` or `esc` to return to the topic.
 - Press `s` to open search.
 - Type your query; Enter runs the search.
 - Arrow keys move through results; Enter opens the topic at the matching post.
+- Press `?` to open the shortcut help page.
 - From a search-opened topic, `esc` returns to search results.
 - From search results, `esc` returns to the topic list.
 
