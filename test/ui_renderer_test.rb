@@ -450,6 +450,58 @@ module Termcourse
     end
   end
 
+  class UINotificationStateTest < Minitest::Test
+    FakeLiveUpdates = Struct.new(:unread_notification_count) do
+      def set_unread_notification_count(count)
+        self.unread_notification_count = count
+      end
+    end
+
+    def setup
+      @ui = UI.allocate
+    end
+
+    def test_refresh_notification_unread_count_preserves_existing_count_on_failed_refresh
+      live_updates = FakeLiveUpdates.new(6)
+      @ui.instance_variable_set(:@live_updates, live_updates)
+      @ui.instance_variable_set(:@notification_unread_count, 6)
+      @ui.define_singleton_method(:with_errors) { nil }
+
+      @ui.send(:refresh_notification_unread_count)
+
+      assert_equal 6, @ui.instance_variable_get(:@notification_unread_count)
+      assert_equal 6, live_updates.unread_notification_count
+    end
+
+    def test_unread_notification_count_uses_live_zero_value
+      @ui.instance_variable_set(:@live_updates, FakeLiveUpdates.new(0))
+      @ui.instance_variable_set(:@notification_unread_count, 6)
+
+      assert_equal 0, @ui.send(:unread_notification_count)
+    end
+
+    def test_mark_notification_read_only_updates_local_state_after_success
+      notification = { "id" => 8, "read" => false }
+      @ui.define_singleton_method(:with_errors) { nil }
+
+      @ui.send(:mark_notification_read, notification)
+
+      assert_equal false, notification["read"]
+
+      @ui.define_singleton_method(:with_errors) { {} }
+
+      @ui.send(:mark_notification_read, notification)
+
+      assert_equal true, notification["read"]
+    end
+
+    def test_notification_relative_time_uses_weeks_until_one_year
+      value = (Time.now - (60 * 24 * 60 * 60)).iso8601
+
+      assert_equal "8w", @ui.send(:notification_relative_time, value)
+    end
+  end
+
   class UISearchFormattingTest < Minitest::Test
     def setup
       @ui = UI.allocate

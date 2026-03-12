@@ -114,6 +114,16 @@ module Termcourse
       assert_equal 5, updates.unread_notification_count
     end
 
+    def test_unread_notification_count_is_nil_until_seeded
+      updates, = build_updates(filter: :latest)
+
+      assert_nil updates.unread_notification_count
+
+      updates.set_unread_notification_count(0)
+
+      assert_equal 0, updates.unread_notification_count
+    end
+
     def test_can_seed_unread_notification_count
       updates, = build_updates(filter: :latest)
 

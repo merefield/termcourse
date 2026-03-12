@@ -1315,8 +1315,8 @@ module Termcourse
     end
 
     def unread_notification_count
-      live_count = @live_updates&.unread_notification_count.to_i
-      return live_count if live_count.positive?
+      live_count = @live_updates&.unread_notification_count
+      return live_count unless live_count.nil?
 
       @notification_unread_count.to_i
     end
@@ -2038,11 +2038,11 @@ module Termcourse
 
     def refresh_notification_unread_count
       data = with_errors { @client.notification_totals }
-      count = data.is_a?(Hash) ? data["unread_notifications"].to_i : 0
+      return unless data.is_a?(Hash)
+
+      count = data["unread_notifications"].to_i
       @notification_unread_count = [count, 0].max
       @live_updates&.set_unread_notification_count(@notification_unread_count)
-    rescue StandardError
-      @notification_unread_count ||= 0
     end
 
     def start_live_updates
@@ -2378,7 +2378,9 @@ module Termcourse
     def mark_notification_read(notification)
       return if notification.nil? || notification["read"] == true
 
-      with_errors { @client.mark_notification_read(notification["id"]) }
+      result = with_errors { @client.mark_notification_read(notification["id"]) }
+      return if result.nil?
+
       notification["read"] = true
     end
 
@@ -2584,7 +2586,7 @@ module Termcourse
       return "#{days}d" if days < 7
 
       weeks = days / 7
-      return "#{weeks}w" if days < 52
+      return "#{weeks}w" if days < 365
 
       "#{days / 365}y"
     rescue StandardError

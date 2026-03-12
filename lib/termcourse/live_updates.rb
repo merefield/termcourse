@@ -16,7 +16,7 @@ module Termcourse
       @filter = :latest
       @incoming_topic_ids = Set.new
       @incoming_topic_order = []
-      @unread_notification_count = 0
+      @unread_notification_count = nil
 
       subscribe_channels
     end
@@ -51,7 +51,7 @@ module Termcourse
     end
 
     def unread_notification_count
-      @mutex.synchronize { @unread_notification_count.to_i }
+      @mutex.synchronize { @unread_notification_count }
     end
 
     def set_unread_notification_count(count)
