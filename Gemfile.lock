@@ -21,6 +21,8 @@ GEM
     kramdown (2.5.2)
       rexml (>= 3.4.4)
     logger (1.7.0)
+    message_bus (4.5.2)
+      rack (> 2, < 4)
     minitest (6.0.2)
       drb (~> 2.0)
       prism (~> 1.5)
@@ -29,6 +31,7 @@ GEM
     pastel (0.8.0)
       tty-color (~> 0.5)
     prism (1.9.0)
+    rack (3.2.5)
     rexml (3.4.4)
     rouge (4.7.0)
     strings (0.2.1)
@@ -71,6 +74,7 @@ DEPENDENCIES
   faraday
   faraday-cookie_jar
   faraday-retry
+  message_bus
   minitest
   pastel
   tty-box
