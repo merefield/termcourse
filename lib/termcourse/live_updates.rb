@@ -128,11 +128,14 @@ module Termcourse
     end
 
     def update_unread_notification_count(data)
+      previous_unread = @mutex.synchronize { @unread_notification_count }
       count =
-        if data.key?("all_unread_notifications_count") || data.key?("new_personal_messages_notifications_count")
+        if data.key?("all_unread_notifications_count") && data.key?("new_personal_messages_notifications_count")
           data["all_unread_notifications_count"].to_i - data["new_personal_messages_notifications_count"].to_i
-        else
+        elsif data.key?("unread_notifications")
           data["unread_notifications"].to_i
+        else
+          previous_unread
         end
       @mutex.synchronize { @unread_notification_count = [count, 0].max }
       debug_log("live_updates_notifications unread=#{@unread_notification_count}")
