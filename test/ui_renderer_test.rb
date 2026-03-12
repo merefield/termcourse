@@ -365,6 +365,15 @@ module Termcourse
       assert_includes line, "#{list_text_ansi}Staff"
       assert_match(/#{Regexp.escape(list_text_ansi)}\s+0/, line)
     end
+
+    def test_fit_topic_list_cell_preserves_ansi_when_clipping_styled_text
+      styled = "#{@ui.send(:theme_text, '•', fg: 'accent')}#{@ui.send(:theme_text, 'abcdef', fg: 'list_text')}"
+      fitted = @ui.send(:fit_topic_list_cell, styled, 3, align: :left)
+      accent_ansi = @ui.send(:ansi_fg, @ui.send(:theme_color, "accent"))
+
+      assert_operator @ui.send(:display_width, @ui.send(:strip_all_ansi, fitted)), :<=, 3
+      assert_includes fitted, accent_ansi
+    end
   end
 
   class UISearchFormattingTest < Minitest::Test

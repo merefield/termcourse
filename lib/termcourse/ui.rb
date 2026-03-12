@@ -2498,12 +2498,50 @@ module Termcourse
           normalized = truncate_display(visible, width)
           visible = normalized
         else
-          normalized = clamp_visible(visible, width)
-          visible = normalized
+          normalized = clamp_visible_with_ansi(normalized, width)
+          visible = strip_all_ansi(normalized)
         end
       end
       gap = [width - display_width(visible), 0].max
       align == :right ? (" " * gap) + normalized : normalized + (" " * gap)
+    end
+
+    def clamp_visible_with_ansi(text, max_width)
+      return "" if max_width <= 0
+
+      width = 0
+      out = +""
+      idx = 0
+      saw_ansi = false
+
+      while idx < text.bytesize
+        if (token = ansi_token_at(text, idx))
+          out << token
+          idx += token.bytesize
+          saw_ansi = true
+          next
+        end
+
+        ch = text.byteslice(idx..).each_char.first
+        break unless ch
+
+        ch_width = display_width(ch)
+        break if width + ch_width > max_width
+
+        out << ch
+        width += ch_width
+        idx += ch.bytesize
+      end
+
+      out << "\e[0m" if saw_ansi && !out.end_with?("\e[0m")
+      out
+    end
+
+    def ansi_token_at(text, idx)
+      rest = text.byteslice(idx..)
+      rest[/\A\e\[[0-9;]*m/] ||
+        rest[/\A\e\]8;;.*?\a/] ||
+        rest[/\A\e\]8;;\a/]
     end
 
     def compact_topic_state_badge_text(topic, num_raw, meta_raw, width)
