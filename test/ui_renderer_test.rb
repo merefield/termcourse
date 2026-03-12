@@ -270,6 +270,39 @@ module Termcourse
       assert_includes visible, "..."
     end
 
+    def test_themed_topic_list_line_appends_unread_badge
+      topic = { "unread_posts" => 3 }
+
+      line = @ui.send(
+        :themed_topic_list_line,
+        1,
+        "A topic with unread posts",
+        42,
+        width: 48,
+        topic: topic
+      )
+
+      visible = @ui.send(:strip_all_ansi, line)
+      assert_includes visible, "[3]"
+      assert_operator @ui.send(:display_width, visible), :<=, 48
+    end
+
+    def test_themed_topic_list_line_with_badge_still_fits_requested_width
+      topic = { "unread_posts" => 3 }
+
+      line = @ui.send(
+        :themed_topic_list_line,
+        1,
+        "A topic with unread posts",
+        42,
+        width: 24,
+        topic: topic
+      )
+
+      visible = @ui.send(:strip_all_ansi, line)
+      assert_operator @ui.send(:display_width, visible), :<=, 24
+    end
+
     def test_themed_pm_topic_list_compact_line_ellipsizes_to_fit_width
       topic = {
         "title" => "ignored",
@@ -300,6 +333,61 @@ module Termcourse
       assert_equal :category, @ui.send(:topic_list_mode, UI::TOPIC_LIST_WIDE_CATEGORY_MIN)
       assert_equal :category, @ui.send(:topic_list_mode, UI::TOPIC_LIST_WIDE_STATS_MIN - 1)
       assert_equal :stats, @ui.send(:topic_list_mode, UI::TOPIC_LIST_WIDE_STATS_MIN)
+    end
+
+    def test_themed_topic_list_row_appends_unseen_badge_to_title_cell
+      topic = {
+        "title" => "Fresh topic",
+        "unseen" => true,
+        "category_id" => 2,
+        "reply_count" => 0
+      }
+      @ui.define_singleton_method(:site_categories) { { 2 => "Staff" } }
+
+      line = @ui.send(:themed_topic_list_row, topic, 1, 130, :category, :latest)
+      visible = @ui.send(:strip_all_ansi, line)
+
+      assert_includes visible, "Fresh topic •"
+    end
+
+    def test_themed_topic_list_row_keeps_following_columns_themed_after_badge
+      topic = {
+        "title" => "Fresh topic",
+        "unseen" => true,
+        "category_id" => 2,
+        "reply_count" => 0
+      }
+      @ui.define_singleton_method(:site_categories) { { 2 => "Staff" } }
+
+      line = @ui.send(:themed_topic_list_row, topic, 1, 130, :category, :latest)
+      list_text_ansi = @ui.send(:ansi_fg, @ui.send(:theme_color, "list_text"))
+
+      assert_includes line, "#{list_text_ansi}Staff"
+      assert_match(/#{Regexp.escape(list_text_ansi)}\s+0/, line)
+    end
+
+    def test_themed_topic_list_row_themes_inter_column_separators
+      topic = {
+        "title" => "Fresh topic",
+        "unseen" => true,
+        "category_id" => 2,
+        "reply_count" => 0
+      }
+      @ui.define_singleton_method(:site_categories) { { 2 => "Staff" } }
+
+      line = @ui.send(:themed_topic_list_row, topic, 1, 130, :category, :latest)
+      list_text_ansi = @ui.send(:ansi_fg, @ui.send(:theme_color, "list_text"))
+
+      assert_includes line, "#{list_text_ansi}  "
+    end
+
+    def test_fit_topic_list_cell_preserves_ansi_when_clipping_styled_text
+      styled = "#{@ui.send(:theme_text, '•', fg: 'accent')}#{@ui.send(:theme_text, 'abcdef', fg: 'list_text')}"
+      fitted = @ui.send(:fit_topic_list_cell, styled, 3, align: :left)
+      accent_ansi = @ui.send(:ansi_fg, @ui.send(:theme_color, "accent"))
+
+      assert_operator @ui.send(:display_width, @ui.send(:strip_all_ansi, fitted)), :<=, 3
+      assert_includes fitted, accent_ansi
     end
   end
 
