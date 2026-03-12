@@ -57,6 +57,20 @@ module Termcourse
       get_json("/search.json", q: query)
     end
 
+    def notifications(offset: 0, limit: 60, filter: nil)
+      params = { offset: offset.to_i, limit: limit.to_i }
+      params[:filter] = filter if filter
+      get_json("/notifications.json", params)
+    end
+
+    def mark_notification_read(notification_id)
+      put_json("/notifications/mark-read", id: notification_id.to_i)
+    end
+
+    def notification_totals
+      get_json("/notifications/totals.json")
+    end
+
     def get_bytes(path_or_url, max_bytes: nil, redirect_limit: 4)
       response = perform_request(:get, path_or_url, nil)
       if response.status >= 300 && response.status < 400
@@ -206,6 +220,11 @@ module Termcourse
       parse_json(response.body)
     end
 
+    def put_json(path, payload)
+      response = perform_request(:put, path, payload)
+      parse_json(response.body)
+    end
+
     def parse_json(body)
       return {} if body.nil? || body.strip.empty?
 
@@ -247,6 +266,8 @@ module Termcourse
                    connection.get(path_or_url, payload, headers)
                  when :post
                    connection.post(path_or_url, payload, headers)
+                 when :put
+                   connection.put(path_or_url, payload, headers)
                  when :delete
                    connection.delete(path_or_url, payload, headers)
                  else

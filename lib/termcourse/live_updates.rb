@@ -16,6 +16,7 @@ module Termcourse
       @filter = :latest
       @incoming_topic_ids = Set.new
       @incoming_topic_order = []
+      @unread_notification_count = 0
 
       subscribe_channels
     end
@@ -49,6 +50,16 @@ module Termcourse
       incoming_count.positive?
     end
 
+    def unread_notification_count
+      @mutex.synchronize { @unread_notification_count.to_i }
+    end
+
+    def set_unread_notification_count(count)
+      @mutex.synchronize do
+        @unread_notification_count = [count.to_i, 0].max
+      end
+    end
+
     private
 
     def subscribe_channels
@@ -58,6 +69,7 @@ module Termcourse
       subscribe("/new")
       subscribe("/unread")
       subscribe("/unread/#{@current_user_id}")
+      subscribe("/notification/#{@current_user_id}")
     end
 
     def subscribe(channel)
@@ -70,6 +82,10 @@ module Termcourse
 
     def handle_message(channel, data)
       payload = data.is_a?(Hash) ? data : {}
+      if notification_channel?(channel)
+        update_unread_notification_count(payload)
+        return
+      end
       return unless count_message?(channel, payload)
 
       topic_id = payload["topic_id"].to_i
@@ -103,8 +119,23 @@ module Termcourse
       channel == "/unread" || channel == "/unread/#{@current_user_id}"
     end
 
+    def notification_channel?(channel)
+      channel == "/notification/#{@current_user_id}"
+    end
+
     def private_message?(data)
       data.dig("payload", "archetype").to_s == "private_message"
+    end
+
+    def update_unread_notification_count(data)
+      count =
+        if data.key?("all_unread_notifications_count") || data.key?("new_personal_messages_notifications_count")
+          data["all_unread_notifications_count"].to_i - data["new_personal_messages_notifications_count"].to_i
+        else
+          data["unread_notifications"].to_i
+        end
+      @mutex.synchronize { @unread_notification_count = [count, 0].max }
+      debug_log("live_updates_notifications unread=#{@unread_notification_count}")
     end
 
     def clear_incoming!

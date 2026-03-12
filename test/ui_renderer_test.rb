@@ -389,6 +389,65 @@ module Termcourse
       assert_operator @ui.send(:display_width, @ui.send(:strip_all_ansi, fitted)), :<=, 3
       assert_includes fitted, accent_ansi
     end
+
+    def test_login_label_appends_unread_notifications_badge
+      @ui.instance_variable_set(:@notification_unread_count, 4)
+
+      label = @ui.send(:login_label)
+
+      assert_includes @ui.send(:strip_all_ansi, label), "Logged in: turnitaround [4]"
+    end
+
+    def test_build_header_line_visible_right_aligns_login_badge_without_losing_width
+      @ui.instance_variable_set(:@notification_unread_count, 4)
+
+      line = @ui.send(:build_header_line_visible, "Topic List: Latest", @ui.send(:login_label), 60)
+
+      assert_equal 60, @ui.send(:visible_length, line)
+      assert_includes @ui.send(:strip_all_ansi, line), "Logged in: turnitaround [4]"
+    end
+
+    def test_themed_notification_row_ellipsizes_to_fit_width
+      @ui.define_singleton_method(:site_notification_types_by_id) { { 5 => "liked" } }
+      notification = {
+        "read" => false,
+        "notification_type" => 5,
+        "created_at" => (Time.now - 7200).iso8601,
+        "fancy_title" => "A very long topic title that should be shortened cleanly in the notifications list",
+        "data" => { "display_username" => "merefield" }
+      }
+
+      line = @ui.send(:themed_notification_row, notification, 48)
+      visible = @ui.send(:strip_all_ansi, line)
+
+      assert_operator @ui.send(:display_width, visible), :<=, 48
+      assert_includes visible, "•"
+      assert_includes visible, "2h"
+    end
+
+    def test_filter_notifications_by_likes
+      @ui.define_singleton_method(:site_notification_types_by_id) { { 5 => "liked", 2 => "replied" } }
+      notifications = [
+        { "notification_type" => 5 },
+        { "notification_type" => 2 }
+      ]
+
+      filtered = @ui.send(:filter_notifications, notifications, :likes)
+
+      assert_equal [5], filtered.map { |notification| notification["notification_type"] }
+    end
+
+    def test_initial_topic_selected_index_accepts_selected_post_number
+      posts = [
+        { "id" => 10, "post_number" => 1 },
+        { "id" => 11, "post_number" => 2 },
+        { "id" => 12, "post_number" => 3 }
+      ]
+
+      selected = @ui.send(:initial_topic_selected_index, posts, {}, { post_number: 2 }, 123)
+
+      assert_equal 1, selected
+    end
   end
 
   class UISearchFormattingTest < Minitest::Test

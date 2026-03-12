@@ -15,6 +15,7 @@ A terminal UI for browsing and posting to Discourse forums. It behaves like a li
 - Reply to topics or specific posts (Markdown supported).
 - Like/unlike posts.
 - Search posts and jump directly to the matching topic context.
+- View notifications in a dedicated list and jump straight to the related topic/post.
 - Inline composer with cursor movement, line breaks, and a live character counter.
 - Emoji replacements for common `:emoji:` tokens and `:)`-style smiles.
 - YAML-driven themes (`default`, `slate`, `fairground`, `rust`) with per-color overrides.
@@ -31,6 +32,7 @@ A terminal UI for browsing and posting to Discourse forums. It behaves like a li
 | Posting and replying | Full | New topics, topic replies, and post replies. |
 | Likes | Full | Like/unlike from Topic View. |
 | Search | Full | Search results open directly into matching topic/post context. |
+| Notifications | Full | Dedicated notifications list with direct open into the related topic/post. |
 | Theming | Full | Built-in themes plus YAML overrides. |
 | Inline images | Full | `chafa` primary, `viu` fallback/override. |
 | Live list update notification | Partial | Uses Discourse MessageBus channels and shows `New/updated (n)` in the topic-list status area. Current implementation tracks core list filters only; category/tag-scoped refinement is planned. |
@@ -192,7 +194,8 @@ Color translation:
 - Use Up/Down arrows to navigate.
 - Press Enter to open a topic.
 - Press `1-0` to open the first 10 visible topics directly.
-- Press `n` to create a new topic.
+- Press `c` to create a new topic.
+- Press `n` to open notifications.
 - Press `s` to search.
 - Press `f` to cycle the list filter (Latest, Unread, Private Messages, Hot, New, Top).
 - Press `p` to change Top period (daily, weekly, monthly, quarterly, yearly).
@@ -200,6 +203,7 @@ Color translation:
 - Press `q` to quit.
 
 The status bar shows the current list filter and your logged-in username.
+If you have unread notifications, an accent badge like `[3]` appears beside the username.
 
 Private Messages list view:
 - Uses PM-specific columns in wide layouts.
@@ -222,6 +226,7 @@ Private Messages list view:
 - `r` reply to the topic.
 - `p` reply to the selected post.
 - `s` search from within a topic.
+- `n` opens notifications.
 - `x` toggle fullscreen image view when the selected post shows an image preview.
 - `esc` goes back to the list.
 - `q` quits.
@@ -232,9 +237,17 @@ In fullscreen image view, press `x` or `esc` to return to the topic.
 ### Search
 - Press `s` to open search.
 - Type your query; Enter runs the search.
+- Press `n` to open notifications.
 - Arrow keys move through results; Enter opens the topic at the matching post.
 - From a search-opened topic, `esc` returns to search results.
 - From search results, `esc` returns to the topic list.
+
+### Notifications
+- Press `n` from the topic list, topic view, or search results to open notifications.
+- Arrow keys move through notifications; Enter opens the related topic/post.
+- Press `f` to cycle notification filters (`All`, `Responses`, `Likes`, `Mentions`, `Edits`, `Links`, `Messages`).
+- Opening a notification marks it read in termcourse.
+- `esc` returns to the previous screen.
 
 ## Debug & Logging
 

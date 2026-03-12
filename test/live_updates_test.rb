@@ -28,7 +28,7 @@ module Termcourse
         client: client
       )
 
-      assert_equal ["/latest", "/new", "/unread", "/unread/42"], client.subscriptions.keys.sort
+      assert_equal ["/latest", "/new", "/notification/42", "/unread", "/unread/42"], client.subscriptions.keys.sort
 
       updates.start
       updates.stop
@@ -99,6 +99,27 @@ module Termcourse
 
       emit(client, "/latest", "topic_id" => 51, "message_type" => "latest", "payload" => {})
       assert_equal 3, updates.incoming_count
+    end
+
+    def test_notification_channel_updates_unread_notification_count
+      updates, client = build_updates(filter: :latest)
+
+      emit(
+        client,
+        "/notification/42",
+        "all_unread_notifications_count" => 7,
+        "new_personal_messages_notifications_count" => 2
+      )
+
+      assert_equal 5, updates.unread_notification_count
+    end
+
+    def test_can_seed_unread_notification_count
+      updates, = build_updates(filter: :latest)
+
+      updates.set_unread_notification_count(3)
+
+      assert_equal 3, updates.unread_notification_count
     end
 
     private
