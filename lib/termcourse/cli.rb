@@ -12,41 +12,48 @@ module Termcourse
     end
 
     def run
+      @locale = Localization.resolve_locale(extract_lang_option(@argv))
       options = {
         api_key: nil,
         api_username: nil,
         username: nil,
         password: nil,
-        theme: nil
+        theme: nil,
+        lang: nil
       }
 
       parser = OptionParser.new do |opts|
-        opts.banner = "Usage: termcourse [options] <discourse_url>"
+        opts.banner = t("cli.usage")
 
-        opts.on("--api-key KEY", "Discourse API key (or DISCOURSE_API_KEY)") do |value|
+        opts.on("--api-key KEY", t("cli.help.api_key")) do |value|
           options[:api_key] = value
         end
 
-        opts.on("--api-username USER", "Discourse API username (or DISCOURSE_API_USERNAME)") do |value|
+        opts.on("--api-username USER", t("cli.help.api_username")) do |value|
           options[:api_username] = value
         end
 
-        opts.on("--username USER", "Discourse username/email (or DISCOURSE_USERNAME)") do |value|
+        opts.on("--username USER", t("cli.help.username")) do |value|
           options[:username] = value
         end
 
-        opts.on("--password PASS", "Discourse password (or DISCOURSE_PASSWORD)") do |value|
+        opts.on("--password PASS", t("cli.help.password")) do |value|
           options[:password] = value
         end
 
-        opts.on("--theme NAME", "Theme name (overrides TERMCOURSE_THEME for this run)") do |value|
+        opts.on("--theme NAME", t("cli.help.theme")) do |value|
           options[:theme] = value
         end
 
-        opts.on("-h", "--help", "Show help") do
+        opts.on("--lang LANG", t("cli.help.lang")) do |value|
+          options[:lang] = value
+          @locale = Localization.resolve_locale(value)
+        end
+
+        opts.on("-h", "--help", t("cli.help.show")) do
           puts opts
           puts
-          puts "Core environment variables:"
+          puts t("cli.help.core_env")
           help_env_variables.each do |name, desc|
             puts "  #{name.ljust(28)} #{desc}"
           end
@@ -58,7 +65,7 @@ module Termcourse
       base_url = normalize_base_url(@argv.first)
 
       if base_url.nil? || base_url.strip.empty?
-        warn "Missing discourse_url."
+        warn t("cli.errors.missing_url")
         warn parser
         return 1
       end
@@ -67,6 +74,8 @@ module Termcourse
       preferred_auth = site_creds[:auth]
       debug_enabled = ENV.fetch("TERMCOURSE_HTTP_DEBUG", "0") == "1"
       theme_name = options[:theme]
+      locale = Localization.resolve_locale(options[:lang])
+      @locale = locale
 
       username = options[:username]
       api_key = options[:api_key]
@@ -102,9 +111,9 @@ module Termcourse
 
         cli_debug_log(debug_enabled, "auth_attempt method=#{method}")
         ui = if method == :login
-               build_ui_from_login(base_url, username, password, theme_name: theme_name, debug_enabled: debug_enabled)
+               build_ui_from_login(base_url, username, password, theme_name: theme_name, debug_enabled: debug_enabled, locale: locale)
              else
-               build_ui_from_api(base_url, api_key, api_username, theme_name: theme_name, debug_enabled: debug_enabled)
+               build_ui_from_api(base_url, api_key, api_username, theme_name: theme_name, debug_enabled: debug_enabled, locale: locale)
              end
       end
 
@@ -115,12 +124,12 @@ module Termcourse
         return missing_auth_error unless have_prompted_login_pair
 
         cli_debug_log(debug_enabled, "auth_attempt method=login source=prompt")
-        ui = build_ui_from_login(base_url, username, password, prompt: prompt, theme_name: theme_name, debug_enabled: debug_enabled)
+        ui = build_ui_from_login(base_url, username, password, prompt: prompt, theme_name: theme_name, debug_enabled: debug_enabled, locale: locale)
       end
 
       unless ui
         cli_debug_log(debug_enabled, "auth_failed")
-        warn "Login failed."
+        warn t("cli.errors.login_failed")
         return 1
       end
 
@@ -153,6 +162,7 @@ module Termcourse
         ["TERMCOURSE_DEBUG", "Set to 1 to write UI render debug logs to /tmp/termcourse_debug.txt."],
         ["TERMCOURSE_LINKS", "Set to 0 to disable clickable links."],
         ["TERMCOURSE_THEME", "Theme name (default|slate|fairground|rust by default)."],
+        ["TERMCOURSE_LANG", t("cli.env.lang")],
         ["TERMCOURSE_COLOR_MODE", "UI color mode: auto|truecolor|256|16 (default: auto; auto uses 256 on macOS)."],
         ["TERMCOURSE_THEME_FILE", "Theme YAML path. Lookup order: this path, then ./theme.yml, then ~/.config/termcourse/theme.yml."],
         ["TERMCOURSE_IMAGES", "Set to 0 to disable inline image previews in expanded posts."],
@@ -218,28 +228,36 @@ module Termcourse
       value
     end
 
+    def extract_lang_option(argv)
+      argv.each_with_index do |arg, idx|
+        return arg.split("=", 2).last if arg.start_with?("--lang=")
+        return argv[idx + 1] if arg == "--lang"
+      end
+      nil
+    end
+
     def present?(value)
       !!(value && !value.to_s.strip.empty?)
     end
 
     def missing_auth_error
-      warn "Missing auth. Provide API key or username/password."
-      warn "API key: DISCOURSE_API_KEY + DISCOURSE_API_USERNAME"
-      warn "Login: DISCOURSE_USERNAME + DISCOURSE_PASSWORD"
+      warn t("cli.auth.missing")
+      warn t("cli.auth.api")
+      warn t("cli.auth.login")
       1
     end
 
     def prompt_for_missing_login_fields(prompt, username, password)
       if username.nil? || username.strip.empty?
-        username = prompt.ask("Username or email:")
+        username = prompt.ask(t("cli.auth.username"))
       end
       if password.nil? || password.strip.empty?
-        password = prompt.mask("Password:")
+        password = prompt.mask(t("cli.auth.password"))
       end
       [username, password]
     end
 
-    def build_ui_from_api(base_url, api_key, api_username, theme_name: nil, debug_enabled: false)
+    def build_ui_from_api(base_url, api_key, api_username, theme_name: nil, debug_enabled: false, locale: nil)
       client = Client.new(base_url, api_key: api_key, api_username: api_username)
       client.set_debug(debug_enabled)
       current = client.current_user
@@ -250,13 +268,14 @@ module Termcourse
         client: client,
         api_username: api_username,
         current_user_id: current.dig("current_user", "id"),
-        theme_name: theme_name
+        theme_name: theme_name,
+        locale: locale
       )
     rescue Faraday::Error
       nil
     end
 
-    def build_ui_from_login(base_url, username, password, prompt: nil, theme_name: nil, debug_enabled: false)
+    def build_ui_from_login(base_url, username, password, prompt: nil, theme_name: nil, debug_enabled: false, locale: nil)
       prompt ||= TTY::Prompt.new
       client = Client.new(base_url)
       client.set_debug(debug_enabled)
@@ -265,7 +284,7 @@ module Termcourse
       login = client.login(username: username, password: password)
       if mfa_required?(login)
         method = mfa_method_from(login, prompt)
-        otp_label = method == 2 ? "Enter backup code:" : "Enter 2FA code:"
+        otp_label = method == 2 ? t("cli.auth.backup_code") : t("cli.auth.two_factor")
         otp = prompt.ask(otp_label)
         login = client.login(username: username, password: password, otp: otp, otp_method: method)
       end
@@ -283,7 +302,8 @@ module Termcourse
         client: client,
         api_username: login_user,
         current_user_id: current.is_a?(Hash) ? current.dig("current_user", "id") : nil,
-        theme_name: theme_name
+        theme_name: theme_name,
+        locale: locale
       )
     rescue Faraday::Error
       nil
@@ -306,12 +326,12 @@ module Termcourse
       return methods.first if methods.is_a?(Array) && methods.first
 
       options = []
-      options << { label: "TOTP (Recommended)", value: 1 } if login["totp_enabled"]
-      options << { label: "Backup code", value: 2 } if login["backup_enabled"]
+      options << { label: t("cli.auth.totp"), value: 1 } if login["totp_enabled"]
+      options << { label: t("cli.auth.backup"), value: 2 } if login["backup_enabled"]
       return options.first[:value] if options.length == 1
 
       if options.length > 1
-        choice = prompt.select("Choose 2FA method:", options.map { |o| o[:label] })
+        choice = prompt.select(t("cli.auth.choose_2fa"), options.map { |o| o[:label] })
         selected = options.find { |o| o[:label] == choice }
         return selected[:value] if selected
       end
@@ -327,6 +347,10 @@ module Termcourse
       end
     rescue StandardError
       nil
+    end
+
+    def t(key, **vars)
+      Localization.t(key, locale: @locale, **vars)
     end
   end
 end

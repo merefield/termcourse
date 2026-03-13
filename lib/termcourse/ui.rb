@@ -150,7 +150,7 @@ module Termcourse
       }
     }.freeze
 
-    def initialize(base_url, api_key: nil, api_username: nil, client: nil, theme_name: nil, current_user_id: nil)
+    def initialize(base_url, api_key: nil, api_username: nil, client: nil, theme_name: nil, current_user_id: nil, locale: nil)
       @client = client || Client.new(base_url, api_key: api_key, api_username: api_username)
       @reader = TTY::Reader.new
       @prompt = TTY::Prompt.new
@@ -159,6 +159,7 @@ module Termcourse
       @current_user_id = current_user_id
       @base_url = base_url
       @display_url = base_url.sub(%r{\Ahttps?://}i, "")
+      @locale = Localization.resolve_locale(locale)
       @theme_name = (theme_name || ENV.fetch("TERMCOURSE_THEME", "default")).to_s.downcase
       @theme = load_theme(@theme_name)
       @color_mode = resolve_color_mode
@@ -254,6 +255,10 @@ module Termcourse
     end
 
     private
+
+    def t(key, **vars)
+      Localization.t(key, locale: @locale, **vars)
+    end
 
     def topic_list_loop(topics, next_url, filter, top_period)
       with_raw_input_mode do
@@ -422,14 +427,16 @@ module Termcourse
       height = TTY::Screen.height
       list_mode = topic_list_mode(width)
 
-      controls = "arrows: move | ↵, 1-0: open | c: new | n: notifs | s: search | f: filter"
-      controls += " | p: period" if filter == :top
-      controls += " | g: refresh | q: quit"
+      controls = filter == :top ? t("ui.controls.topic_list_top") : t("ui.controls.topic_list")
 
       top_line = build_header_line(controls, @display_url, width - 4)
-      status_label = "Topic List: #{topic_list_filter_label(filter)}"
-      status_label += " (#{top_period.to_s.capitalize})" if filter == :top
-      status = loading ? "#{status_label} | Loading more..." : status_label
+      status_label =
+        if filter == :top
+          t("ui.status.topic_list_with_period", filter: topic_list_filter_label(filter), period: topic_list_period_label(top_period))
+        else
+          t("ui.status.topic_list", filter: topic_list_filter_label(filter))
+        end
+      status = loading ? "#{status_label} | #{t('ui.status.loading_more')}" : status_label
       right_status = topic_list_right_status
       content = [
         top_line,
@@ -449,7 +456,7 @@ module Termcourse
 
       if topics.empty?
         row = [header_height, height - 1].min
-        screen[row] = "No topics found."
+        screen[row] = t("ui.empty.topics")
         render_screen(screen, width: width, height: height, view_key: [:topic_list, filter, top_period, list_mode])
         return
       end
@@ -494,10 +501,9 @@ module Termcourse
       selected_post = posts[selected]
       image_expand_url = image_expand_url_for_post(selected_post, width)
 
-      controls = "arrows: move | l: like | r: reply topic | p: reply post | s: search | n: notifs | esc: back | q: quit"
-      controls += " | x: image" if image_expand_url
+      controls = image_expand_url ? t("ui.controls.topic_with_image") : t("ui.controls.topic")
       top_line = build_header_line(controls, @display_url, width - 4)
-      topic_line = "Topic: #{truncate(title, width - 4)}"
+      topic_line = t("ui.status.topic", title: truncate(title, width - 4))
       category_label = category_label_from_topic_data(topic_data)
       header_lines = [
         top_line,
@@ -559,7 +565,7 @@ module Termcourse
     end
 
     def build_post_list_lines(posts, selected, scroll_offset, list_height_lines, width)
-      return ["No posts."] if posts.empty?
+      return [t("ui.empty.posts")] if posts.empty?
 
       blocks = posts.map.with_index do |post, index|
         build_post_block(post, index == selected, width)
@@ -615,7 +621,7 @@ module Termcourse
         lines.concat(item[:lines])
         lines << theme_text("-" * width, fg: "separators") if idx != rendered.length - 1
       end
-      lines = ["No posts."] if lines.empty?
+      lines = [t("ui.empty.posts")] if lines.empty?
       lines
     end
 
@@ -638,10 +644,10 @@ module Termcourse
       content_lines = wrap_and_linkify_lines(lines, body_width)
       content_lines = content_lines.map { |line| theme_text(line, fg: "list_text") }
       if expanded && !image_lines.empty?
-        note = theme_text("x: expand image", fg: "list_meta")
+        note = theme_text(t("ui.posts.expand_image"), fg: "list_meta")
         content_lines = image_lines + [note] + content_lines
       elsif has_images
-        content_lines = [theme_text(format_line("[image]", body_width), fg: "list_text")] + content_lines
+        content_lines = [theme_text(format_line(t("ui.posts.image"), body_width), fg: "list_text")] + content_lines
       end
 
       if expanded
@@ -668,8 +674,8 @@ module Termcourse
     def decorate_scroll(lines, show_up, show_down, width)
       return lines if lines.empty?
 
-      top = show_up ? "^^^ more above ^^^" : nil
-      bottom = show_down ? "vvv more below vvv" : nil
+      top = show_up ? t("ui.scroll.more_above") : nil
+      bottom = show_down ? t("ui.scroll.more_below") : nil
 
       output = lines.dup
       if top
@@ -971,7 +977,7 @@ module Termcourse
       lines = fit_fullscreen_image_lines(url, width, image_height, lines)
       lines = lines.first(image_height).map { |line| center_image_line(line, width) }
       lines.fill("", lines.length...image_height)
-      screen = lines + [theme_text("x/esc: back", fg: "list_meta")]
+      screen = lines + [theme_text(t("ui.controls.fullscreen_image"), fg: "list_meta")]
       render_screen(screen, width: width, height: height, view_key: [:fullscreen_image, url])
     end
 
@@ -1282,7 +1288,8 @@ module Termcourse
       username = @api_username.to_s
       username = "unknown" if username.strip.empty?
       badge = unread_notifications_badge
-      badge ? "Logged in: #{username} #{badge}" : "Logged in: #{username}"
+      label = t("ui.status.logged_in", username: username)
+      badge ? "#{label} #{badge}" : label
     end
 
     def topic_list_right_status
@@ -1297,14 +1304,14 @@ module Termcourse
       count = @live_updates&.incoming_count.to_i
       return nil if count <= 0
 
-      "New/updated (#{count})"
+      t("ui.status.new_updated", count: count)
     end
 
     def pm_unread_label
       count = @pm_unread_count.to_i
       return nil if count <= 0
 
-      "PM Unread (#{count})"
+      t("ui.status.pm_unread", count: count)
     end
 
     def unread_notifications_badge
@@ -1547,7 +1554,7 @@ module Termcourse
 
     def reply_to_topic(topic_id)
       category_label = category_label_for(topic_id)
-      body = compose_body("Reply to topic", category_label: category_label)
+      body = compose_body(t("ui.composer.reply_to_topic"), category_label: category_label)
       return false if body.nil?
 
       result = with_errors { @client.create_post(topic_id: topic_id, raw: body) }
@@ -1555,7 +1562,7 @@ module Termcourse
     end
 
     def reply_to_post(topic_id, post)
-      label = "Reply to post ##{post["post_number"]} (Ctrl+D to finish)"
+      label = t("ui.composer.reply_to_post", post_number: post["post_number"])
       context = compose_context(post)
       category_label = category_label_for(topic_id)
       body = compose_body(label, context_lines: context, category_label: category_label)
@@ -1599,7 +1606,7 @@ module Termcourse
       category = pick_category
       category_id = category[:id]
       category_label = category[:label]
-      body = compose_body("New Topic: #{buffer}", category_label: category_label)
+      body = compose_body(t("ui.composer.new_topic_body", title: buffer), category_label: category_label)
       return nil if body.nil?
 
       { title: buffer, raw: body, category: category_id }
@@ -1619,7 +1626,7 @@ module Termcourse
       default_id = info&.dig("default_category_id")
 
       options = []
-      options << { name: "No category", value: nil }
+      options << { name: t("ui.composer.no_category_option"), value: nil }
       categories.each do |cat|
         next if cat["read_restricted"]
         options << { name: cat["name"], value: cat["id"] }
@@ -1632,10 +1639,10 @@ module Termcourse
                       end
 
       selected = category_picker(options, default_index)
-      name = options[selected][:name] rescue "No category"
-      { id: options[selected][:value], label: "Category: #{name}" }
+      name = options[selected][:name] rescue t("ui.composer.no_category_option")
+      { id: options[selected][:value], label: t("ui.composer.category_named", name: name) }
     rescue StandardError
-      { id: nil, label: "Category: none" }
+      { id: nil, label: t("ui.composer.category_none") }
     end
 
     def category_picker(options, selected)
@@ -1643,9 +1650,9 @@ module Termcourse
         width = TTY::Screen.width
         height = TTY::Screen.height
         content = [
-          build_header_line("Select Category", @display_url, width - 4),
+          build_header_line(t("ui.composer.select_category"), @display_url, width - 4),
           "-" * (width - 4),
-          "Use arrows, Enter to select, Esc to cancel"
+          t("ui.controls.category_picker")
         ]
         header_box = build_themed_header_box(content, width)
         header_lines = header_box.split("\n")
@@ -1693,10 +1700,10 @@ module Termcourse
 
     def category_label_from_topic_data(topic_data)
       category_id = topic_data&.dig("category_id")
-      return "Category: none" if category_id.nil?
+      return t("ui.composer.category_none") if category_id.nil?
 
-      name = site_categories[category_id] || "Category #{category_id}"
-      "Category: #{name}"
+      name = site_categories[category_id] || t("ui.composer.category_fallback", id: category_id)
+      t("ui.composer.category_named", name: name)
     end
 
     def normalize_multiline(body)
@@ -1766,7 +1773,7 @@ module Termcourse
         context_lines: context_lines,
         category_label: category_label,
         invalid: true,
-        notice: "Press any key to try again..."
+        notice: t("ui.composer.retry")
       )
       @reader.read_keypress
       compose_body(title, context_lines: context_lines, category_label: category_label)
@@ -1781,9 +1788,9 @@ module Termcourse
                else
                  @pastel.green(status)
                end
-      label = invalid ? "Body too short" : "Compose"
+      label = invalid ? t("ui.composer.body_too_short") : t("ui.composer.compose")
 
-      left = "Chars: #{status} | Arrows: move | Finish: Ctrl+D | New line: Enter | Cancel: Esc"
+      left = t("ui.controls.composer", status: status)
       right = category_label.to_s
       status_line = build_header_line_visible(left, right, content_width)
 
@@ -1837,9 +1844,9 @@ module Termcourse
       width = TTY::Screen.width
       height = TTY::Screen.height
       content = [
-        build_header_line("New Topic", @display_url, width - 4),
+        build_header_line(t("ui.composer.new_topic_title"), @display_url, width - 4),
         "-" * (width - 4),
-        "Enter title and press Enter"
+        t("ui.composer.enter_title")
       ]
       header_box = build_themed_header_box(content, width)
       header_lines = header_box.split("\n")
@@ -1851,7 +1858,7 @@ module Termcourse
         screen[idx] = line
       end
 
-      prompt_line = "Title: #{buffer}"
+      prompt_line = t("ui.composer.title_prompt", buffer: buffer)
       prompt_row = [header_height, height - 1].min
       screen[prompt_row] = prompt_line
       cursor_x = [prompt_line.length, width - 1].min
@@ -1905,17 +1912,17 @@ module Termcourse
       lines = wrap_and_linkify_lines(lines, content_width(TTY::Screen.width))
       preview = lines.first(3)
       preview = [""] if preview.empty?
-      ["Replying to @#{username}:", *preview]
+      [t("ui.composer.replying_to", username: username), *preview]
     end
 
     def category_label_for(topic_id)
       topic = with_errors { @client.topic(topic_id) }
       category_id = topic&.dig("category_id")
-      return "Category: none" if category_id.nil?
+      return t("ui.composer.category_none") if category_id.nil?
 
       categories = site_categories
-      name = categories[category_id] || "Category #{category_id}"
-      "Category: #{name}"
+      name = categories[category_id] || t("ui.composer.category_fallback", id: category_id)
+      t("ui.composer.category_named", name: name)
     end
 
     def site_info
@@ -2131,7 +2138,7 @@ module Termcourse
 
     def show_error(error)
       clear_screen
-      message = "Error"
+      message = t("ui.errors.title")
       if error.respond_to?(:response) && error.response.is_a?(Hash)
         body = error.response[:body]
         pretty = extract_error_message(body)
@@ -2139,15 +2146,16 @@ module Termcourse
       elsif error.respond_to?(:message) && error.message
         message = "#{message}: #{error.message}"
       end
-      if message.start_with?("Error:")
-        error_body = message.sub("Error:", "").strip
-        puts "#{@pastel.bold("Error:")} #{error_body}"
+      error_prefix = "#{t('ui.errors.title')}:"
+      if message.start_with?(error_prefix)
+        error_body = message.sub(error_prefix, "").strip
+        puts "#{@pastel.bold(error_prefix)} #{error_body}"
       else
-        puts @pastel.bold("Error:")
+        puts @pastel.bold(error_prefix)
         puts message
       end
       puts ""
-      puts "Press any key to continue..."
+      puts t("ui.errors.continue")
       @reader.read_keypress
     end
 
@@ -2221,11 +2229,11 @@ module Termcourse
       row_width = [width - 1, 1].max
 
       top_line = build_header_line(
-        "arrows: move | ↵: open | n: notifs | esc: back | q: quit",
+        t("ui.controls.search_results"),
         @display_url,
         width - 4
       )
-      status = "Search: #{truncate(query, width - 4)}"
+      status = t("ui.status.search", query: truncate(query, width - 4))
       content = [
         top_line,
         "-" * (width - 4),
@@ -2243,7 +2251,7 @@ module Termcourse
 
       if posts.empty?
         row = [header_height, height - 1].min
-        screen[row] = "No results."
+        screen[row] = t("ui.empty.results")
         render_screen(screen, width: width, height: height, view_key: [:search_results, query])
         return
       end
@@ -2257,7 +2265,7 @@ module Termcourse
 
       posts[start_index..end_index].each_with_index do |post, idx|
         line_index = start_index + idx
-        title = normalize_inline_text(emojify(topics_map[post["topic_id"]] || "Topic #{post["topic_id"]}"))
+        title = normalize_inline_text(emojify(topics_map[post["topic_id"]] || t("ui.search.topic_fallback", id: post["topic_id"])))
         blurb = normalize_inline_text(emojify(strip_html(post["blurb"].to_s)))
         title_cell = fit_topic_list_cell(title, title_width, align: :left)
         blurb_cell = fit_topic_list_cell(blurb, blurb_width, align: :left)
@@ -2280,9 +2288,9 @@ module Termcourse
         width = TTY::Screen.width
         height = TTY::Screen.height
         content = [
-          build_header_line("Search", @display_url, width - 4),
+          build_header_line(t("ui.search.title"), @display_url, width - 4),
           "-" * (width - 4),
-          "Type query and press Enter"
+          t("ui.search.prompt")
         ]
         header_box = build_themed_header_box(content, width)
         header_lines = header_box.split("\n")
@@ -2294,7 +2302,7 @@ module Termcourse
           screen[idx] = line
         end
 
-        prompt_line = "Search: #{buffer}"
+        prompt_line = t("ui.composer.search_prompt", buffer: buffer)
         prompt_row = [header_height, height - 1].min
         screen[prompt_row] = prompt_line
         cursor_x = [prompt_line.length, width - 1].min
@@ -2402,10 +2410,10 @@ module Termcourse
       width = TTY::Screen.width
       height = TTY::Screen.height
 
-      controls = "arrows: move | ↵: open | f: filter | esc: back | q: quit"
+      controls = t("ui.controls.notifications")
       top_line = build_header_line(controls, @display_url, width - 4)
-      status = "Notifications: #{notification_filter_label(filter)}"
-      status += " | Loading more..." if loading
+      status = t("ui.status.notifications", filter: notification_filter_label(filter))
+      status += " | #{t('ui.status.loading_more')}" if loading
       content = [
         top_line,
         "-" * (width - 4),
@@ -2423,7 +2431,7 @@ module Termcourse
 
       if notifications.empty?
         row = [header_height, height - 1].min
-        screen[row] = "No notifications."
+        screen[row] = t("ui.empty.notifications")
         render_screen(screen, width: width, height: height, view_key: [:notifications, filter])
         return
       end
@@ -2484,10 +2492,10 @@ module Termcourse
           time: time_width
         },
         columns: [
-          { key: :user, label: "User", align: :left },
-          { key: :type, label: "Type", align: :left },
-          { key: :title, label: "Title", align: :left },
-          { key: :time, label: "Ago", align: :right }
+          { key: :user, label: t("ui.notifications.columns.user"), align: :left },
+          { key: :type, label: t("ui.notifications.columns.type"), align: :left },
+          { key: :title, label: t("ui.notifications.columns.title"), align: :left },
+          { key: :time, label: t("ui.notifications.columns.ago"), align: :right }
         ]
       }
     end
@@ -2495,7 +2503,7 @@ module Termcourse
     def notification_cell_value(notification, key)
       case key
       when :user
-        unread = notification["read"] == true ? "  " : "• "
+        unread = notification["read"] == true ? "  " : t("ui.notifications.unread_marker")
         "#{unread}#{notification_actor_label(notification)}"
       when :type
         notification_type_label(notification)
@@ -2516,7 +2524,7 @@ module Termcourse
     end
 
     def notification_filter_label(filter)
-      humanize_identifier(filter.to_s)
+      t("ui.notifications.filters.#{filter}")
     end
 
     def notification_filter_type_names(filter)
@@ -2588,21 +2596,21 @@ module Termcourse
     def notification_relative_time(value)
       time = value.is_a?(Time) ? value : Time.parse(value.to_s)
       seconds = [Time.now - time, 0].max.to_i
-      return "#{seconds}s" if seconds < 60
+      return t("ui.time.seconds", count: seconds) if seconds < 60
 
       minutes = seconds / 60
-      return "#{minutes}m" if minutes < 60
+      return t("ui.time.minutes", count: minutes) if minutes < 60
 
       hours = minutes / 60
-      return "#{hours}h" if hours < 24
+      return t("ui.time.hours", count: hours) if hours < 24
 
       days = hours / 24
-      return "#{days}d" if days < 7
+      return t("ui.time.days", count: days) if days < 7
 
       weeks = days / 7
-      return "#{weeks}w" if days < 365
+      return t("ui.time.weeks", count: weeks) if days < 365
 
-      "#{days / 365}y"
+      t("ui.time.years", count: (days / 365))
     rescue StandardError
       ""
     end
@@ -2785,25 +2793,25 @@ module Termcourse
       return pm_topic_list_columns if filter == :private
 
       cols = [
-        { key: :idx, label: "#", align: :right },
-        { key: :title, label: "Title", align: :left },
-        { key: :category, label: "Category", align: :left },
-        { key: :replies, label: "Replies", align: :right }
+        { key: :idx, label: t("ui.topic_list.columns.index"), align: :right },
+        { key: :title, label: t("ui.topic_list.columns.title"), align: :left },
+        { key: :category, label: t("ui.topic_list.columns.category"), align: :left },
+        { key: :replies, label: t("ui.topic_list.columns.replies"), align: :right }
       ]
       return cols unless mode == :stats
 
       cols + [
-        { key: :views, label: "Views", align: :right },
-        { key: :users, label: "Users", align: :right }
+        { key: :views, label: t("ui.topic_list.columns.views"), align: :right },
+        { key: :users, label: t("ui.topic_list.columns.users"), align: :right }
       ]
     end
 
     def pm_topic_list_columns
       [
-        { key: :idx, label: "#", align: :right },
-        { key: :title, label: "Title", align: :left },
-        { key: :users, label: "Users", align: :left },
-        { key: :replies, label: "Replies", align: :right }
+        { key: :idx, label: t("ui.topic_list.columns.index"), align: :right },
+        { key: :title, label: t("ui.topic_list.columns.title"), align: :left },
+        { key: :users, label: t("ui.topic_list.columns.users"), align: :left },
+        { key: :replies, label: t("ui.topic_list.columns.replies"), align: :right }
       ]
     end
 
@@ -2985,7 +2993,7 @@ module Termcourse
       category_id = topic["category_id"]
       return "none" if category_id.nil?
 
-      site_categories[category_id] || "Category #{category_id}"
+      site_categories[category_id] || t("ui.composer.category_fallback", id: category_id)
     end
 
     def topic_reply_count(topic)
@@ -3015,11 +3023,11 @@ module Termcourse
         count -= 1 if logged_in_username && count.positive?
       end
 
-      return "#{count} users" if count > 3
+      return t("ui.topic_list.pm_users.count", count: count) if count > 3
       return users.first(3).join(", ") unless users.empty?
-      return "#{count} users" if count.positive?
+      return t("ui.topic_list.pm_users.count", count: count) if count.positive?
 
-      "-"
+      t("ui.topic_list.pm_users.none")
     end
 
     def pm_usernames(topic)
@@ -3074,9 +3082,11 @@ module Termcourse
     end
 
     def topic_list_filter_label(filter)
-      return "Private Messages" if filter == :private
+      t("ui.topic_list.filters.#{filter}")
+    end
 
-      filter.to_s.capitalize
+    def topic_list_period_label(period)
+      t("ui.topic_list.periods.#{period}")
     end
 
     def normalize_category_for_table(text)
