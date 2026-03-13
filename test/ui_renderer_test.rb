@@ -3,6 +3,28 @@
 require_relative "test_helper"
 
 module Termcourse
+  class LocalizationTest < Minitest::Test
+    def test_resolve_locale_supports_language_prefix
+      assert_equal "fr", Localization.resolve_locale("fr_FR.UTF-8")
+      assert_equal "de", Localization.resolve_locale("de_DE.UTF-8")
+      assert_equal "es", Localization.resolve_locale("es_ES.UTF-8")
+      assert_equal "en", Localization.resolve_locale("it_IT.UTF-8")
+    end
+
+    def test_ui_uses_selected_locale_for_labels
+      ui = UI.allocate
+      ui.instance_variable_set(:@locale, "fr")
+      ui.instance_variable_set(:@api_username, "robert")
+      ui.instance_variable_set(:@notification_unread_count, 0)
+      ui.instance_variable_set(:@live_updates, nil)
+      ui.instance_variable_set(:@theme, UI::BUILTIN_THEMES["default"])
+      ui.instance_variable_set(:@color_mode, "truecolor")
+
+      assert_equal "Messages privés", ui.send(:topic_list_filter_label, :private)
+      assert_includes ui.send(:strip_all_ansi, ui.send(:login_label)), "Connecté : robert"
+    end
+  end
+
   class UIScreenRendererTest < Minitest::Test
     def setup
       @renderer = UI::ScreenRenderer.new(pad_line: ->(line, width) { line.ljust(width) })

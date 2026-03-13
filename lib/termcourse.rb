@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "termcourse/localization"
 require "termcourse/cli"
 require "termcourse/client"
 require "termcourse/live_updates"
