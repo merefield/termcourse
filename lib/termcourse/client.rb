@@ -111,7 +111,6 @@ module Termcourse
 
     def topic_posts(topic_id, post_ids:, include_raw: true)
       params = {
-        topic_id: topic_id,
         post_ids: Array(post_ids),
         include_suggested: "false"
       }
