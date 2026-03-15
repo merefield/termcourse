@@ -352,7 +352,7 @@ module Termcourse
 
     def topic_loop(topic_id, selected_post_id = nil, back_result: nil)
       near_post = selected_post_id.is_a?(Hash) ? selected_post_id[:post_number] : nil
-      topic_data = load_topic_data(topic_id, near_post: near_post)
+      topic_data = load_topic_data(topic_id, near_post: near_post, force: near_post.nil?)
       return if topic_data.nil?
 
       posts = topic_posts(topic_data)
@@ -2105,7 +2105,7 @@ module Termcourse
       apply_incoming_topics_to_list_data(filter, top_period, data)
     end
 
-    def merge_topic_list_data!(target, incoming)
+    def merge_topic_list_data!(target, incoming, prepend: false)
       return target unless target.is_a?(Hash) && incoming.is_a?(Hash)
 
       target_topic_list = target["topic_list"] ||= {}
@@ -2113,7 +2113,8 @@ module Termcourse
       existing_topics = Array(target_topic_list["topics"])
       incoming_topics = Array(incoming_topic_list["topics"])
       merged = {}
-      (incoming_topics + existing_topics).each do |topic|
+      ordered_topics = prepend ? (incoming_topics + existing_topics) : (existing_topics + incoming_topics)
+      ordered_topics.each do |topic|
         merged[topic["id"]] ||= topic
       end
       target_topic_list["topics"] = merged.values
@@ -2135,7 +2136,7 @@ module Termcourse
       return data if topic_ids.empty?
 
       incoming = fetch_list_by_topic_ids(filter, top_period, topic_ids)
-      merge_topic_list_data!(data, incoming)
+      merge_topic_list_data!(data, incoming, prepend: true)
       @live_updates.clear_incoming(topic_ids)
       data
     end
@@ -2205,6 +2206,8 @@ module Termcourse
 
       fetched = fetch_topic_posts(topic_id, post_ids)
       before_count = topic_posts(topic_data).length
+      return 0 unless fetched.is_a?(Hash)
+
       merge_posts_into_topic_data!(topic_data, fetched.dig("post_stream", "posts"))
       topic_posts(topic_data).length - before_count
     end
@@ -2226,6 +2229,8 @@ module Termcourse
 
       fetched = fetch_topic_posts(topic_id, post_ids)
       before_count = topic_posts(topic_data).length
+      return 0 unless fetched.is_a?(Hash)
+
       merge_posts_into_topic_data!(topic_data, fetched.dig("post_stream", "posts"))
       topic_posts(topic_data).length - before_count
     end
@@ -2672,6 +2677,9 @@ module Termcourse
       return if result.nil?
 
       notification["read"] = true
+      new_count = [@notification_unread_count.to_i - 1, 0].max
+      @notification_unread_count = new_count
+      @live_updates&.set_unread_notification_count(new_count)
     end
 
     def render_notifications(notifications, selected, filter:, loading: false)

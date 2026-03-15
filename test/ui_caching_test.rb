@@ -9,6 +9,10 @@ module Termcourse
         Array(incoming_ids).length
       end
 
+      def set_unread_notification_count(count)
+        self.unread_notification_count = count
+      end
+
       def incoming_topic_ids
         Array(incoming_ids).dup
       end
@@ -20,7 +24,7 @@ module Termcourse
     end
 
     class FakeClient
-      attr_reader :list_calls, :topic_calls, :topic_posts_calls, :notification_totals_calls, :pm_calls, :post_calls
+      attr_reader :list_calls, :topic_calls, :topic_posts_calls, :notification_totals_calls, :pm_calls, :post_calls, :mark_notification_read_calls
 
       def initialize
         @list_calls = []
@@ -29,6 +33,7 @@ module Termcourse
         @notification_totals_calls = 0
         @pm_calls = 0
         @post_calls = []
+        @mark_notification_read_calls = []
       end
 
       def list_topics(filter, period:, username:, params: nil)
@@ -88,6 +93,11 @@ module Termcourse
         @post_calls << post_id
         { "id" => post_id, "post_number" => 3, "raw" => "new post", "username" => "robert" }
       end
+
+      def mark_notification_read(notification_id)
+        @mark_notification_read_calls << notification_id
+        { "success" => "OK" }
+      end
     end
 
     def setup
@@ -133,6 +143,18 @@ module Termcourse
       assert_equal 1, @client.topic_calls.length
     end
 
+    def test_topic_loop_forces_refresh_when_opened_from_list
+      calls = []
+      @ui.define_singleton_method(:load_topic_data) do |topic_id, near_post: nil, force: false|
+        calls << { topic_id: topic_id, near_post: near_post, force: force }
+        nil
+      end
+
+      @ui.send(:topic_loop, 42)
+
+      assert_equal [{ topic_id: 42, near_post: nil, force: true }], calls
+    end
+
     def test_ensure_topic_chunk_loaded_fetches_only_missing_posts
       topic_data = @ui.send(:load_topic_data, 42)
 
@@ -141,6 +163,56 @@ module Termcourse
       assert_equal 1, @client.topic_posts_calls.length
       assert_equal [13, 14], @client.topic_posts_calls.first[:post_ids]
       assert_equal [11, 12, 13, 14], topic_data.dig("post_stream", "posts").map { |post| post["id"] }
+    end
+
+    def test_load_next_topic_chunk_ignores_failed_fetch
+      topic_data = @ui.send(:load_topic_data, 42)
+      @ui.define_singleton_method(:fetch_topic_posts) { |_topic_id, _post_ids| nil }
+
+      added = @ui.send(:load_next_topic_chunk, 42, topic_data, 1)
+
+      assert_equal 0, added
+      assert_equal [11, 12], topic_data.dig("post_stream", "posts").map { |post| post["id"] }
+    end
+
+    def test_load_previous_topic_chunk_ignores_failed_fetch
+      topic_data = @ui.send(:load_topic_data, 42)
+      topic_data["post_stream"]["posts"] = [
+        { "id" => 13, "post_number" => 3, "raw" => "c", "username" => "two" },
+        { "id" => 14, "post_number" => 4, "raw" => "d", "username" => "two" }
+      ]
+      @ui.define_singleton_method(:fetch_topic_posts) { |_topic_id, _post_ids| nil }
+
+      added = @ui.send(:load_previous_topic_chunk, 42, topic_data, 1)
+
+      assert_equal 0, added
+      assert_equal [13, 14], topic_data.dig("post_stream", "posts").map { |post| post["id"] }
+    end
+
+    def test_merge_topic_list_data_appends_paginated_results_in_order
+      existing = {
+        "topic_list" => {
+          "topics" => [
+            { "id" => 1, "title" => "One" },
+            { "id" => 2, "title" => "Two" }
+          ],
+          "more_topics_url" => "/latest?page=1"
+        }
+      }
+      incoming = {
+        "topic_list" => {
+          "topics" => [
+            { "id" => 3, "title" => "Three" },
+            { "id" => 4, "title" => "Four" }
+          ],
+          "more_topics_url" => "/latest?page=2"
+        }
+      }
+
+      @ui.send(:merge_topic_list_data!, existing, incoming)
+
+      assert_equal [1, 2, 3, 4], existing.dig("topic_list", "topics").map { |topic| topic["id"] }
+      assert_equal "/latest?page=2", existing.dig("topic_list", "more_topics_url")
     end
 
     def test_maybe_refresh_notification_unread_count_skips_poll_when_live_updates_seeded
@@ -162,6 +234,20 @@ module Termcourse
       @ui.send(:maybe_refresh_pm_unread_count, now: now + 31)
 
       assert_equal 2, @client.pm_calls
+    end
+
+    def test_mark_notification_read_decrements_local_and_live_unread_counts
+      live_updates = FakeLiveUpdates.new(4, [])
+      notification = { "id" => 99, "read" => false }
+      @ui.instance_variable_set(:@notification_unread_count, 4)
+      @ui.instance_variable_set(:@live_updates, live_updates)
+
+      @ui.send(:mark_notification_read, notification)
+
+      assert_equal true, notification["read"]
+      assert_equal [99], @client.mark_notification_read_calls
+      assert_equal 3, @ui.instance_variable_get(:@notification_unread_count)
+      assert_equal 3, live_updates.unread_notification_count
     end
 
     def test_append_created_post_to_topic_uses_single_post_fetch
