@@ -27,7 +27,7 @@ module Termcourse
       get_json("/latest.json")
     end
 
-    def list_topics(filter, period: "weekly", username: nil)
+    def list_topics(filter, period: "weekly", username: nil, params: nil)
       path = case filter
              when :latest then "/latest.json"
              when :hot then "/hot.json"
@@ -43,7 +43,7 @@ module Termcourse
              else "/latest.json"
              end
 
-      params = {}
+      params = (params || {}).dup
       params[:period] = period if filter == :top
       get_json(path, params)
     rescue Faraday::ResourceNotFound
@@ -104,8 +104,23 @@ module Termcourse
       parse_json(response.body)
     end
 
-    def topic(id)
-      get_json("/t/#{id}.json", print: "true", include_raw: "true")
+    def topic(id, near_post: nil)
+      path = near_post ? "/t/#{id}/#{near_post}.json" : "/t/#{id}.json"
+      get_json(path, print: "true", include_raw: "true")
+    end
+
+    def topic_posts(topic_id, post_ids:, include_raw: true)
+      params = {
+        topic_id: topic_id,
+        post_ids: Array(post_ids),
+        include_suggested: "false"
+      }
+      params[:include_raw] = "true" if include_raw
+      get_json("/t/#{topic_id}/posts.json", params)
+    end
+
+    def post(post_id)
+      get_json("/posts/#{post_id}.json")
     end
 
     def like_post(post_id)

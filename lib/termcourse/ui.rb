@@ -186,10 +186,17 @@ module Termcourse
       @renderer = ScreenRenderer.new(pad_line: method(:pad_line))
       @image_backend = detect_image_backend
       @image_cache = {}
+      @topic_list_cache = {}
+      @topic_cache = {}
       @topic_list_users_by_id = {}
       @pm_unread_count = 0
+      @pm_unread_refresh_interval = 30
+      @last_pm_unread_refresh_at = nil
       @notification_unread_count = 0
+      @notification_unread_refresh_interval = 30
+      @last_notification_unread_refresh_at = nil
       @live_updates = nil
+      @last_live_updates_filter = nil
       @last_read_post_sent = {}
       @debug_enabled = ENV.fetch("TERMCOURSE_DEBUG", "0") == "1"
       image_debug_log("init enabled=#{@images_enabled} backend_pref=#{@image_backend_preference} backend=#{@image_backend || 'none'} mode=#{@image_mode} colors=#{@image_colors} color_mode=#{@color_mode}") if @image_debug_enabled
@@ -202,16 +209,13 @@ module Termcourse
       top_period = :monthly
       start_live_updates
       loop do
-        refresh_pm_unread_count
-        refresh_notification_unread_count
+        maybe_refresh_pm_unread_count
+        maybe_refresh_notification_unread_count
         reset_live_updates(filter)
-        topics_data = fetch_list(filter, top_period)
+        topics_data = load_list_data(filter, top_period)
         return if topics_data.nil?
         merge_topic_list_users(topics_data)
-
-        topics = topics_data.dig("topic_list", "topics") || []
-        next_url = topics_data.dig("topic_list", "more_topics_url")
-        result = topic_list_loop(topics, next_url, filter, top_period)
+        result = topic_list_loop(topics_data, filter, top_period)
 
         break if result == :quit
         if result.is_a?(Hash) && result[:filter]
@@ -243,9 +247,13 @@ module Termcourse
         end
         if result.is_a?(Hash) && result[:new_topic]
           create_topic_from(result[:new_topic])
+          invalidate_topic_list_caches
           next
         end
-        next if result == :reload
+        if result == :reload
+          invalidate_topic_list_cache(filter, top_period)
+          next
+        end
 
         topic_result = topic_loop(result)
         break if topic_result == :quit
@@ -260,7 +268,7 @@ module Termcourse
       Localization.t(key, locale: @locale, **vars)
     end
 
-    def topic_list_loop(topics, next_url, filter, top_period)
+    def topic_list_loop(topics_data, filter, top_period)
       with_raw_input_mode do
         selected = 0
         loading = false
@@ -270,6 +278,8 @@ module Termcourse
         period_index = top_periods.index(top_period) || 2
 
         loop do
+          topics = topics_data.dig("topic_list", "topics") || []
+          next_url = topics_data.dig("topic_list", "more_topics_url")
           render_topic_list(
             topics,
             selected,
@@ -304,8 +314,7 @@ module Termcourse
               more = fetch_more_topics(next_url)
               more_topics = more&.dig("topic_list", "topics") || []
               merge_topic_list_users(more)
-              next_url = more&.dig("topic_list", "more_topics_url")
-              topics.concat(more_topics)
+              merge_topic_list_data!(topics_data, more)
               loading = false
             end
           when "\r", "\n" # enter
@@ -342,16 +351,20 @@ module Termcourse
     end
 
     def topic_loop(topic_id, selected_post_id = nil, back_result: nil)
-      topic_data = fetch_topic(topic_id)
+      near_post = selected_post_id.is_a?(Hash) ? selected_post_id[:post_number] : nil
+      topic_data = load_topic_data(topic_id, near_post: near_post)
       return if topic_data.nil?
 
-      posts = topic_data.dig("post_stream", "posts") || []
+      posts = topic_posts(topic_data)
       topic_key = topic_id.to_i
       selected = initial_topic_selected_index(posts, topic_data, selected_post_id, topic_key)
       scroll_offsets = Hash.new(0)
 
       with_raw_input_mode do
         loop do
+          selected += ensure_topic_chunk_loaded(topic_id, topic_data, selected)
+          posts = topic_posts(topic_data)
+          selected = [selected, posts.length - 1].min
           maybe_update_read_state(topic_id, posts[selected])
           render_topic(topic_data, posts, selected, scroll_offsets)
           key = read_keypress_with_tick
@@ -380,8 +393,8 @@ module Termcourse
             if search_result.is_a?(Hash)
               topic_id = search_result[:topic_id]
               topic_key = topic_id.to_i
-              topic_data = fetch_topic(search_result[:topic_id])
-              posts = topic_data.dig("post_stream", "posts") || []
+              topic_data = load_topic_data(search_result[:topic_id], near_post: search_result[:post_number])
+              posts = topic_posts(topic_data)
               selected = posts.find_index { |p| p["id"] == search_result[:post_id] } || 0
               scroll_offsets = Hash.new(0)
             end
@@ -393,20 +406,23 @@ module Termcourse
             next unless post
 
             toggle_like(post)
-            topic_data = fetch_topic(topic_id)
-            posts = topic_data.dig("post_stream", "posts") || []
-            selected = [selected, posts.length - 1].min
           when "r"
-            if reply_to_topic(topic_id)
-              topic_data = fetch_topic(topic_id)
-              posts = topic_data.dig("post_stream", "posts") || []
+            created_post = reply_to_topic(topic_id)
+            if created_post
+              append_created_post_to_topic(topic_id, topic_data, created_post)
+              invalidate_topic_list_caches
+              posts = topic_posts(topic_data)
+              selected = posts.length - 1
               scroll_offsets = Hash.new(0)
             end
           when "p"
             post = posts[selected]
-            if post && reply_to_post(topic_id, post)
-              topic_data = fetch_topic(topic_id)
-              posts = topic_data.dig("post_stream", "posts") || []
+            created_post = post && reply_to_post(topic_id, post)
+            if created_post
+              append_created_post_to_topic(topic_id, topic_data, created_post)
+              invalidate_topic_list_caches
+              posts = topic_posts(topic_data)
+              selected = posts.length - 1
               scroll_offsets = Hash.new(0)
             end
           when "x"
@@ -1555,10 +1571,9 @@ module Termcourse
     def reply_to_topic(topic_id)
       category_label = category_label_for(topic_id)
       body = compose_body(t("ui.composer.reply_to_topic"), category_label: category_label)
-      return false if body.nil?
+      return nil if body.nil?
 
-      result = with_errors { @client.create_post(topic_id: topic_id, raw: body) }
-      !result.nil?
+      with_errors { @client.create_post(topic_id: topic_id, raw: body) }
     end
 
     def reply_to_post(topic_id, post)
@@ -1566,16 +1581,15 @@ module Termcourse
       context = compose_context(post)
       category_label = category_label_for(topic_id)
       body = compose_body(label, context_lines: context, category_label: category_label)
-      return false if body.nil?
+      return nil if body.nil?
 
-      result = with_errors do
+      with_errors do
         @client.create_post(
           topic_id: topic_id,
           raw: body,
           reply_to_post_number: post["post_number"]
         )
       end
-      !result.nil?
     end
 
     def new_topic_flow
@@ -1959,15 +1973,36 @@ module Termcourse
 
     def toggle_like(post)
       if post_liked?(post)
-        with_errors { @client.unlike_post(post["id"]) }
+        result = with_errors { @client.unlike_post(post["id"]) }
+        return if result.nil?
+
+        apply_local_like_state(post, false)
       else
-        with_errors { @client.like_post(post["id"]) }
+        result = with_errors { @client.like_post(post["id"]) }
+        return if result.nil?
+
+        apply_local_like_state(post, true)
       end
     end
 
     def post_liked?(post)
       summary = post["actions_summary"] || []
       summary.any? { |action| action["id"] == 2 && action["acted"] }
+    end
+
+    def apply_local_like_state(post, liked)
+      summary = post["actions_summary"] ||= []
+      action = summary.find { |item| item["id"] == 2 }
+      unless action
+        action = { "id" => 2, "count" => 0, "acted" => false }
+        summary << action
+      end
+
+      current_count = action["count"].to_i
+      next_count = liked ? current_count + (action["acted"] ? 0 : 1) : [current_count - (action["acted"] ? 1 : 0), 0].max
+      action["count"] = next_count
+      action["acted"] = liked
+      post
     end
 
     def fetch_latest
@@ -1978,6 +2013,17 @@ module Termcourse
       with_errors { @client.list_topics(filter, period: top_period.to_s, username: @api_username) }
     end
 
+    def fetch_list_by_topic_ids(filter, top_period, topic_ids)
+      with_errors do
+        @client.list_topics(
+          filter,
+          period: top_period.to_s,
+          username: @api_username,
+          params: { topic_ids: Array(topic_ids).map(&:to_i) }
+        )
+      end
+    end
+
     def fetch_more_topics(next_url)
       with_errors { @client.get_url(next_url) }
     end
@@ -1986,8 +2032,16 @@ module Termcourse
       with_errors { @client.search(query) }
     end
 
-    def fetch_topic(topic_id)
-      with_errors { @client.topic(topic_id) }
+    def fetch_topic(topic_id, near_post: nil)
+      with_errors { @client.topic(topic_id, near_post: near_post) }
+    end
+
+    def fetch_topic_posts(topic_id, post_ids)
+      with_errors { @client.topic_posts(topic_id, post_ids: post_ids, include_raw: true) }
+    end
+
+    def fetch_post(post_id)
+      with_errors { @client.post(post_id) }
     end
 
     def fetch_notifications
@@ -2024,6 +2078,197 @@ module Termcourse
       0
     end
 
+    def topic_list_cache_key(filter, top_period)
+      [filter.to_sym, top_period.to_sym]
+    end
+
+    def invalidate_topic_list_cache(filter, top_period)
+      @topic_list_cache.delete(topic_list_cache_key(filter, top_period))
+    end
+
+    def invalidate_topic_list_caches
+      @topic_list_cache.clear
+    end
+
+    def load_list_data(filter, top_period, force: false)
+      key = topic_list_cache_key(filter, top_period)
+      cached = @topic_list_cache[key]
+      if cached && !force
+        apply_incoming_topics_to_list_data(filter, top_period, cached)
+        return cached
+      end
+
+      data = fetch_list(filter, top_period)
+      return if data.nil?
+
+      @topic_list_cache[key] = data
+      apply_incoming_topics_to_list_data(filter, top_period, data)
+    end
+
+    def merge_topic_list_data!(target, incoming)
+      return target unless target.is_a?(Hash) && incoming.is_a?(Hash)
+
+      target_topic_list = target["topic_list"] ||= {}
+      incoming_topic_list = incoming["topic_list"] || {}
+      existing_topics = Array(target_topic_list["topics"])
+      incoming_topics = Array(incoming_topic_list["topics"])
+      merged = {}
+      (incoming_topics + existing_topics).each do |topic|
+        merged[topic["id"]] ||= topic
+      end
+      target_topic_list["topics"] = merged.values
+      target_topic_list["more_topics_url"] = incoming_topic_list["more_topics_url"] if incoming_topic_list.key?("more_topics_url")
+      if incoming["users"].is_a?(Array) || target["users"].is_a?(Array)
+        users = {}
+        Array(incoming["users"]).each { |user| users[user["id"]] = user }
+        Array(target["users"]).each { |user| users[user["id"]] ||= user }
+        target["users"] = users.values
+      end
+      target
+    end
+
+    def apply_incoming_topics_to_list_data(filter, top_period, data)
+      return data unless live_updates_has_incoming?
+      return data if filter.to_sym == :top
+
+      topic_ids = @live_updates.incoming_topic_ids
+      return data if topic_ids.empty?
+
+      incoming = fetch_list_by_topic_ids(filter, top_period, topic_ids)
+      merge_topic_list_data!(data, incoming)
+      @live_updates.clear_incoming(topic_ids)
+      data
+    end
+
+    def live_updates_has_incoming?
+      return false unless @live_updates
+      return @live_updates.has_incoming? if @live_updates.respond_to?(:has_incoming?)
+
+      @live_updates.incoming_count.to_i.positive?
+    end
+
+    def load_topic_data(topic_id, near_post: nil, force: false)
+      topic_key = topic_id.to_i
+      cached = @topic_cache[topic_key]
+      if cached && !force && (near_post.nil? || topic_post_number_loaded?(cached, near_post))
+        return cached
+      end
+
+      fresh = fetch_topic(topic_key, near_post: near_post)
+      return cached if fresh.nil? && cached
+      return if fresh.nil?
+
+      merged = merge_topic_data(cached, fresh)
+      @topic_cache[topic_key] = merged
+    end
+
+    def merge_topic_data(existing, fresh)
+      return fresh unless existing.is_a?(Hash)
+
+      merged = existing.merge(fresh)
+      merged["post_stream"] = (existing["post_stream"] || {}).merge(fresh["post_stream"] || {})
+      merge_posts_into_topic_data!(merged, fresh.dig("post_stream", "posts"))
+      merged
+    end
+
+    def topic_posts(topic_data)
+      topic_data.dig("post_stream", "posts") || []
+    end
+
+    def topic_post_number_loaded?(topic_data, post_number)
+      topic_posts(topic_data).any? { |post| post["post_number"].to_i == post_number.to_i }
+    end
+
+    def ensure_topic_chunk_loaded(topic_id, topic_data, selected_index)
+      return 0 if topic_data.nil?
+
+      added_before = load_previous_topic_chunk(topic_id, topic_data, selected_index)
+      load_next_topic_chunk(topic_id, topic_data, selected_index)
+      added_before
+    end
+
+    def load_previous_topic_chunk(topic_id, topic_data, selected_index)
+      return 0 if selected_index > 1
+
+      stream = Array(topic_data.dig("post_stream", "stream"))
+      posts = topic_posts(topic_data)
+      return 0 if stream.empty? || posts.empty?
+
+      first_loaded_id = posts.first["id"]
+      first_index = stream.index(first_loaded_id)
+      return 0 if first_index.nil? || first_index.zero?
+
+      chunk_size = [topic_data["chunk_size"].to_i, 1].max
+      start_index = [first_index - chunk_size, 0].max
+      post_ids = stream[start_index...first_index]
+      return 0 if post_ids.nil? || post_ids.empty?
+
+      fetched = fetch_topic_posts(topic_id, post_ids)
+      before_count = topic_posts(topic_data).length
+      merge_posts_into_topic_data!(topic_data, fetched.dig("post_stream", "posts"))
+      topic_posts(topic_data).length - before_count
+    end
+
+    def load_next_topic_chunk(topic_id, topic_data, selected_index)
+      posts = topic_posts(topic_data)
+      return 0 if posts.empty? || selected_index < posts.length - 2
+
+      stream = Array(topic_data.dig("post_stream", "stream"))
+      return 0 if stream.empty?
+
+      last_loaded_id = posts.last["id"]
+      last_index = stream.index(last_loaded_id)
+      return 0 if last_index.nil? || last_index >= stream.length - 1
+
+      chunk_size = [topic_data["chunk_size"].to_i, 1].max
+      post_ids = stream[(last_index + 1)...(last_index + 1 + chunk_size)]
+      return 0 if post_ids.nil? || post_ids.empty?
+
+      fetched = fetch_topic_posts(topic_id, post_ids)
+      before_count = topic_posts(topic_data).length
+      merge_posts_into_topic_data!(topic_data, fetched.dig("post_stream", "posts"))
+      topic_posts(topic_data).length - before_count
+    end
+
+    def merge_posts_into_topic_data!(topic_data, incoming_posts)
+      topic_data["post_stream"] ||= {}
+      existing_posts = topic_posts(topic_data)
+      posts_by_id = existing_posts.each_with_object({}) { |post, memo| memo[post["id"]] = post }
+      Array(incoming_posts).each { |post| posts_by_id[post["id"]] = post }
+
+      stream = Array(topic_data.dig("post_stream", "stream"))
+      ordered =
+        if stream.empty?
+          posts_by_id.values.sort_by { |post| post["post_number"].to_i }
+        else
+          stream.filter_map { |id| posts_by_id[id] } + (posts_by_id.values.reject { |post| stream.include?(post["id"]) }.sort_by { |post| post["post_number"].to_i })
+        end
+
+      topic_data["post_stream"]["posts"] = ordered
+      topic_data
+    end
+
+    def append_created_post_to_topic(topic_id, topic_data, created_post)
+      post =
+        if created_post.is_a?(Hash) && created_post["raw"] && created_post["username"]
+          created_post
+        elsif created_post.is_a?(Hash) && created_post["id"]
+          fetch_post(created_post["id"]) || created_post
+        else
+          created_post
+        end
+      return if post.nil?
+
+      topic_data["post_stream"] ||= {}
+      stream = topic_data["post_stream"]["stream"]
+      stream << post["id"] if stream.is_a?(Array) && !stream.include?(post["id"])
+      merge_posts_into_topic_data!(topic_data, [post])
+      topic_data["posts_count"] = [topic_data["posts_count"].to_i + 1, topic_posts(topic_data).length].max
+      topic_data["reply_count"] = [topic_data["reply_count"].to_i + 1, 0].max
+      topic_data["highest_post_number"] = [topic_data["highest_post_number"].to_i, post["post_number"].to_i].max
+      @topic_cache[topic_id.to_i] = topic_data
+    end
+
     def maybe_update_read_state(topic_id, post)
       return if post.nil?
 
@@ -2057,6 +2302,13 @@ module Termcourse
       @pm_unread_count = 0
     end
 
+    def maybe_refresh_pm_unread_count(now: Time.now)
+      return if @last_pm_unread_refresh_at && (now - @last_pm_unread_refresh_at) < @pm_unread_refresh_interval
+
+      refresh_pm_unread_count
+      @last_pm_unread_refresh_at = now
+    end
+
     def refresh_notification_unread_count
       data = with_errors { @client.notification_totals }
       return unless data.is_a?(Hash)
@@ -2064,6 +2316,19 @@ module Termcourse
       count = data["unread_notifications"].to_i
       @notification_unread_count = [count, 0].max
       @live_updates&.set_unread_notification_count(@notification_unread_count)
+    end
+
+    def maybe_refresh_notification_unread_count(now: Time.now)
+      live_count = @live_updates&.unread_notification_count
+      unless live_count.nil?
+        @notification_unread_count = [live_count.to_i, 0].max
+        return
+      end
+
+      return if @last_notification_unread_refresh_at && (now - @last_notification_unread_refresh_at) < @notification_unread_refresh_interval
+
+      refresh_notification_unread_count
+      @last_notification_unread_refresh_at = now
     end
 
     def start_live_updates
@@ -2091,7 +2356,10 @@ module Termcourse
     end
 
     def reset_live_updates(filter)
+      return if @last_live_updates_filter == filter.to_sym
+
       @live_updates&.track!(filter)
+      @last_live_updates_filter = filter.to_sym
     rescue StandardError => e
       debug_log_line("live_updates_reset_error #{e.class}: #{e.message}")
     end
@@ -2212,7 +2480,7 @@ module Termcourse
           when "\r", "\n"
             post = posts[selected]
             return nil unless post
-            return { topic_id: post["topic_id"], post_id: post["id"] }
+            return { topic_id: post["topic_id"], post_id: post["id"], post_number: post["post_number"] }
           when "n"
             result = notifications_browser
             return :quit if result == :quit

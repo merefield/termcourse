@@ -46,8 +46,24 @@ module Termcourse
       @mutex.synchronize { @incoming_topic_ids.length }
     end
 
+    def incoming_topic_ids
+      @mutex.synchronize { @incoming_topic_order.dup }
+    end
+
     def has_incoming?
       incoming_count.positive?
+    end
+
+    def clear_incoming(topic_ids = nil)
+      @mutex.synchronize do
+        if topic_ids.nil?
+          clear_incoming!
+        else
+          ids = Array(topic_ids).map(&:to_i)
+          @incoming_topic_order.reject! { |topic_id| ids.include?(topic_id) }
+          @incoming_topic_ids.subtract(ids)
+        end
+      end
     end
 
     def unread_notification_count
