@@ -187,6 +187,8 @@ module Termcourse
       @renderer = ScreenRenderer.new(pad_line: method(:pad_line))
       @image_backend = detect_image_backend
       @image_cache = {}
+      @post_block_cache = {}
+      @post_block_cache_order = []
       @topic_list_cache = {}
       @topic_cache = {}
       @topic_list_users_by_id = {}
@@ -199,6 +201,7 @@ module Termcourse
       @live_updates = nil
       @last_live_updates_filter = nil
       @last_read_post_sent = {}
+      @last_topic_debug_signature = nil
       @debug_enabled = ENV.fetch("TERMCOURSE_DEBUG", "0") == "1"
       image_debug_log("init enabled=#{@images_enabled} backend_pref=#{@image_backend_preference} backend=#{@image_backend || 'none'} mode=#{@image_mode} colors=#{@image_colors} color_mode=#{@color_mode}") if @image_debug_enabled
       @resized = false
@@ -364,21 +367,40 @@ module Termcourse
       topic_key = topic_id.to_i
       selected = initial_topic_selected_index(posts, topic_data, selected_post_id, topic_key)
       scroll_offsets = Hash.new(0)
+      watch_live_topic(topic_id, topic_data)
+      debug_log_topic_state(
+        "topic_loop_enter",
+        topic_id,
+        topic_data,
+        selected: selected,
+        extra: "live_updates_active=#{!@live_updates.nil?}"
+      )
+      needs_render = true
 
       with_raw_input_mode do
         loop do
-          maybe_refresh_status_counts
-          selected += ensure_topic_chunk_loaded(topic_id, topic_data, selected)
+          changed = maybe_refresh_status_counts
+          topic_data, selected, scroll_offsets, live_changed =
+            apply_live_topic_updates(topic_id, topic_data, selected, scroll_offsets)
+          changed ||= live_changed
+          chunk_load = ensure_topic_chunk_loaded(topic_id, topic_data, selected)
+          selected += chunk_load[:before]
+          changed ||= chunk_load[:total].positive?
           posts = topic_posts(topic_data)
           selected = [selected, posts.length - 1].min
           maybe_update_read_state(topic_id, posts[selected])
-          render_topic(topic_data, posts, selected, scroll_offsets)
+          if needs_render || changed || @resized
+            render_topic(topic_data, posts, selected, scroll_offsets)
+            needs_render = false
+          end
           key = read_keypress_with_tick
           if key == :__tick__
+            needs_render ||= @resized
             @resized = false
             next
           end
           if @resized
+            needs_render = true
             @resized = false
             next
           end
@@ -386,12 +408,16 @@ module Termcourse
           case key
           when "\u001b[A" # up
             selected = [selected - 1, 0].max
+            needs_render = true
           when "\u001b[B" # down
             selected = [selected + 1, posts.length - 1].min
+            needs_render = true
           when "\u001b[C" # right
             scroll_offsets[selected] += 3
+            needs_render = true
           when "\u001b[D" # left
             scroll_offsets[selected] = [scroll_offsets[selected] - 3, 0].max
+            needs_render = true
           when "s"
             query = prompt_search_query
             search_result = search_loop(query) if query
@@ -403,15 +429,19 @@ module Termcourse
               posts = topic_posts(topic_data)
               selected = posts.find_index { |p| p["id"] == search_result[:post_id] } || 0
               scroll_offsets = Hash.new(0)
+              watch_live_topic(topic_id, topic_data)
+              needs_render = true
             end
           when "n"
             result = notifications_browser
             return :quit if result == :quit
+            needs_render = true
           when "l"
             post = posts[selected]
             next unless post
 
             toggle_like(post)
+            needs_render = true
           when "r"
             created_post = reply_to_topic(topic_id)
             if created_post
@@ -420,6 +450,7 @@ module Termcourse
               posts = topic_posts(topic_data)
               selected = posts.length - 1
               scroll_offsets = Hash.new(0)
+              needs_render = true
             end
           when "p"
             post = posts[selected]
@@ -430,11 +461,13 @@ module Termcourse
               posts = topic_posts(topic_data)
               selected = posts.length - 1
               scroll_offsets = Hash.new(0)
+              needs_render = true
             end
           when "x"
             post = posts[selected]
             image_url = image_expand_url_for_post(post, TTY::Screen.width)
             fullscreen_image_loop(image_url) if image_url
+            needs_render = true
           when "q"
             return :quit
           when "\u001b", "\u007f"
@@ -442,6 +475,8 @@ module Termcourse
           end
         end
       end
+    ensure
+      clear_live_topic
     end
 
     def render_topic_list(topics, selected, filter:, top_period:, loading: false)
@@ -569,8 +604,13 @@ module Termcourse
     end
 
     def debug_selected_post(posts, selected, width, height)
+      return unless @debug_enabled
+
       post = posts[selected]
       return if post.nil?
+
+      signature = [width, height, selected, post["id"], post["raw"].to_s.hash]
+      return if @last_topic_debug_signature == signature
 
       lines = build_post_block(post, true, width)
       File.open("/tmp/termcourse_debug.txt", "a") do |f|
@@ -582,6 +622,7 @@ module Termcourse
           f.puts("line#{idx}: visible=#{visible_length(line)} bytes=#{line.bytesize} text=#{strip_all_ansi(line).inspect}")
         end
       end
+      @last_topic_debug_signature = signature
     rescue StandardError
       nil
     end
@@ -589,13 +630,8 @@ module Termcourse
     def build_post_list_lines(posts, selected, scroll_offset, list_height_lines, width)
       return [t("ui.empty.posts")] if posts.empty?
 
-      blocks = posts.map.with_index do |post, index|
-        build_post_block(post, index == selected, width)
-      end
-      block_lengths = blocks.map { |lines| lines.length + 1 }
-
       selected_max = [(list_height_lines * 0.6).to_i, 6].max
-      selected_block = blocks[selected] || []
+      selected_block = build_post_block(posts[selected], true, width)
       selected_max = [selected_max, selected_block.length].min
       max_scroll = [selected_block.length - selected_max, 0].max
       scroll_offset = [[scroll_offset, 0].max, max_scroll].min
@@ -610,12 +646,13 @@ module Termcourse
       rendered << { index: selected, lines: decorate_scroll(selected_block, show_up, show_down, width) }
 
       offset = 1
-      while remaining_lines > 0 && (selected - offset >= 0 || selected + offset < blocks.length)
+      while remaining_lines > 0 && (selected - offset >= 0 || selected + offset < posts.length)
         if selected - offset >= 0
-          block = blocks[selected - offset]
-          if block_lengths[selected - offset] <= remaining_lines
+          block = build_post_block(posts[selected - offset], false, width)
+          block_length = block.length + 1
+          if block_length <= remaining_lines
             rendered.unshift({ index: selected - offset, lines: block })
-            remaining_lines -= block_lengths[selected - offset]
+            remaining_lines -= block_length
           else
             rendered.unshift({ index: selected - offset, lines: block.last([remaining_lines - 1, 0].max) })
             remaining_lines = 0
@@ -624,11 +661,12 @@ module Termcourse
 
         break if remaining_lines <= 0
 
-        if selected + offset < blocks.length
-          block = blocks[selected + offset]
-          if block_lengths[selected + offset] <= remaining_lines
+        if selected + offset < posts.length
+          block = build_post_block(posts[selected + offset], false, width)
+          block_length = block.length + 1
+          if block_length <= remaining_lines
             rendered << { index: selected + offset, lines: block }
-            remaining_lines -= block_lengths[selected + offset]
+            remaining_lines -= block_length
           else
             rendered << { index: selected + offset, lines: block.first([remaining_lines - 1, 0].max) }
             remaining_lines = 0
@@ -648,6 +686,10 @@ module Termcourse
     end
 
     def build_post_block(post, expanded, width)
+      cache_key = post_block_cache_key(post, expanded, width)
+      cached = @post_block_cache[cache_key]
+      return cached if cached
+
       liked = post_liked?(post)
       liked_marker = ""
       username = post["username"].to_s
@@ -675,12 +717,14 @@ module Termcourse
       if expanded
         header_line = pad_line(format_line(header, width, heart), width)
         header_line = highlight(header_line)
-        [header_line] + content_lines
+        lines = [header_line] + content_lines
       else
         preview = content_lines.first(3)
         preview = [""] if preview.empty?
-        [format_line(header, width, heart)] + preview
+        lines = [format_line(header, width, heart)] + preview
       end
+
+      cache_post_block(cache_key, lines)
     end
 
     def left_align_image_preview_lines(lines)
@@ -2194,11 +2238,126 @@ module Termcourse
     end
 
     def ensure_topic_chunk_loaded(topic_id, topic_data, selected_index)
-      return 0 if topic_data.nil?
+      return { before: 0, total: 0 } if topic_data.nil?
 
       added_before = load_previous_topic_chunk(topic_id, topic_data, selected_index)
-      load_next_topic_chunk(topic_id, topic_data, selected_index)
-      added_before
+      added_after = load_next_topic_chunk(topic_id, topic_data, selected_index)
+      if added_before.positive? || added_after.positive?
+        debug_log_topic_state(
+          "topic_chunk_loaded",
+          topic_id,
+          topic_data,
+          selected: selected_index,
+          extra: "added_before=#{added_before} added_after=#{added_after}"
+        )
+      end
+      { before: added_before, total: added_before + added_after }
+    end
+
+    def apply_live_topic_updates(topic_id, topic_data, selected, scroll_offsets)
+      return [topic_data, selected, scroll_offsets, false] unless @live_updates
+
+      topic_data, selected, scroll_offsets, refresh_applied =
+        refresh_topic_after_live_update(topic_id, topic_data, selected, scroll_offsets)
+      if refresh_applied
+        debug_log_topic_state("topic_live_refresh_applied", topic_id, topic_data, selected: selected)
+        return [topic_data, selected, scroll_offsets, true]
+      end
+
+      changed_post_ids = @live_updates.consume_topic_changed_post_ids(topic_id)
+      post_ids = @live_updates.consume_topic_post_ids(topic_id)
+      return [topic_data, selected, scroll_offsets, false] if changed_post_ids.empty? && post_ids.empty?
+
+      follow_tail = live_topic_follow_tail?(topic_data, selected)
+      loaded_all_posts = topic_loaded_all_posts?(topic_data)
+      loaded_post_ids = topic_posts(topic_data).map { |post| post["id"].to_i }
+      refresh_ids = Array(changed_post_ids).map(&:to_i).select { |post_id| loaded_post_ids.include?(post_id) }
+      appended_post_ids = []
+
+      if loaded_all_posts
+        appended_post_ids = Array(post_ids).map(&:to_i).select { |post_id| post_id.positive? && !Array(topic_data.dig("post_stream", "stream")).include?(post_id) }
+        fetch_ids = (refresh_ids + appended_post_ids).uniq
+        debug_log_line(
+          "topic_live_updates topic_id=#{topic_id} selected=#{selected} loaded_all_posts=true " \
+          "changed_ids=#{refresh_ids.inspect} created_ids=#{Array(post_ids).map(&:to_i).inspect} " \
+          "appended_ids=#{appended_post_ids.inspect} fetch_ids=#{fetch_ids.inspect}"
+        )
+        if fetch_ids.any?
+          fetched = fetch_topic_posts(topic_id, fetch_ids)
+          if fetched.is_a?(Hash)
+            append_live_post_ids_to_topic_stream!(topic_data, appended_post_ids) if appended_post_ids.any?
+            merge_posts_into_topic_data!(topic_data, fetched.dig("post_stream", "posts"))
+            debug_log_line(
+              "topic_live_updates_fetched topic_id=#{topic_id} fetched_post_ids=#{Array(fetched.dig('post_stream', 'posts')).map { |post| post['id'] }.inspect}"
+            )
+          elsif appended_post_ids.any?
+            debug_log_line("topic_live_updates_fetch_failed topic_id=#{topic_id} fetch_ids=#{fetch_ids.inspect} action=requeue_refresh")
+            @live_updates.requeue_topic_refresh_request(topic_id)
+            return [topic_data, selected, scroll_offsets, false]
+          end
+        end
+      else
+        appended_post_ids = append_live_post_ids_to_topic_stream!(topic_data, post_ids)
+        debug_log_line(
+          "topic_live_updates topic_id=#{topic_id} selected=#{selected} loaded_all_posts=false " \
+          "changed_ids=#{refresh_ids.inspect} created_ids=#{Array(post_ids).map(&:to_i).inspect} " \
+          "appended_ids=#{appended_post_ids.inspect}"
+        )
+        if refresh_ids.any?
+          fetched = fetch_topic_posts(topic_id, refresh_ids)
+          if fetched.is_a?(Hash)
+            merge_posts_into_topic_data!(topic_data, fetched.dig("post_stream", "posts"))
+            debug_log_line(
+              "topic_live_updates_fetched topic_id=#{topic_id} fetched_post_ids=#{Array(fetched.dig('post_stream', 'posts')).map { |post| post['id'] }.inspect}"
+            )
+          end
+        end
+      end
+      changed = refresh_ids.any? || appended_post_ids.any?
+      sync_topic_counts!(topic_data) if changed
+      if follow_tail && appended_post_ids.any?
+        selected = topic_posts(topic_data).length - 1
+        scroll_offsets = Hash.new(0)
+        debug_log_line("topic_live_follow_tail topic_id=#{topic_id} selected=#{selected}")
+      end
+      debug_log_topic_state("topic_live_updates_applied", topic_id, topic_data, selected: selected) if changed
+
+      [topic_data, selected, scroll_offsets, changed]
+    end
+
+    def refresh_topic_after_live_update(topic_id, topic_data, selected, scroll_offsets)
+      return [topic_data, selected, scroll_offsets, false] unless @live_updates.consume_topic_refresh_request(topic_id)
+
+      current_post_number = topic_posts(topic_data)[selected]&.dig("post_number")
+      debug_log_line("topic_live_refresh_requested topic_id=#{topic_id} current_post_number=#{current_post_number}")
+      refreshed = load_topic_data(topic_id, near_post: current_post_number, force: true)
+      if refreshed.nil?
+        debug_log_line("topic_live_refresh_failed topic_id=#{topic_id} current_post_number=#{current_post_number}")
+        @live_updates.requeue_topic_refresh_request(topic_id)
+        return [topic_data, selected, scroll_offsets, false]
+      end
+
+      posts = topic_posts(refreshed)
+      selected = initial_topic_selected_index(posts, refreshed, { post_number: current_post_number }, topic_id.to_i)
+      [refreshed, selected, Hash.new(0), true]
+    end
+
+    def watch_live_topic(topic_id, topic_data)
+      unless @live_updates
+        debug_log_line("topic_watch_skipped topic_id=#{topic_id} reason=no_live_updates")
+        return
+      end
+
+      @live_updates.watch_topic!(topic_id, last_message_id: topic_data["message_bus_last_id"])
+      debug_log_topic_state("topic_watch", topic_id, topic_data, extra: "message_bus_last_id=#{topic_data['message_bus_last_id'].inspect}")
+    rescue StandardError => e
+      debug_log_line("live_updates_topic_watch_error topic_id=#{topic_id} #{e.class}: #{e.message}")
+    end
+
+    def clear_live_topic
+      @live_updates&.clear_topic!
+    rescue StandardError => e
+      debug_log_line("live_updates_topic_clear_error #{e.class}: #{e.message}")
     end
 
     def load_previous_topic_chunk(topic_id, topic_data, selected_index)
@@ -2251,6 +2410,7 @@ module Termcourse
     def merge_posts_into_topic_data!(topic_data, incoming_posts)
       topic_data["post_stream"] ||= {}
       existing_posts = topic_posts(topic_data)
+      invalidate_post_block_cache(Array(incoming_posts).map { |post| post["id"] })
       posts_by_id = existing_posts.each_with_object({}) { |post, memo| memo[post["id"]] = post }
       Array(incoming_posts).each { |post| posts_by_id[post["id"]] = post }
 
@@ -2264,6 +2424,48 @@ module Termcourse
 
       topic_data["post_stream"]["posts"] = ordered
       topic_data
+    end
+
+    def topic_loaded_all_posts?(topic_data)
+      stream = Array(topic_data.dig("post_stream", "stream"))
+      posts = topic_posts(topic_data)
+      return false if stream.empty? || posts.empty?
+
+      stream.index(posts.last["id"]) == stream.length - 1
+    end
+
+    def live_topic_follow_tail?(topic_data, selected)
+      posts = topic_posts(topic_data)
+      return false if posts.empty?
+      return false unless topic_loaded_all_posts?(topic_data)
+
+      selected >= posts.length - 1
+    end
+
+    def append_live_post_ids_to_topic_stream!(topic_data, post_ids)
+      topic_data["post_stream"] ||= {}
+      stream = topic_data["post_stream"]["stream"] ||= []
+      appended = []
+
+      Array(post_ids).map(&:to_i).each do |post_id|
+        next if post_id <= 0 || stream.include?(post_id)
+
+        stream << post_id
+        appended << post_id
+      end
+
+      appended
+    end
+
+    def sync_topic_counts!(topic_data)
+      total_posts = [topic_data["posts_count"].to_i, Array(topic_data.dig("post_stream", "stream")).length, topic_posts(topic_data).length].max
+      topic_data["posts_count"] = total_posts
+      topic_data["reply_count"] = [total_posts - 1, 0].max
+
+      highest_post_number = topic_posts(topic_data).map { |post| post["post_number"].to_i }.max
+      return if highest_post_number.nil?
+
+      topic_data["highest_post_number"] = [topic_data["highest_post_number"].to_i, highest_post_number].max
     end
 
     def append_created_post_to_topic(topic_id, topic_data, created_post)
@@ -2281,10 +2483,44 @@ module Termcourse
       stream = topic_data["post_stream"]["stream"]
       stream << post["id"] if stream.is_a?(Array) && !stream.include?(post["id"])
       merge_posts_into_topic_data!(topic_data, [post])
-      topic_data["posts_count"] = [topic_data["posts_count"].to_i + 1, topic_posts(topic_data).length].max
-      topic_data["reply_count"] = [topic_data["reply_count"].to_i + 1, 0].max
+      sync_topic_counts!(topic_data)
       topic_data["highest_post_number"] = [topic_data["highest_post_number"].to_i, post["post_number"].to_i].max
       @topic_cache[topic_id.to_i] = topic_data
+      debug_log_topic_state("topic_local_post_appended", topic_id, topic_data, extra: "post_id=#{post['id']} post_number=#{post['post_number']}")
+    end
+
+    def post_block_cache_key(post, expanded, width)
+      raw = post["raw"].to_s
+      [
+        post["id"].to_i,
+        raw.hash,
+        raw.bytesize,
+        post["username"].to_s,
+        post_liked?(post),
+        expanded,
+        width,
+        @images_enabled,
+        @links_enabled,
+        @emoji_enabled
+      ]
+    end
+
+    def cache_post_block(cache_key, lines)
+      @post_block_cache[cache_key] = lines
+      @post_block_cache_order << cache_key
+      while @post_block_cache_order.length > 2000
+        evicted = @post_block_cache_order.shift
+        @post_block_cache.delete(evicted)
+      end
+      lines
+    end
+
+    def invalidate_post_block_cache(post_ids)
+      ids = Array(post_ids).map(&:to_i).select(&:positive?)
+      return if ids.empty?
+
+      @post_block_cache.delete_if { |key, _| ids.include?(key[0]) }
+      @post_block_cache_order.reject! { |key| ids.include?(key[0]) }
     end
 
     def maybe_update_read_state(topic_id, post)
@@ -2385,11 +2621,13 @@ module Termcourse
     end
 
     def maybe_refresh_status_counts(now: Time.now)
+      before = [@notification_unread_count, @pm_unread_count]
       sync_live_status_counts
       handle_live_updates_reconnect(now: now) if @live_updates
 
       maybe_refresh_notification_unread_count(now: now)
       maybe_refresh_pm_unread_count(now: now)
+      before != [@notification_unread_count, @pm_unread_count]
     end
 
     def sync_live_status_counts
@@ -2424,16 +2662,20 @@ module Termcourse
 
     def start_live_updates
       headers = @client.message_bus_headers
-      return if headers["Cookie"].to_s.strip.empty?
+      if headers["Cookie"].to_s.strip.empty?
+        debug_log_line("live_updates_disabled reason=no_cookie")
+        return
+      end
 
       @live_updates = LiveUpdates.new(
         @base_url,
         headers: headers,
         current_user_id: @current_user_id,
         notification_channel_position: @notification_channel_position,
-        debug: method(:debug_log_line)
+        debug: (@debug_enabled ? method(:debug_log_line) : nil)
       )
       @live_updates.start
+      debug_log_line("live_updates_started")
     rescue StandardError => e
       debug_log_line("live_updates_init_error #{e.class}: #{e.message}")
       @live_updates = nil
@@ -2492,6 +2734,24 @@ module Termcourse
       File.open("/tmp/termcourse_debug.txt", "a") do |f|
         f.puts("[#{Time.now.utc.iso8601}] #{message}")
       end
+    rescue StandardError
+      nil
+    end
+
+    def debug_log_topic_state(label, topic_id, topic_data, selected: nil, extra: nil)
+      return unless @debug_enabled
+
+      posts = topic_posts(topic_data)
+      stream = Array(topic_data.dig("post_stream", "stream"))
+      selected_post = selected.nil? ? nil : posts[selected]
+      message =
+        "topic_state #{label} topic_id=#{topic_id} posts=#{posts.length} stream=#{stream.length} " \
+        "selected=#{selected.inspect} selected_post_id=#{selected_post&.dig('id').inspect} " \
+        "selected_post_number=#{selected_post&.dig('post_number').inspect} " \
+        "last_post_id=#{posts.last&.dig('id').inspect} last_post_number=#{posts.last&.dig('post_number').inspect} " \
+        "stream_tail=#{stream.last.inspect}"
+      message = "#{message} #{extra}" if extra
+      debug_log_line(message)
     rescue StandardError
       nil
     end
