@@ -16,7 +16,7 @@ A terminal UI for browsing and posting to Discourse forums. It behaves like a li
 - Like/unlike posts.
 - Search posts and jump directly to the matching topic context.
 - View notifications in a dedicated list and jump straight to the related topic/post.
-- Live unread notification badge in the status bar, with MessageBus updates.
+- Live status-bar badges for notifications and PMs, driven by MessageBus with automatic reconnect recovery.
 - Inline composer with cursor movement, line breaks, and a live character counter.
 - Emoji replacements for common `:emoji:` tokens and `:)`-style smiles.
 - YAML-driven themes (`default`, `slate`, `fairground`, `rust`) with per-color overrides.
@@ -38,7 +38,7 @@ A terminal UI for browsing and posting to Discourse forums. It behaves like a li
 | Localization | Full | Built-in `en`, `fr`, `de`, and `es`, selectable by `--lang` or `TERMCOURSE_LANG`. |
 | Theming | Full | Built-in themes plus YAML overrides. |
 | Inline images | Full | `chafa` primary, `viu` fallback/override. |
-| Live list update notification | Partial | Uses Discourse MessageBus channels and shows `New/updated (n)` in the topic-list status area. Current implementation tracks core list filters only; category/tag-scoped refinement is planned. |
+| Live list update notification | Partial | Uses Discourse MessageBus channels and shows `New/updated (n)` in the topic-list status area, with reconnect recovery. Current implementation tracks core list filters only; category/tag-scoped refinement is planned. |
 
 ## Quickstart
 
@@ -223,7 +223,8 @@ Color translation:
 - Press `q` to quit.
 
 The status bar shows the current list filter and your logged-in username.
-If you have unread notifications, an accent badge like `[3]` appears beside the username.
+If you have unread non-PM notifications, an accent badge like `[3]` appears beside the username.
+If you have unread private messages, a separate `PM Unread (n)` badge appears in the status bar.
 If new topics arrive on the current list, a `New/updated (n)` indicator appears in the right side of the status bar.
 
 Private Messages list view:
