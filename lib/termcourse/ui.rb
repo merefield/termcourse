@@ -686,6 +686,8 @@ module Termcourse
     end
 
     def build_post_block(post, expanded, width)
+      @post_block_cache ||= {}
+      @post_block_cache_order ||= []
       cache_key = post_block_cache_key(post, expanded, width)
       cached = @post_block_cache[cache_key]
       return cached if cached
@@ -2506,6 +2508,8 @@ module Termcourse
     end
 
     def cache_post_block(cache_key, lines)
+      @post_block_cache ||= {}
+      @post_block_cache_order ||= []
       @post_block_cache[cache_key] = lines
       @post_block_cache_order << cache_key
       while @post_block_cache_order.length > 2000
@@ -2519,6 +2523,8 @@ module Termcourse
       ids = Array(post_ids).map(&:to_i).select(&:positive?)
       return if ids.empty?
 
+      @post_block_cache ||= {}
+      @post_block_cache_order ||= []
       @post_block_cache.delete_if { |key, _| ids.include?(key[0]) }
       @post_block_cache_order.reject! { |key| ids.include?(key[0]) }
     end
