@@ -292,6 +292,24 @@ module Termcourse
       assert_equal 2, @ui.instance_variable_get(:@pm_unread_count)
     end
 
+    def test_seed_status_counts_from_server_refreshes_pm_when_notification_refresh_did_not_seed_pm
+      @ui.instance_variable_set(:@pm_unread_count, 3)
+      @ui.define_singleton_method(:refresh_notification_unread_count) { { notification: false, pm: false } }
+
+      pm_refreshed = false
+      @ui.define_singleton_method(:refresh_pm_unread_count) do
+        pm_refreshed = true
+        true
+      end
+
+      now = Time.utc(2026, 3, 15, 12, 0, 0)
+      @ui.send(:seed_status_counts_from_server, now: now)
+
+      assert_equal true, pm_refreshed
+      assert_nil @ui.instance_variable_get(:@last_notification_unread_refresh_at)
+      assert_equal now, @ui.instance_variable_get(:@last_pm_unread_refresh_at)
+    end
+
     def test_mark_notification_read_decrements_local_and_live_unread_counts
       live_updates = FakeLiveUpdates.new(4, [], 0)
       notification = { "id" => 99, "read" => false }

@@ -2352,12 +2352,13 @@ module Termcourse
 
     def refresh_notification_unread_count
       data = with_errors { @client.notification_totals }
-      return false unless data.is_a?(Hash)
+      return { notification: false, pm: false } unless data.is_a?(Hash)
 
       count = data["unread_notifications"].to_i
       @notification_unread_count = [count, 0].max
       @live_updates&.set_unread_notification_count(@notification_unread_count)
 
+      pm_refreshed = false
       pm_count =
         if data.key?("unread_personal_messages")
           data["unread_personal_messages"].to_i
@@ -2367,8 +2368,9 @@ module Termcourse
       unless pm_count.nil?
         @pm_unread_count = [pm_count, 0].max
         @live_updates&.set_pm_unread_count(@pm_unread_count)
+        pm_refreshed = true
       end
-      true
+      { notification: true, pm: pm_refreshed }
     end
 
     def maybe_refresh_notification_unread_count(now: Time.now)
@@ -2379,7 +2381,7 @@ module Termcourse
       return if @last_notification_unread_refresh_at && (now - @last_notification_unread_refresh_at) < @notification_unread_refresh_interval
 
       refreshed = refresh_notification_unread_count
-      @last_notification_unread_refresh_at = now if refreshed
+      @last_notification_unread_refresh_at = now if refreshed[:notification]
     end
 
     def maybe_refresh_status_counts(now: Time.now)
@@ -2415,8 +2417,8 @@ module Termcourse
 
     def seed_status_counts_from_server(now: Time.now)
       notification_refreshed = refresh_notification_unread_count
-      pm_refreshed = @pm_unread_count.to_i > 0 ? true : refresh_pm_unread_count
-      @last_notification_unread_refresh_at = now if notification_refreshed
+      pm_refreshed = notification_refreshed[:pm] || refresh_pm_unread_count
+      @last_notification_unread_refresh_at = now if notification_refreshed[:notification]
       @last_pm_unread_refresh_at = now if pm_refreshed
     end
 

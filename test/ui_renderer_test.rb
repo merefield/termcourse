@@ -501,10 +501,11 @@ module Termcourse
       @ui.instance_variable_set(:@notification_unread_count, 6)
       @ui.define_singleton_method(:with_errors) { nil }
 
-      @ui.send(:refresh_notification_unread_count)
+      result = @ui.send(:refresh_notification_unread_count)
 
       assert_equal 6, @ui.instance_variable_get(:@notification_unread_count)
       assert_equal 6, live_updates.unread_notification_count
+      assert_equal false, result[:notification]
     end
 
     def test_unread_notification_count_uses_live_zero_value
