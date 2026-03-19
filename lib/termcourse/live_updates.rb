@@ -43,7 +43,6 @@ module Termcourse
       @channel_positions = {}
       @last_success_at = nil
       @last_success_count = 0
-      @last_message_at = nil
       @watchdog_thread = nil
       @topic_channel = nil
       @topic_created_post_ids = []
@@ -319,7 +318,6 @@ module Termcourse
       payload = data.is_a?(Hash) ? data : {}
       @mutex.synchronize do
         @channel_positions[channel] = message_id if message_id.is_a?(Integer)
-        @last_message_at = current_time
       end
       if topic_channel?(channel)
         debug_log(
