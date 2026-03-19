@@ -166,6 +166,15 @@ module Termcourse
       assert_equal 0, updates.unread_notification_count
     end
 
+    def test_first_partial_notification_payload_preserves_nil_state
+      updates, client = build_updates(filter: :latest)
+
+      emit(client, "/notification/42", "all_unread_notifications_count" => 7)
+
+      assert_nil updates.unread_notification_count
+      assert_nil updates.pm_unread_count
+    end
+
     def test_can_seed_unread_notification_count
       updates, = build_updates(filter: :latest)
 

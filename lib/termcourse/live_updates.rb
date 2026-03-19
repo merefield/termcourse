@@ -290,8 +290,8 @@ module Termcourse
           previous_unread
         end
       @mutex.synchronize do
-        @unread_notification_count = [count, 0].max
-        @pm_unread_count = [pm_count, 0].max
+        @unread_notification_count = count.nil? ? nil : [count, 0].max
+        @pm_unread_count = pm_count.nil? ? nil : [pm_count, 0].max
       end
       debug_log("live_updates_notifications unread=#{@unread_notification_count} pm_unread=#{@pm_unread_count}")
     end
