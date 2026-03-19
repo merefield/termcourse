@@ -4,13 +4,17 @@ require_relative "test_helper"
 
 module Termcourse
   class UICachingTest < Minitest::Test
-    FakeLiveUpdates = Struct.new(:unread_notification_count, :incoming_ids) do
+    FakeLiveUpdates = Struct.new(:unread_notification_count, :incoming_ids, :pm_unread_count) do
       def incoming_count
         Array(incoming_ids).length
       end
 
       def set_unread_notification_count(count)
         self.unread_notification_count = count
+      end
+
+      def set_pm_unread_count(count)
+        self.pm_unread_count = count
       end
 
       def incoming_topic_ids
@@ -20,6 +24,14 @@ module Termcourse
       def clear_incoming(topic_ids = nil)
         ids = Array(topic_ids)
         self.incoming_ids = Array(incoming_ids) - ids
+      end
+
+      def consume_resync_request
+        false
+      end
+
+      def consume_topic_list_refresh_request
+        false
       end
     end
 
@@ -79,7 +91,7 @@ module Termcourse
 
       def notification_totals
         @notification_totals_calls += 1
-        { "unread_notifications" => 4 }
+        { "unread_notifications" => 4, "unread_personal_messages" => 2 }
       end
 
       def get_url(path)
@@ -215,15 +227,37 @@ module Termcourse
       assert_equal "/latest?page=2", existing.dig("topic_list", "more_topics_url")
     end
 
-    def test_maybe_refresh_notification_unread_count_skips_poll_when_live_updates_seeded
+    def test_maybe_refresh_notification_unread_count_skips_poll_when_live_updates_are_healthy
       @ui.instance_variable_set(:@notification_unread_count, 4)
-      @ui.instance_variable_set(:@live_updates, FakeLiveUpdates.new(4, []))
+      @ui.instance_variable_set(:@live_updates, FakeLiveUpdates.new(4, [], 2))
+
+      now = Time.utc(2026, 3, 15, 12, 0, 0)
+      @ui.send(:maybe_refresh_notification_unread_count, now: now)
+      @ui.send(:maybe_refresh_notification_unread_count, now: now + 10)
+      @ui.send(:maybe_refresh_notification_unread_count, now: now + 31)
+
+      assert_equal 0, @client.notification_totals_calls
+    end
+
+    def test_maybe_refresh_notification_unread_count_polls_when_live_updates_are_unseeded
+      @ui.instance_variable_set(:@live_updates, FakeLiveUpdates.new(nil, [], nil))
+
+      now = Time.utc(2026, 3, 15, 12, 0, 0)
+      @ui.send(:maybe_refresh_notification_unread_count, now: now)
+
+      assert_equal 1, @client.notification_totals_calls
+      assert_equal 4, @ui.instance_variable_get(:@notification_unread_count)
+    end
+
+    def test_maybe_refresh_notification_unread_count_retries_after_failed_seed
+      @ui.instance_variable_set(:@live_updates, FakeLiveUpdates.new(nil, [], nil))
+      @ui.define_singleton_method(:with_errors) { nil }
 
       now = Time.utc(2026, 3, 15, 12, 0, 0)
       @ui.send(:maybe_refresh_notification_unread_count, now: now)
       @ui.send(:maybe_refresh_notification_unread_count, now: now + 10)
 
-      assert_equal 0, @client.notification_totals_calls
+      assert_nil @ui.instance_variable_get(:@last_notification_unread_refresh_at)
     end
 
     def test_maybe_refresh_pm_unread_count_uses_ttl
@@ -233,11 +267,33 @@ module Termcourse
       @ui.send(:maybe_refresh_pm_unread_count, now: now + 10)
       @ui.send(:maybe_refresh_pm_unread_count, now: now + 31)
 
-      assert_equal 2, @client.pm_calls
+      assert_equal 2, @client.notification_totals_calls
+      assert_equal 0, @client.pm_calls
+      assert_equal 2, @ui.instance_variable_get(:@pm_unread_count)
+    end
+
+    def test_maybe_refresh_status_counts_resyncs_once_after_live_reconnect
+      live_updates = FakeLiveUpdates.new(4, [], 2)
+      live_updates.define_singleton_method(:consume_resync_request) do
+        return false if defined?(@consumed) && @consumed
+
+        @consumed = true
+      end
+
+      @ui.instance_variable_set(:@live_updates, live_updates)
+      @ui.define_singleton_method(:debug_log_line) { |_message| nil }
+
+      now = Time.utc(2026, 3, 15, 12, 0, 0)
+      @ui.send(:maybe_refresh_status_counts, now: now)
+      @ui.send(:maybe_refresh_status_counts, now: now + 5)
+
+      assert_equal 1, @client.notification_totals_calls
+      assert_equal 4, @ui.instance_variable_get(:@notification_unread_count)
+      assert_equal 2, @ui.instance_variable_get(:@pm_unread_count)
     end
 
     def test_mark_notification_read_decrements_local_and_live_unread_counts
-      live_updates = FakeLiveUpdates.new(4, [])
+      live_updates = FakeLiveUpdates.new(4, [], 0)
       notification = { "id" => 99, "read" => false }
       @ui.instance_variable_set(:@notification_unread_count, 4)
       @ui.instance_variable_set(:@live_updates, live_updates)

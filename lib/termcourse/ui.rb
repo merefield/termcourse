@@ -150,13 +150,14 @@ module Termcourse
       }
     }.freeze
 
-    def initialize(base_url, api_key: nil, api_username: nil, client: nil, theme_name: nil, current_user_id: nil, locale: nil)
+    def initialize(base_url, api_key: nil, api_username: nil, client: nil, theme_name: nil, current_user_id: nil, notification_channel_position: nil, locale: nil)
       @client = client || Client.new(base_url, api_key: api_key, api_username: api_username)
       @reader = TTY::Reader.new
       @prompt = TTY::Prompt.new
       @pastel = Pastel.new
       @api_username = api_username
       @current_user_id = current_user_id
+      @notification_channel_position = notification_channel_position
       @base_url = base_url
       @display_url = base_url.sub(%r{\Ahttps?://}i, "")
       @locale = Localization.resolve_locale(locale)
@@ -208,9 +209,9 @@ module Termcourse
       filter = :latest
       top_period = :monthly
       start_live_updates
+      seed_status_counts_from_server
       loop do
-        maybe_refresh_pm_unread_count
-        maybe_refresh_notification_unread_count
+        maybe_refresh_status_counts
         reset_live_updates(filter)
         topics_data = load_list_data(filter, top_period)
         return if topics_data.nil?
@@ -278,6 +279,10 @@ module Termcourse
         period_index = top_periods.index(top_period) || 2
 
         loop do
+          maybe_refresh_status_counts
+          if consume_topic_list_refresh_request(filter: filters[filter_index], top_period: top_periods[period_index])
+            return :reload
+          end
           topics = topics_data.dig("topic_list", "topics") || []
           next_url = topics_data.dig("topic_list", "more_topics_url")
           render_topic_list(
@@ -362,6 +367,7 @@ module Termcourse
 
       with_raw_input_mode do
         loop do
+          maybe_refresh_status_counts
           selected += ensure_topic_chunk_loaded(topic_id, topic_data, selected)
           posts = topic_posts(topic_data)
           selected = [selected, posts.length - 1].min
@@ -1324,7 +1330,7 @@ module Termcourse
     end
 
     def pm_unread_label
-      count = @pm_unread_count.to_i
+      count = pm_unread_count
       return nil if count <= 0
 
       t("ui.status.pm_unread", count: count)
@@ -1342,6 +1348,13 @@ module Termcourse
       return live_count unless live_count.nil?
 
       @notification_unread_count.to_i
+    end
+
+    def pm_unread_count
+      live_count = @live_updates&.pm_unread_count
+      return live_count unless live_count.nil?
+
+      @pm_unread_count.to_i
     end
 
     def render_header(lines, width)
@@ -2293,6 +2306,21 @@ module Termcourse
     end
 
     def refresh_pm_unread_count
+      data = with_errors { @client.notification_totals }
+      if data.is_a?(Hash)
+        pm_count =
+          if data.key?("unread_personal_messages")
+            data["unread_personal_messages"].to_i
+          elsif data.key?("new_personal_messages_notifications_count")
+            data["new_personal_messages_notifications_count"].to_i
+          end
+        unless pm_count.nil?
+          @pm_unread_count = [pm_count, 0].max
+          @live_updates&.set_pm_unread_count(@pm_unread_count)
+          return true
+        end
+      end
+
       data = begin
         @client.get_url("/topics/private-messages-unread.json")
       rescue StandardError
@@ -2303,37 +2331,93 @@ module Termcourse
         end
       end
       @pm_unread_count = unread_private_messages_count(data)
+      @live_updates&.set_pm_unread_count(@pm_unread_count)
+      true
     rescue StandardError
       @pm_unread_count = 0
+      @live_updates&.set_pm_unread_count(@pm_unread_count)
+      false
     end
 
     def maybe_refresh_pm_unread_count(now: Time.now)
+      live_count = @live_updates&.pm_unread_count
+      @pm_unread_count = [live_count.to_i, 0].max unless live_count.nil?
+      return if @live_updates && !live_count.nil?
+
       return if @last_pm_unread_refresh_at && (now - @last_pm_unread_refresh_at) < @pm_unread_refresh_interval
 
-      refresh_pm_unread_count
-      @last_pm_unread_refresh_at = now
+      refreshed = refresh_pm_unread_count
+      @last_pm_unread_refresh_at = now if refreshed
     end
 
     def refresh_notification_unread_count
       data = with_errors { @client.notification_totals }
-      return unless data.is_a?(Hash)
+      return false unless data.is_a?(Hash)
 
       count = data["unread_notifications"].to_i
       @notification_unread_count = [count, 0].max
       @live_updates&.set_unread_notification_count(@notification_unread_count)
+
+      pm_count =
+        if data.key?("unread_personal_messages")
+          data["unread_personal_messages"].to_i
+        elsif data.key?("new_personal_messages_notifications_count")
+          data["new_personal_messages_notifications_count"].to_i
+        end
+      unless pm_count.nil?
+        @pm_unread_count = [pm_count, 0].max
+        @live_updates&.set_pm_unread_count(@pm_unread_count)
+      end
+      true
     end
 
     def maybe_refresh_notification_unread_count(now: Time.now)
       live_count = @live_updates&.unread_notification_count
-      unless live_count.nil?
-        @notification_unread_count = [live_count.to_i, 0].max
-        return
-      end
+      @notification_unread_count = [live_count.to_i, 0].max unless live_count.nil?
+      return if @live_updates && !live_count.nil?
 
       return if @last_notification_unread_refresh_at && (now - @last_notification_unread_refresh_at) < @notification_unread_refresh_interval
 
-      refresh_notification_unread_count
-      @last_notification_unread_refresh_at = now
+      refreshed = refresh_notification_unread_count
+      @last_notification_unread_refresh_at = now if refreshed
+    end
+
+    def maybe_refresh_status_counts(now: Time.now)
+      sync_live_status_counts
+      handle_live_updates_reconnect(now: now) if @live_updates
+
+      maybe_refresh_notification_unread_count(now: now)
+      maybe_refresh_pm_unread_count(now: now)
+    end
+
+    def sync_live_status_counts
+      live_unread = @live_updates&.unread_notification_count
+      @notification_unread_count = [live_unread.to_i, 0].max unless live_unread.nil?
+
+      live_pm = @live_updates&.pm_unread_count
+      @pm_unread_count = [live_pm.to_i, 0].max unless live_pm.nil?
+    end
+
+    def handle_live_updates_reconnect(now: Time.now)
+      return unless @live_updates&.consume_resync_request
+
+      debug_log_line("live_updates_resync start")
+      seed_status_counts_from_server(now: now)
+    end
+
+    def consume_topic_list_refresh_request(filter:, top_period:)
+      return false unless @live_updates&.consume_topic_list_refresh_request
+
+      debug_log_line("live_updates_topic_list_refresh filter=#{filter} top_period=#{top_period}")
+      invalidate_topic_list_cache(filter, top_period)
+      true
+    end
+
+    def seed_status_counts_from_server(now: Time.now)
+      notification_refreshed = refresh_notification_unread_count
+      pm_refreshed = @pm_unread_count.to_i > 0 ? true : refresh_pm_unread_count
+      @last_notification_unread_refresh_at = now if notification_refreshed
+      @last_pm_unread_refresh_at = now if pm_refreshed
     end
 
     def start_live_updates
@@ -2344,6 +2428,7 @@ module Termcourse
         @base_url,
         headers: headers,
         current_user_id: @current_user_id,
+        notification_channel_position: @notification_channel_position,
         debug: method(:debug_log_line)
       )
       @live_updates.start
@@ -2466,6 +2551,7 @@ module Termcourse
 
       with_raw_input_mode do
         loop do
+          maybe_refresh_status_counts
           render_search_results(query, posts, topics_map, selected)
           key = read_keypress_with_tick
           if key == :__tick__
@@ -2617,6 +2703,7 @@ module Termcourse
 
       with_raw_input_mode do
         loop do
+          maybe_refresh_status_counts
           filter = NOTIFICATION_FILTERS[filter_index]
           filtered_notifications = filter_notifications(notifications, filter)
           selected = [[selected, filtered_notifications.length - 1].min, 0].max
