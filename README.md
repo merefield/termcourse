@@ -16,14 +16,14 @@ A terminal UI for browsing and posting to Discourse forums. It behaves like a li
 - Like/unlike posts.
 - Search posts and jump directly to the matching topic context.
 - View notifications in a dedicated list and jump straight to the related topic/post.
-- Live unread notification badge in the status bar, with MessageBus updates.
+- Live status-bar badges for notifications and PMs, driven by MessageBus with automatic reconnect recovery when using cookie-based login auth.
 - Inline composer with cursor movement, line breaks, and a live character counter.
 - Emoji replacements for common `:emoji:` tokens and `:)`-style smiles.
 - YAML-driven themes (`default`, `slate`, `fairground`, `rust`) with per-color overrides.
 - Inline image previews in expanded posts (uses `chafa`, falls back to `viu`).
 - UI localization with built-in `en`, `fr`, `de`, and `es`.
-- Username/email + password login (cookie-based session login; supports TOTP/backup codes).
-- API key + username login (fallback for SSO-only or locked-down sites).
+- Username/email + password login (cookie-based session login; supports TOTP/backup codes and realtime MessageBus updates).
+- API key + username login (fallback for SSO-only or locked-down sites; HTTP-only, no realtime MessageBus session).
 
 ## Capability Matrix
 
@@ -38,7 +38,7 @@ A terminal UI for browsing and posting to Discourse forums. It behaves like a li
 | Localization | Full | Built-in `en`, `fr`, `de`, and `es`, selectable by `--lang` or `TERMCOURSE_LANG`. |
 | Theming | Full | Built-in themes plus YAML overrides. |
 | Inline images | Full | `chafa` primary, `viu` fallback/override. |
-| Live list update notification | Partial | Uses Discourse MessageBus channels and shows `New/updated (n)` in the topic-list status area. Current implementation tracks core list filters only; category/tag-scoped refinement is planned. |
+| Live list update notification | Partial | Uses Discourse MessageBus channels and shows `New/updated (n)` in the topic-list status area, with reconnect recovery. Current implementation tracks core list filters only; category/tag-scoped refinement is planned. |
 
 ## Quickstart
 
@@ -51,7 +51,7 @@ bundle install
 DISCOURSE_USERNAME="you@example.com" DISCOURSE_PASSWORD="your_password" \
   bundle exec bin/termcourse --theme slate --lang fr https://your.discourse.host
 
-# Option B: API key fallback
+# Option B: API key fallback (no realtime PM/topic updates)
 DISCOURSE_API_KEY="your_key" DISCOURSE_API_USERNAME="your_username" \
   bundle exec bin/termcourse --theme fairground https://your.discourse.host
 ```
@@ -68,6 +68,7 @@ TERMCOURSE_LANG=es bundle exec bin/termcourse https://your.discourse.host
 ### Option A: Username + Password (recommended for portability)
 
 This uses a cookie-based browser session and works across most Discourse installs that allow local login.
+It is also the recommended mode for realtime behavior: live PM/topic updates and MessageBus-driven status changes require this cookie-backed session.
 
 ```bash
 DISCOURSE_USERNAME="you@example.com" DISCOURSE_PASSWORD="your_password" \
@@ -77,6 +78,9 @@ DISCOURSE_USERNAME="you@example.com" DISCOURSE_PASSWORD="your_password" \
 If MFA (TOTP) is enabled, you’ll be prompted for a 6-digit code. If backup codes are enabled, you can choose that method instead.
 
 ### Option B: API Key (fallback)
+
+This mode works for normal HTTP actions such as browsing, posting, and polling-backed badge refreshes, but it does not create a browser session cookie.
+That means realtime MessageBus features such as live PM/topic replies and live topic-channel updates are not available in API-key mode.
 
 ```bash
 DISCOURSE_API_KEY="your_key" DISCOURSE_API_USERNAME="your_username" \
@@ -127,6 +131,7 @@ Auth selection order:
 - If a host entry explicitly sets `auth: login` or `auth: api`, termcourse only tries that auth method for that host.
 - For username/password auth, termcourse prompts only for missing fields (for example, prompts just for password if username is already known).
 - For API auth, both `api_username` and API key must resolve to non-empty values. If either is missing (including missing `*_env` target values), API login fails.
+- Realtime MessageBus features require login auth. If a host is pinned to `auth: api`, termcourse will run in HTTP-only mode for PM/topic updates.
 
 Example `.env`:
 
@@ -223,7 +228,8 @@ Color translation:
 - Press `q` to quit.
 
 The status bar shows the current list filter and your logged-in username.
-If you have unread notifications, an accent badge like `[3]` appears beside the username.
+If you have unread non-PM notifications, an accent badge like `[3]` appears beside the username.
+If you have unread private messages, a separate `PM Unread (n)` badge appears in the status bar.
 If new topics arrive on the current list, a `New/updated (n)` indicator appears in the right side of the status bar.
 
 Private Messages list view:

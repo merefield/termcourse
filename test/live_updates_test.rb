@@ -4,18 +4,48 @@ require_relative "test_helper"
 
 module Termcourse
   class LiveUpdatesTest < Minitest::Test
-    FakeClient = Struct.new(:subscriptions, :started, :stopped) do
+    FakeStats = Struct.new(:failed, :success)
+
+    class FakeClient
+      attr_reader :subscriptions, :stats
+      attr_accessor :started, :stopped, :status
+
+      def initialize
+        @subscriptions = {}
+        @stats = FakeStats.new(0, 0)
+        @status = MessageBus::HTTPClient::STOPPED
+        @started = false
+        @stopped = false
+      end
+
       def subscribe(channel, last_message_id:, &callback)
-        self.subscriptions ||= {}
         subscriptions[channel] = { last_message_id: last_message_id, callback: callback }
       end
 
       def start
         self.started = true
+        self.status = MessageBus::HTTPClient::STARTED
       end
 
       def stop
         self.stopped = true
+        self.status = MessageBus::HTTPClient::STOPPED
+      end
+    end
+
+    class FailingStartClient < FakeClient
+      attr_reader :start_attempts
+
+      def initialize
+        super
+        @start_attempts = 0
+      end
+
+      def start
+        @start_attempts += 1
+        raise "boom" if @start_attempts == 1
+
+        super
       end
     end
 
@@ -25,13 +55,83 @@ module Termcourse
         "https://meta.discourse.org",
         headers: { "Cookie" => "_forum_session=abc" },
         current_user_id: 42,
-        client: client
+        client: client,
+        watchdog_interval: 999
       )
 
       assert_equal ["/latest", "/new", "/notification/42", "/unread", "/unread/42"], client.subscriptions.keys.sort
 
       updates.start
       updates.stop
+      assert_equal true, client.started
+      assert_equal true, client.stopped
+    end
+
+    def test_notification_channel_uses_server_provided_channel_position
+      client = FakeClient.new
+      LiveUpdates.new(
+        "https://meta.discourse.org",
+        headers: { "Cookie" => "_forum_session=abc" },
+        current_user_id: 42,
+        notification_channel_position: 123,
+        client: client,
+        watchdog_interval: 999
+      )
+
+      assert_equal 123, client.subscriptions.fetch("/notification/42").fetch(:last_message_id)
+    end
+
+    def test_watch_topic_subscribes_with_server_provided_channel_position
+      client = FakeClient.new
+      updates = LiveUpdates.new(
+        "https://meta.discourse.org",
+        headers: { "Cookie" => "_forum_session=abc" },
+        current_user_id: 42,
+        client: client,
+        watchdog_interval: 999
+      )
+
+      updates.watch_topic!(55, last_message_id: 888)
+
+      assert_equal 888, client.subscriptions.fetch("/topic/55").fetch(:last_message_id)
+    end
+
+    def test_watch_topic_updates_stored_position_when_rewatching_topic
+      client = FakeClient.new
+      updates = LiveUpdates.new(
+        "https://meta.discourse.org",
+        headers: { "Cookie" => "_forum_session=abc" },
+        current_user_id: 42,
+        client: client,
+        watchdog_interval: 999
+      )
+
+      updates.watch_topic!(55, last_message_id: 111)
+      updates.clear_topic!
+      updates.watch_topic!(55, last_message_id: 222)
+
+      assert_equal 222, updates.channel_positions.fetch("/topic/55")
+      assert_equal 222, client.subscriptions.fetch("/topic/55").fetch(:last_message_id)
+    end
+
+    def test_start_can_be_retried_after_client_start_failure
+      client = FailingStartClient.new
+      updates = LiveUpdates.new(
+        "https://meta.discourse.org",
+        headers: { "Cookie" => "_forum_session=abc" },
+        current_user_id: 42,
+        client: client,
+        watchdog_interval: 999
+      )
+
+      assert_nil updates.start
+      assert_equal 1, client.start_attempts
+      assert_equal MessageBus::HTTPClient::STOPPED, client.status
+
+      updates.start
+      updates.stop
+
+      assert_equal 2, client.start_attempts
       assert_equal true, client.started
       assert_equal true, client.stopped
     end
@@ -86,7 +186,8 @@ module Termcourse
         headers: { "Cookie" => "_forum_session=abc" },
         current_user_id: 42,
         client: client,
-        max_incoming_topic_ids: 3
+        max_incoming_topic_ids: 3,
+        watchdog_interval: 999
       )
       updates.track!(:latest)
 
@@ -112,15 +213,18 @@ module Termcourse
       )
 
       assert_equal 5, updates.unread_notification_count
+      assert_equal 2, updates.pm_unread_count
     end
 
     def test_partial_notification_payload_preserves_previous_unread_count
       updates, client = build_updates(filter: :latest)
       updates.set_unread_notification_count(4)
+      updates.set_pm_unread_count(1)
 
       emit(client, "/notification/42", "all_unread_notifications_count" => 7)
 
       assert_equal 4, updates.unread_notification_count
+      assert_equal 1, updates.pm_unread_count
     end
 
     def test_unread_notification_count_is_nil_until_seeded
@@ -133,12 +237,199 @@ module Termcourse
       assert_equal 0, updates.unread_notification_count
     end
 
+    def test_first_partial_notification_payload_preserves_nil_state
+      updates, client = build_updates(filter: :latest)
+
+      emit(client, "/notification/42", "all_unread_notifications_count" => 7)
+
+      assert_nil updates.unread_notification_count
+      assert_nil updates.pm_unread_count
+    end
+
     def test_can_seed_unread_notification_count
       updates, = build_updates(filter: :latest)
 
       updates.set_unread_notification_count(3)
 
       assert_equal 3, updates.unread_notification_count
+    end
+
+    def test_updates_channel_positions_from_message_ids
+      updates, client = build_updates(filter: :latest)
+
+      emit(client, "/latest", { "topic_id" => 99, "message_type" => "latest", "payload" => {} }, message_id: 321)
+
+      assert_equal 321, updates.channel_positions.fetch("/latest")
+    end
+
+    def test_topic_channel_created_message_queues_post_ids
+      updates, client = build_updates(filter: :latest)
+      updates.watch_topic!(55, last_message_id: 888)
+
+      emit(client, "/topic/55", { "type" => "created", "id" => 901 }, message_id: 654)
+
+      assert_equal [901], updates.consume_topic_post_ids(55)
+      assert_equal 654, updates.channel_positions.fetch("/topic/55")
+    end
+
+    def test_topic_channel_liked_message_queues_changed_post_ids
+      updates, client = build_updates(filter: :latest)
+      updates.watch_topic!(55, last_message_id: 888)
+
+      emit(client, "/topic/55", { "type" => "liked", "id" => 902 }, message_id: 655)
+
+      assert_equal [902], updates.consume_topic_changed_post_ids(55)
+      assert_equal 655, updates.channel_positions.fetch("/topic/55")
+    end
+
+    def test_topic_channel_reload_topic_requests_refresh
+      updates, client = build_updates(filter: :latest)
+      updates.watch_topic!(55)
+
+      emit(client, "/topic/55", { "reload_topic" => true }, message_id: 654)
+
+      assert_equal true, updates.consume_topic_refresh_request(55)
+    end
+
+    def test_topic_channel_destroyed_message_requests_refresh
+      updates, client = build_updates(filter: :latest)
+      updates.watch_topic!(55)
+
+      emit(client, "/topic/55", { "type" => "destroyed", "id" => 903 }, message_id: 656)
+
+      assert_equal true, updates.consume_topic_refresh_request(55)
+    end
+
+    def test_topic_channel_stats_with_posts_count_requests_refresh
+      updates, client = build_updates(filter: :latest)
+      updates.watch_topic!(55)
+
+      emit(client, "/topic/55", { "type" => "stats", "posts_count" => 8 }, message_id: 657)
+
+      assert_equal true, updates.consume_topic_refresh_request(55)
+    end
+
+    def test_topic_channel_stats_does_not_override_queued_created_post
+      updates, client = build_updates(filter: :latest)
+      updates.watch_topic!(55)
+
+      emit(client, "/topic/55", { "type" => "created", "id" => 901 }, message_id: 654)
+      emit(client, "/topic/55", { "type" => "stats", "posts_count" => 8 }, message_id: 657)
+
+      assert_equal [901], updates.consume_topic_post_ids(55)
+      assert_equal false, updates.consume_topic_refresh_request(55)
+    end
+
+    def test_monitor_restarts_stale_client_from_saved_channel_positions
+      clock = Time.utc(2026, 3, 19, 12, 0, 0)
+      first = FakeClient.new
+      second = FakeClient.new
+      updates = LiveUpdates.new(
+        "https://meta.discourse.org",
+        headers: { "Cookie" => "_forum_session=abc" },
+        current_user_id: 42,
+        client: first,
+        client_factory: -> { second },
+        watchdog_interval: 999,
+        watchdog_stale_threshold: 240,
+        now_proc: -> { clock }
+      )
+      updates.track!(:latest)
+      updates.start
+
+      emit(first, "/latest", { "topic_id" => 61, "message_type" => "latest", "payload" => {} }, message_id: 777)
+      clock += 241
+      updates.monitor(now: clock)
+
+      assert_equal true, first.stopped
+      assert_equal true, second.started
+      assert_equal 777, second.subscriptions.fetch("/latest").fetch(:last_message_id)
+      assert_equal true, updates.consume_resync_request
+
+      updates.stop
+    end
+
+    def test_monitor_requests_topic_list_refresh_when_resume_positions_are_missing
+      clock = Time.utc(2026, 3, 19, 12, 0, 0)
+      first = FakeClient.new
+      second = FakeClient.new
+      updates = LiveUpdates.new(
+        "https://meta.discourse.org",
+        headers: { "Cookie" => "_forum_session=abc" },
+        current_user_id: 42,
+        client: first,
+        client_factory: -> { second },
+        watchdog_interval: 999,
+        watchdog_stale_threshold: 240,
+        now_proc: -> { clock }
+      )
+      updates.track!(:latest)
+      updates.start
+
+      updates.instance_variable_get(:@channel_positions).delete("/latest")
+      emit(first, "/latest", { "topic_id" => 61, "message_type" => "latest", "payload" => {} }, message_id: 777)
+      updates.instance_variable_get(:@channel_positions).delete("/latest")
+
+      clock += 241
+      updates.monitor(now: clock)
+
+      assert_equal true, updates.consume_topic_list_refresh_request
+      assert_equal 0, updates.incoming_count
+
+      updates.stop
+    end
+
+    def test_monitor_requests_topic_list_refresh_when_positions_are_only_default_lookahead
+      clock = Time.utc(2026, 3, 19, 12, 0, 0)
+      first = FakeClient.new
+      second = FakeClient.new
+      updates = LiveUpdates.new(
+        "https://meta.discourse.org",
+        headers: { "Cookie" => "_forum_session=abc" },
+        current_user_id: 42,
+        client: first,
+        client_factory: -> { second },
+        watchdog_interval: 999,
+        watchdog_stale_threshold: 240,
+        now_proc: -> { clock }
+      )
+      updates.track!(:latest)
+      updates.start
+
+      clock += 241
+      updates.monitor(now: clock)
+
+      assert_equal true, updates.consume_topic_list_refresh_request
+      assert_equal(-1, second.subscriptions.fetch("/latest").fetch(:last_message_id))
+
+      updates.stop
+    end
+
+    def test_monitor_requests_topic_refresh_when_topic_channel_position_is_not_resumable
+      clock = Time.utc(2026, 3, 19, 12, 0, 0)
+      first = FakeClient.new
+      second = FakeClient.new
+      updates = LiveUpdates.new(
+        "https://meta.discourse.org",
+        headers: { "Cookie" => "_forum_session=abc" },
+        current_user_id: 42,
+        client: first,
+        client_factory: -> { second },
+        watchdog_interval: 999,
+        watchdog_stale_threshold: 240,
+        now_proc: -> { clock }
+      )
+      updates.track!(:latest)
+      updates.watch_topic!(55)
+      updates.start
+
+      clock += 241
+      updates.monitor(now: clock)
+
+      assert_equal true, updates.consume_topic_refresh_request(55)
+      assert_equal(-1, second.subscriptions.fetch("/topic/55").fetch(:last_message_id))
+
+      updates.stop
     end
 
     private
@@ -149,14 +440,17 @@ module Termcourse
         "https://meta.discourse.org",
         headers: { "Cookie" => "_forum_session=abc" },
         current_user_id: 42,
-        client: client
+        client: client,
+        watchdog_interval: 999
       )
       updates.track!(filter)
       [updates, client]
     end
 
-    def emit(client, channel, payload)
-      client.subscriptions.fetch(channel).fetch(:callback).call(payload, 100, 200)
+    def emit(client, channel, payload = nil, message_id: 100, **payload_kwargs)
+      payload = payload_kwargs unless payload_kwargs.empty?
+      payload ||= {}
+      client.subscriptions.fetch(channel).fetch(:callback).call(payload, message_id, 200)
     end
   end
 end

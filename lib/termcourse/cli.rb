@@ -268,6 +268,7 @@ module Termcourse
         client: client,
         api_username: api_username,
         current_user_id: current.dig("current_user", "id"),
+        notification_channel_position: current.dig("current_user", "notification_channel_position"),
         theme_name: theme_name,
         locale: locale
       )
@@ -302,6 +303,7 @@ module Termcourse
         client: client,
         api_username: login_user,
         current_user_id: current.is_a?(Hash) ? current.dig("current_user", "id") : nil,
+        notification_channel_position: current.is_a?(Hash) ? current.dig("current_user", "notification_channel_position") : nil,
         theme_name: theme_name,
         locale: locale
       )

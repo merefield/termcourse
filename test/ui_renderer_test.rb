@@ -473,9 +473,21 @@ module Termcourse
   end
 
   class UINotificationStateTest < Minitest::Test
-    FakeLiveUpdates = Struct.new(:unread_notification_count) do
+    FakeLiveUpdates = Struct.new(:unread_notification_count, :pm_unread_count) do
       def set_unread_notification_count(count)
         self.unread_notification_count = count
+      end
+
+      def set_pm_unread_count(count)
+        self.pm_unread_count = count
+      end
+
+      def consume_resync_request
+        false
+      end
+
+      def consume_topic_list_refresh_request
+        false
       end
     end
 
@@ -484,22 +496,30 @@ module Termcourse
     end
 
     def test_refresh_notification_unread_count_preserves_existing_count_on_failed_refresh
-      live_updates = FakeLiveUpdates.new(6)
+      live_updates = FakeLiveUpdates.new(6, 2)
       @ui.instance_variable_set(:@live_updates, live_updates)
       @ui.instance_variable_set(:@notification_unread_count, 6)
       @ui.define_singleton_method(:with_errors) { nil }
 
-      @ui.send(:refresh_notification_unread_count)
+      result = @ui.send(:refresh_notification_unread_count)
 
       assert_equal 6, @ui.instance_variable_get(:@notification_unread_count)
       assert_equal 6, live_updates.unread_notification_count
+      assert_equal false, result[:notification]
     end
 
     def test_unread_notification_count_uses_live_zero_value
-      @ui.instance_variable_set(:@live_updates, FakeLiveUpdates.new(0))
+      @ui.instance_variable_set(:@live_updates, FakeLiveUpdates.new(0, 0))
       @ui.instance_variable_set(:@notification_unread_count, 6)
 
       assert_equal 0, @ui.send(:unread_notification_count)
+    end
+
+    def test_pm_unread_count_uses_live_zero_value
+      @ui.instance_variable_set(:@live_updates, FakeLiveUpdates.new(6, 0))
+      @ui.instance_variable_set(:@pm_unread_count, 4)
+
+      assert_equal 0, @ui.send(:pm_unread_count)
     end
 
     def test_mark_notification_read_only_updates_local_state_after_success
