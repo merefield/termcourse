@@ -4,7 +4,19 @@ require_relative "test_helper"
 
 module Termcourse
   class UICachingTest < Minitest::Test
-    FakeLiveUpdates = Struct.new(:unread_notification_count, :incoming_ids, :pm_unread_count) do
+    class FakeLiveUpdates
+      attr_accessor :unread_notification_count, :incoming_ids, :pm_unread_count, :topic_post_ids, :topic_changed_post_ids, :topic_refresh_requested, :watched_topics
+
+      def initialize(unread_notification_count = nil, incoming_ids = [], pm_unread_count = nil)
+        @unread_notification_count = unread_notification_count
+        @incoming_ids = incoming_ids
+        @pm_unread_count = pm_unread_count
+        @topic_post_ids = {}
+        @topic_changed_post_ids = {}
+        @topic_refresh_requested = {}
+        @watched_topics = []
+      end
+
       def incoming_count
         Array(incoming_ids).length
       end
@@ -32,6 +44,30 @@ module Termcourse
 
       def consume_topic_list_refresh_request
         false
+      end
+
+      def watch_topic!(topic_id, last_message_id: nil)
+        watched_topics << { topic_id: topic_id, last_message_id: last_message_id }
+      end
+
+      def clear_topic!
+        watched_topics << :cleared
+      end
+
+      def consume_topic_post_ids(topic_id)
+        Array(topic_post_ids.delete(topic_id.to_i))
+      end
+
+      def consume_topic_changed_post_ids(topic_id)
+        Array(topic_changed_post_ids.delete(topic_id.to_i))
+      end
+
+      def consume_topic_refresh_request(topic_id)
+        topic_refresh_requested.delete(topic_id.to_i) == true
+      end
+
+      def requeue_topic_refresh_request(topic_id)
+        topic_refresh_requested[topic_id.to_i] = true
       end
     end
 
@@ -83,7 +119,7 @@ module Termcourse
         {
           "post_stream" => {
             "posts" => Array(post_ids).map.with_index do |id, idx|
-              { "id" => id, "post_number" => 3 + idx, "raw" => "post #{id}", "username" => "two" }
+              { "id" => id, "post_number" => id.to_i - 10, "raw" => "post #{id}", "username" => "two" }
             end
           }
         }
@@ -331,6 +367,137 @@ module Termcourse
 
       assert_equal [16], @client.post_calls
       assert_equal [11, 12, 16], topic_data.dig("post_stream", "posts").map { |post| post["id"] }
+    end
+
+    def test_watch_live_topic_uses_topic_message_bus_last_id
+      live_updates = FakeLiveUpdates.new
+      topic_data = @ui.send(:load_topic_data, 42)
+      topic_data["message_bus_last_id"] = 345
+      @ui.instance_variable_set(:@live_updates, live_updates)
+
+      @ui.send(:watch_live_topic, 42, topic_data)
+
+      assert_equal [{ topic_id: 42, last_message_id: 345 }], live_updates.watched_topics
+    end
+
+    def test_apply_live_topic_updates_appends_post_immediately_when_topic_is_fully_loaded
+      live_updates = FakeLiveUpdates.new
+      live_updates.topic_post_ids[42] = [16]
+      topic_data = @ui.send(:load_topic_data, 42)
+      topic_data["post_stream"]["posts"] = [
+        { "id" => 11, "post_number" => 1, "raw" => "a", "username" => "one" },
+        { "id" => 12, "post_number" => 2, "raw" => "b", "username" => "one" },
+        { "id" => 13, "post_number" => 3, "raw" => "c", "username" => "two" },
+        { "id" => 14, "post_number" => 4, "raw" => "d", "username" => "two" },
+        { "id" => 15, "post_number" => 5, "raw" => "e", "username" => "two" }
+      ]
+      @ui.instance_variable_set(:@live_updates, live_updates)
+
+      topic_data, = @ui.send(:apply_live_topic_updates, 42, topic_data, 4, Hash.new(0))
+
+      assert_equal [16], @client.topic_posts_calls.last[:post_ids]
+      assert_equal [11, 12, 13, 14, 15, 16], topic_data.dig("post_stream", "posts").map { |post| post["id"] }
+      assert_equal 6, topic_data["posts_count"]
+      assert_equal 5, topic_data["reply_count"]
+      assert_equal 6, topic_data["highest_post_number"]
+    end
+
+    def test_apply_live_topic_updates_follows_tail_when_new_post_arrives_at_end
+      live_updates = FakeLiveUpdates.new
+      live_updates.topic_post_ids[42] = [16]
+      topic_data = @ui.send(:load_topic_data, 42)
+      topic_data["post_stream"]["posts"] = [
+        { "id" => 11, "post_number" => 1, "raw" => "a", "username" => "one" },
+        { "id" => 12, "post_number" => 2, "raw" => "b", "username" => "one" },
+        { "id" => 13, "post_number" => 3, "raw" => "c", "username" => "two" },
+        { "id" => 14, "post_number" => 4, "raw" => "d", "username" => "two" },
+        { "id" => 15, "post_number" => 5, "raw" => "e", "username" => "two" }
+      ]
+      @ui.instance_variable_set(:@live_updates, live_updates)
+
+      _topic_data, selected, scroll_offsets = @ui.send(:apply_live_topic_updates, 42, topic_data, 4, { 4 => 7 })
+
+      assert_equal 5, selected
+      assert_equal({}, scroll_offsets)
+    end
+
+    def test_apply_live_topic_updates_only_extends_stream_when_topic_is_not_fully_loaded
+      live_updates = FakeLiveUpdates.new
+      live_updates.topic_post_ids[42] = [16]
+      topic_data = @ui.send(:load_topic_data, 42)
+      @ui.instance_variable_set(:@live_updates, live_updates)
+
+      topic_data, = @ui.send(:apply_live_topic_updates, 42, topic_data, 1, Hash.new(0))
+
+      assert_equal [], @client.topic_posts_calls
+      assert_equal [11, 12, 13, 14, 15, 16], topic_data.dig("post_stream", "stream")
+      assert_equal [11, 12], topic_data.dig("post_stream", "posts").map { |post| post["id"] }
+      assert_equal 6, topic_data["posts_count"]
+      assert_equal 5, topic_data["reply_count"]
+    end
+
+    def test_apply_live_topic_updates_reloads_topic_when_refresh_requested
+      live_updates = FakeLiveUpdates.new
+      live_updates.topic_refresh_requested[42] = true
+      topic_data = @ui.send(:load_topic_data, 42)
+      @ui.instance_variable_set(:@live_updates, live_updates)
+      calls = []
+      refreshed = topic_data.merge("title" => "Refreshed Topic")
+      @ui.define_singleton_method(:load_topic_data) do |topic_id, near_post: nil, force: false|
+        calls << { topic_id: topic_id, near_post: near_post, force: force }
+        refreshed
+      end
+
+      refreshed_topic, selected, scroll_offsets = @ui.send(:apply_live_topic_updates, 42, topic_data, 1, { 1 => 3 })
+
+      assert_equal [{ topic_id: 42, near_post: 2, force: true }], calls
+      assert_equal "Refreshed Topic", refreshed_topic["title"]
+      assert_equal 1, selected
+      assert_equal({}, scroll_offsets)
+    end
+
+    def test_apply_live_topic_updates_requeues_topic_refresh_when_reload_fails
+      live_updates = FakeLiveUpdates.new
+      live_updates.topic_refresh_requested[42] = true
+      topic_data = @ui.send(:load_topic_data, 42)
+      @ui.instance_variable_set(:@live_updates, live_updates)
+      @ui.define_singleton_method(:load_topic_data) do |_topic_id, near_post: nil, force: false|
+        nil
+      end
+
+      refreshed_topic, selected, scroll_offsets = @ui.send(:apply_live_topic_updates, 42, topic_data, 1, { 1 => 3 })
+
+      assert_same topic_data, refreshed_topic
+      assert_equal 1, selected
+      assert_equal({ 1 => 3 }, scroll_offsets)
+      assert_equal true, live_updates.consume_topic_refresh_request(42)
+    end
+
+    def test_apply_live_topic_updates_refreshes_loaded_changed_posts_in_place
+      live_updates = FakeLiveUpdates.new
+      live_updates.topic_changed_post_ids[42] = [12, 14]
+      topic_data = @ui.send(:load_topic_data, 42)
+      @ui.instance_variable_set(:@live_updates, live_updates)
+      seen_topic_id = nil
+      seen_post_ids = nil
+      @ui.define_singleton_method(:fetch_topic_posts) do |topic_id, post_ids|
+        seen_topic_id = topic_id
+        seen_post_ids = post_ids
+        {
+          "post_stream" => {
+            "posts" => [
+              { "id" => 12, "post_number" => 2, "raw" => "edited body", "username" => "one" }
+            ]
+          }
+        }
+      end
+
+      topic_data, = @ui.send(:apply_live_topic_updates, 42, topic_data, 1, Hash.new(0))
+
+      assert_equal 42, seen_topic_id
+      assert_equal [12], seen_post_ids
+      assert_equal "edited body", topic_data.dig("post_stream", "posts", 1, "raw")
+      assert_equal [11, 12], topic_data.dig("post_stream", "posts").map { |post| post["id"] }
     end
   end
 end
