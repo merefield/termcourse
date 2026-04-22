@@ -206,6 +206,150 @@ module Termcourse
     end
   end
 
+  class UIImageModeTest < Minitest::Test
+    def setup
+      @ui = UI.allocate
+      @ui.instance_variable_set(:@chafa_cmd, "/usr/bin/chafa")
+      @ui.instance_variable_set(:@image_colors, "full")
+    end
+
+    def test_normalize_image_mode_defaults_to_compat
+      assert_equal "compat", @ui.send(:normalize_image_mode, nil)
+      assert_equal "compat", @ui.send(:normalize_image_mode, "stable")
+    end
+
+    def test_normalize_image_mode_accepts_balanced_and_high
+      assert_equal "balanced", @ui.send(:normalize_image_mode, "balanced")
+      assert_equal "high", @ui.send(:normalize_image_mode, "high")
+    end
+
+    def test_chafa_command_uses_ascii_mode_for_compat
+      @ui.instance_variable_set(:@image_mode, "compat")
+
+      command = @ui.send(:chafa_command, "/tmp/example.png", 40, 12)
+
+      assert_includes command, "--format symbols"
+      assert_includes command, "--symbols ascii"
+      assert_includes command, "--colors none"
+      assert_includes command, "--optimize 0"
+      assert_includes command, "--work 1"
+    end
+
+    def test_chafa_command_uses_vhalf_mode_for_balanced
+      @ui.instance_variable_set(:@image_mode, "balanced")
+
+      command = @ui.send(:chafa_command, "/tmp/example.png", 40, 12)
+
+      assert_includes command, "--symbols vhalf"
+      assert_includes command, "--colors full"
+      assert_includes command, "--optimize 5"
+      assert_includes command, "--work 5"
+    end
+
+    def test_chafa_command_uses_denser_symbols_for_high
+      @ui.instance_variable_set(:@image_mode, "high")
+
+      command = @ui.send(:chafa_command, "/tmp/example.png", 40, 12)
+
+      assert_includes command, "--symbols vhalf+block"
+      assert_includes command, "--colors full"
+      assert_includes command, "--optimize 9"
+      assert_includes command, "--work 9"
+    end
+
+    def test_chafa_native_sixel_argv_uses_top_left_fullscreen_viewport
+      argv = @ui.send(:chafa_native_sixel_argv, "/tmp/example.png", 80, 23)
+
+      assert_includes argv, "--format"
+      assert_includes argv, "sixels"
+      assert_includes argv, "--scale"
+      assert_includes argv, "max"
+      assert_includes argv, "--align"
+      assert_includes argv, "top,left"
+      assert_includes argv, "--margin-bottom"
+      assert_includes argv, "0"
+      assert_includes argv, "--view-size"
+      assert_includes argv, "80x23"
+    end
+  end
+
+  class UISixelSupportTest < Minitest::Test
+    def setup
+      @ui = UI.allocate
+    end
+
+    def test_parse_da1_sixel_response_detects_sixel_extension
+      assert_equal true, @ui.send(:parse_da1_sixel_response, "\e[?62;4;9;22c")
+    end
+
+    def test_parse_da1_sixel_response_rejects_responses_without_sixel_extension
+      assert_equal false, @ui.send(:parse_da1_sixel_response, "\e[?1;2;6;9;15;18;22c")
+    end
+
+    def test_parse_pixel_response_reads_text_area_size
+      assert_equal [1280, 720], @ui.send(:parse_pixel_response, "\e[4;720;1280t", expected_code: "4")
+    end
+
+    def test_parse_pixel_response_reads_cell_size
+      assert_equal [9, 18], @ui.send(:parse_pixel_response, "\e[6;18;9t", expected_code: "6")
+    end
+
+    def test_parse_xtsmgraphics_geometry_response_reads_sixel_geometry
+      assert_equal [1920, 1080], @ui.send(:parse_xtsmgraphics_geometry_response, "\e[?2;0;1920;1080S", expected_item: "2")
+    end
+
+    def test_parse_xtsmgraphics_geometry_response_rejects_unsuccessful_status
+      assert_nil @ui.send(:parse_xtsmgraphics_geometry_response, "\e[?2;3;1920;1080S", expected_item: "2")
+    end
+
+    def test_fullscreen_native_pixel_viewport_reserves_footer_row
+      @ui.define_singleton_method(:query_sixel_graphics_pixels) { [1280, 720] }
+      @ui.define_singleton_method(:query_cell_pixels) { [9, 18] }
+
+      assert_equal [1280, 702], @ui.send(:fullscreen_native_pixel_viewport, 40)
+    end
+
+    def test_render_fullscreen_image_native_writes_native_payload_and_footer
+      ui = UI.allocate
+      ui.instance_variable_set(:@renderer, UI::ScreenRenderer.new(pad_line: ->(line, width) { line.ljust(width) }))
+      ui.instance_variable_set(:@locale, "en")
+      ui.instance_variable_set(:@theme, UI::BUILTIN_THEMES["default"])
+      ui.instance_variable_set(:@color_mode, "truecolor")
+      ui.define_singleton_method(:render_native_image_url) { |_url, _width, _height, pixel_viewport: nil| "SIXELPAYLOAD" }
+      ui.define_singleton_method(:fullscreen_native_pixel_viewport) { |_screen_height| [1280, 702] }
+      output = with_stubbed_screen_size(80, 24) do
+        capture_stdout { ui.send(:render_fullscreen_image_native, "https://example.com/test.png") }
+      end
+
+      assert_includes output, TTY::Cursor.clear_screen
+      assert_includes output, "SIXELPAYLOAD"
+      assert_includes output, "x/esc: back"
+    end
+
+    private
+
+    def with_stubbed_screen_size(width, height)
+      original_width = TTY::Screen.method(:width)
+      original_height = TTY::Screen.method(:height)
+      TTY::Screen.define_singleton_method(:width) { width }
+      TTY::Screen.define_singleton_method(:height) { height }
+      yield
+    ensure
+      TTY::Screen.define_singleton_method(:width, original_width)
+      TTY::Screen.define_singleton_method(:height, original_height)
+    end
+
+    def capture_stdout
+      stdout = $stdout
+      fake = StringIO.new
+      $stdout = fake
+      yield
+      fake.string
+    ensure
+      $stdout = stdout
+    end
+  end
+
   class UIReadKeypressWithTickTest < Minitest::Test
     class FakeInput
       def initialize(waitables)

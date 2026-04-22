@@ -105,8 +105,8 @@ You can set any of these in your shell or `.env` file. `.env` is auto-loaded if 
 - CLI override: `--lang LANG` applies only to the current run and overrides locale env detection.
 - `TERMCOURSE_IMAGES`: Set to `0` to disable inline image previews.
 - `TERMCOURSE_IMAGE_BACKEND`: Choose image backend: `auto` (default), `chafa`, `viu`, or `off`.
-- `TERMCOURSE_IMAGE_MODE`: Generic image mode for both `chafa` and `viu`: `stable` (default) or `quality`.
-- `TERMCOURSE_IMAGE_COLORS`: Chafa quality color mode: `auto` (default), `none`, `16`, `240`, `256`, `full`.
+- `TERMCOURSE_IMAGE_MODE`: Image mode preset for `chafa`/`viu`: `compat` (default), `balanced`, or `high`.
+- `TERMCOURSE_IMAGE_COLORS`: Chafa `balanced`/`high` color mode: `auto` (default), `none`, `16`, `240`, `256`, `full`.
 - `TERMCOURSE_IMAGE_LINES`: Target image preview height in terminal lines (default `14`).
 - `TERMCOURSE_IMAGE_DEBUG`: Set to `1` to write image debug logs to `/tmp/termcourse_image_debug.txt`.
 - `TERMCOURSE_IMAGE_QUALITY_FILTER`: Set to `0` to allow low-quality blocky previews (default filters them out).
@@ -182,15 +182,20 @@ Color translation:
 ## Image Guidelines
 
 - Image previews are shown only for the expanded post in Topic View.
+- Fullscreen image view automatically uses native Sixel rendering when the terminal confirms support.
+- If `magick` or `convert` is available, fullscreen native rendering uses ImageMagick to resize the source image to the terminal viewport before emitting SIXEL for a larger, more accurate result.
+- If ImageMagick is unavailable, fullscreen native rendering falls back to the existing `chafa` SIXEL path.
+- If Sixel is unavailable, fullscreen image view falls back to the text-mode renderer.
 - Backend selection:
 - `TERMCOURSE_IMAGE_BACKEND=auto` tries `chafa` first, then `viu`.
 - Set `TERMCOURSE_IMAGE_BACKEND=chafa` or `TERMCOURSE_IMAGE_BACKEND=viu` to force one backend.
 - Set `TERMCOURSE_IMAGE_BACKEND=off` or `TERMCOURSE_IMAGES=0` to disable previews.
-- Chafa modes:
-- `TERMCOURSE_IMAGE_MODE=stable` favors stability and conservative output.
-- `TERMCOURSE_IMAGE_MODE=quality` enables higher-detail/color symbol rendering.
+- Image modes:
+- `TERMCOURSE_IMAGE_MODE=compat` favors stability and conservative output.
+- `TERMCOURSE_IMAGE_MODE=balanced` enables higher-detail/color symbol rendering.
+- `TERMCOURSE_IMAGE_MODE=high` enables denser symbols and more aggressive chafa tuning for the best text-mode previews.
 - Color depth:
-- `TERMCOURSE_IMAGE_COLORS=auto` detects terminal support (`truecolor`, `256`, etc.) for chafa quality mode.
+- `TERMCOURSE_IMAGE_COLORS=auto` detects terminal support (`truecolor`, `256`, etc.) for chafa balanced/high modes.
 - Set `TERMCOURSE_IMAGE_COLORS=full` to force 24-bit if your terminal supports it.
 - Height control:
 - `TERMCOURSE_IMAGE_LINES` controls preview height (line count), default `14`.
