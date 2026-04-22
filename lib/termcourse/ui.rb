@@ -9,6 +9,7 @@ require "shellwords"
 require "open3"
 require "yaml"
 require "rbconfig"
+require "io/console"
 require "tty-screen"
 require "tty-cursor"
 require "tty-box"
@@ -167,8 +168,7 @@ module Termcourse
       @links_enabled = ENV.fetch("TERMCOURSE_LINKS", "1") != "0"
       @emoji_enabled = ENV.fetch("TERMCOURSE_EMOJI", "1") != "0"
       @image_backend_preference = ENV.fetch("TERMCOURSE_IMAGE_BACKEND", "auto").to_s.downcase
-      @image_mode = ENV.fetch("TERMCOURSE_IMAGE_MODE", "stable").to_s.downcase
-      @image_mode = "stable" unless %w[stable quality].include?(@image_mode)
+      @image_mode = normalize_image_mode(ENV.fetch("TERMCOURSE_IMAGE_MODE", "compat"))
       @image_colors_preference = ENV.fetch("TERMCOURSE_IMAGE_COLORS", "auto").to_s.downcase
       @image_colors = resolve_image_colors
       @images_enabled = ENV.fetch("TERMCOURSE_IMAGES", "1") != "0"
@@ -184,8 +184,10 @@ module Termcourse
       @resolved_execs = {}
       @viu_cmd = resolve_executable("viu")
       @chafa_cmd = resolve_executable("chafa")
+      @magick_cmd = resolve_executable("magick") || resolve_executable("convert")
       @renderer = ScreenRenderer.new(pad_line: method(:pad_line))
       @image_backend = detect_image_backend
+      @sixel_supported = nil
       @image_cache = {}
       @post_block_cache = {}
       @post_block_cache_order = []
@@ -912,6 +914,13 @@ module Termcourse
       detect_terminal_image_colors
     end
 
+    def normalize_image_mode(raw)
+      mode = raw.to_s.downcase
+      return mode if %w[compat balanced high].include?(mode)
+
+      "compat"
+    end
+
     def resolve_color_mode
       raw = ENV.fetch("TERMCOURSE_COLOR_MODE", "auto").to_s.downcase
       return raw if %w[truecolor 256 16].include?(raw)
@@ -1024,16 +1033,58 @@ module Termcourse
       return if url.nil?
 
       with_raw_input_mode do
+        use_native = sixel_supported_for_fullscreen?
+        needs_render = true
         loop do
-          render_fullscreen_image(url)
+          if needs_render
+            if use_native
+              render_fullscreen_image_native(url)
+            else
+              render_fullscreen_image(url)
+            end
+            needs_render = false
+          end
+
           key = read_keypress_with_tick
           if key == :__tick__
-            @resized = false
+            if @resized
+              @resized = false
+              needs_render = true
+            end
             next
           end
           return if key == "x" || key == "\u001b"
         end
       end
+    end
+
+    def render_fullscreen_image_native(url)
+      width = TTY::Screen.width
+      height = TTY::Screen.height
+      image_height = [height - 1, 1].max
+      payload = render_native_image_url(
+        url,
+        width,
+        image_height,
+        pixel_viewport: fullscreen_native_pixel_viewport(height)
+      )
+      return render_fullscreen_image(url) if payload.to_s.empty?
+
+      footer = pad_line(theme_text(t("ui.controls.fullscreen_image"), fg: "list_meta"), width)
+      @renderer.reset!
+
+      output = +""
+      output << TTY::Cursor.hide
+      output << TTY::Cursor.clear_screen
+      output << TTY::Cursor.move_to(0, 0)
+      output << payload
+      output << TTY::Cursor.move_to(0, height - 1)
+      output << "\e[0m"
+      output << "\e[2K"
+      output << footer
+      output << TTY::Cursor.hide
+      print output
+      $stdout.flush
     end
 
     def render_fullscreen_image(url)
@@ -1147,7 +1198,7 @@ module Termcourse
           image_debug_log("render fallback_sanitized_lines=#{lines.length}")
         end
         return [] if lines.empty?
-        skip_quality_filter = (@image_backend == :viu) || (@image_backend == :chafa && @image_mode == "quality")
+        skip_quality_filter = (@image_backend == :viu) || (@image_backend == :chafa && @image_mode != "compat")
         return [] if @image_quality_filter && !skip_quality_filter && low_quality_image_preview?(lines)
 
         [format_line("[image]", width)] + lines
@@ -1155,6 +1206,32 @@ module Termcourse
     rescue StandardError
       image_debug_log("render exception")
       []
+    end
+
+    def render_native_image_url(url, width, max_lines, pixel_viewport: nil)
+      cache_key = [url, width, max_lines, pixel_viewport, :native_sixels]
+      cached = @image_cache[cache_key]
+      return cached if cached
+
+      uri = URI.parse(url)
+      ext = File.extname(uri.path)
+      payload = nil
+      Tempfile.create(["termcourse-image", ext]) do |tmp|
+        download_image_with_limit(url, tmp, @image_max_bytes)
+        tmp.flush
+        if pixel_viewport && @magick_cmd
+          payload = render_native_with_magick_sixels(tmp.path, pixel_viewport)
+        else
+          payload = render_native_with_chafa_sixels(tmp.path, width, max_lines)
+        end
+      end
+
+      return nil if payload.to_s.empty?
+
+      @image_cache[cache_key] = payload
+    rescue StandardError
+      image_debug_log("render native exception")
+      nil
     end
 
     def download_image_with_limit(url, file, max_bytes)
@@ -1187,7 +1264,7 @@ module Termcourse
 
     def render_with_viu(path, width, max_lines)
       viu_bin = @viu_cmd || "viu"
-      shell_prefix = (@image_mode == "quality" && @image_colors == "full") ? "COLORTERM=truecolor " : ""
+      shell_prefix = (@image_mode != "compat" && @image_colors == "full") ? "COLORTERM=truecolor " : ""
       argv = viu_argv(viu_bin, path, max_lines)
       shell_cmd = "#{shell_prefix}#{argv.map { |a| Shellwords.escape(a) }.join(' ')} 2>/dev/null"
       image_debug_log("viu shell cmd=#{shell_cmd}")
@@ -1196,7 +1273,7 @@ module Termcourse
       return shell_lines if shell_lines.any? { |line| !line.strip.empty? }
 
       attempts = [{}, { "TERM" => "xterm-256color", "COLORTERM" => "falsecolor" }]
-      attempts[0]["COLORTERM"] = "truecolor" if @image_mode == "quality" && @image_colors == "full"
+      attempts[0]["COLORTERM"] = "truecolor" if @image_mode != "compat" && @image_colors == "full"
 
       attempts.each do |env|
         stdout, _status = Open3.capture2e(env, *argv)
@@ -1208,14 +1285,60 @@ module Termcourse
       []
     end
 
+    def render_native_with_chafa_sixels(path, width, max_lines)
+      Open3.capture2e(*chafa_native_sixel_argv(path, width, max_lines)).first.to_s
+    end
+
+    def render_native_with_magick_sixels(path, pixel_viewport)
+      width_px, height_px = pixel_viewport
+      stdout, status = Open3.capture2e(*magick_sixel_argv(path, width_px, height_px))
+      raise "native sixel render failed" unless status.success?
+
+      stdout.to_s
+    end
+
     def chafa_command(path, width, max_lines)
       chafa_bin = Shellwords.escape(@chafa_cmd || "chafa")
       image = Shellwords.escape(path)
-      if @image_mode == "quality"
-        "#{chafa_bin} --format symbols --symbols vhalf --colors #{@image_colors} --size #{width}x#{max_lines} #{image} 2>/dev/null"
+      case @image_mode
+      when "balanced"
+        "#{chafa_bin} --format symbols --symbols vhalf --colors #{@image_colors} --optimize 5 --work 5 --size #{width}x#{max_lines} #{image} 2>/dev/null"
+      when "high"
+        "#{chafa_bin} --format symbols --symbols vhalf+block --colors #{@image_colors} --optimize 9 --work 9 --size #{width}x#{max_lines} #{image} 2>/dev/null"
       else
-        "#{chafa_bin} --format symbols --symbols ascii --colors none --size #{width}x#{max_lines} #{image} 2>/dev/null"
+        "#{chafa_bin} --format symbols --symbols ascii --colors none --optimize 0 --work 1 --size #{width}x#{max_lines} #{image} 2>/dev/null"
       end
+    end
+
+    def chafa_native_sixel_argv(path, width, max_lines)
+      [
+        @chafa_cmd || "chafa",
+        "--format",
+        "sixels",
+        "--scale",
+        "max",
+        "--align",
+        "top,left",
+        "--margin-bottom",
+        "0",
+        "--optimize",
+        "9",
+        "--size",
+        "#{width}x#{max_lines}",
+        "--view-size",
+        "#{width}x#{max_lines}",
+        path.to_s
+      ]
+    end
+
+    def magick_sixel_argv(input_path, width_px, height_px)
+      [
+        @magick_cmd,
+        input_path.to_s,
+        "-resize",
+        "#{width_px}x#{height_px}",
+        "sixel:-"
+      ]
     end
 
     def viu_argv(viu_bin, path, max_lines)
@@ -1241,7 +1364,7 @@ module Termcourse
     end
 
     def sanitize_rendered_lines(lines, width, backend = nil)
-      preserve_sgr = backend == :viu || (backend == :chafa && @image_mode == "quality")
+      preserve_sgr = backend == :viu || (backend == :chafa && @image_mode != "compat")
       cleaned = lines
         .map do |line|
           clean = line.to_s.gsub(/[\r\n]/, "")
@@ -1279,6 +1402,116 @@ module Termcourse
 
     def strip_controls_except_ansi(text)
       text.gsub(/[\u0000-\u0008\u000B\u000C\u000E-\u001A\u001C-\u001F\u007F]/, "")
+    end
+
+    def sixel_supported_for_fullscreen?
+      return false unless backend_available?(:chafa)
+      return @sixel_supported unless @sixel_supported.nil?
+
+      @sixel_supported = detect_sixel_support
+    end
+
+    def detect_sixel_support
+      return false unless $stdin.tty? && $stdout.tty?
+
+      input = @reader&.input || $stdin
+      print "\e[c"
+      $stdout.flush
+
+      response = +""
+      deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + 0.15
+      while Process.clock_gettime(Process::CLOCK_MONOTONIC) < deadline
+        readable = IO.select([input], nil, nil, 0.02)
+        next unless readable
+
+        chunk = input.read_nonblock(256, exception: false)
+        next if chunk == :wait_readable
+        break if chunk.nil?
+
+        response << chunk
+        break if response.include?("c")
+      end
+
+      parse_da1_sixel_response(response)
+    rescue StandardError
+      false
+    end
+
+    def parse_da1_sixel_response(response)
+      response.to_s.scan(/\e\[\?([\d;]+)c/).any? do |match|
+        match.first.to_s.split(";").include?("4")
+      end
+    end
+
+    def fullscreen_native_pixel_viewport(screen_height)
+      area_width, area_height = query_sixel_graphics_pixels
+      if area_width.nil? || area_height.nil?
+        area_width, area_height = query_text_area_pixels
+      end
+      return nil unless area_width && area_height
+
+      _cell_width, cell_height = query_cell_pixels
+      footer_height =
+        if cell_height && cell_height.positive?
+          cell_height
+        else
+          [(area_height.to_f / [screen_height, 1].max).round, 1].max
+        end
+
+      [area_width, [area_height - footer_height, 1].max]
+    rescue StandardError
+      nil
+    end
+
+    def query_sixel_graphics_pixels
+      parse_xtsmgraphics_geometry_response(query_terminal("\e[?2;1;0S", final_char: "S"), expected_item: "2")
+    end
+
+    def query_text_area_pixels
+      parse_pixel_response(query_terminal("\e[14t", final_char: "t"), expected_code: "4")
+    end
+
+    def query_cell_pixels
+      parse_pixel_response(query_terminal("\e[16t", final_char: "t"), expected_code: "6")
+    end
+
+    def query_terminal(sequence, final_char:, timeout: 0.15)
+      input = @reader&.input || $stdin
+      print sequence
+      $stdout.flush
+
+      response = +""
+      deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + timeout
+      while Process.clock_gettime(Process::CLOCK_MONOTONIC) < deadline
+        readable = IO.select([input], nil, nil, 0.02)
+        next unless readable
+
+        chunk = input.read_nonblock(256, exception: false)
+        next if chunk == :wait_readable
+        break if chunk.nil?
+
+        response << chunk
+        break if response.include?(final_char)
+      end
+
+      response
+    end
+
+    def parse_pixel_response(response, expected_code:)
+      match = response.to_s.match(/\e\[(\d+);(\d+);(\d+)t/)
+      return nil unless match
+      return nil unless match[1] == expected_code
+
+      [match[3].to_i, match[2].to_i]
+    end
+
+    def parse_xtsmgraphics_geometry_response(response, expected_item:)
+      match = response.to_s.match(/\e\[\?(\d+);(\d+);(\d+);(\d+)S/)
+      return nil unless match
+      return nil unless match[1] == expected_item
+      return nil unless match[2] == "0"
+
+      [match[3].to_i, match[4].to_i]
     end
 
     def low_quality_image_preview?(lines)
