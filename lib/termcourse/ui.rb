@@ -694,10 +694,9 @@ module Termcourse
       cached = @post_block_cache[cache_key]
       return cached if cached
 
-      liked = post_liked?(post)
       liked_marker = ""
       username = post["username"].to_s
-      heart = liked ? "❤️" : "🤍"
+      like_indicator = post_like_indicator(post)
       username_text = theme_text("@#{username}", fg: "post_username")
       header = "#{liked_marker}#{username_text}"
 
@@ -719,13 +718,13 @@ module Termcourse
       end
 
       if expanded
-        header_line = pad_line(format_line(header, width, heart), width)
+        header_line = pad_line(format_line(header, width, like_indicator), width)
         header_line = highlight(header_line)
         lines = [header_line] + content_lines
       else
         preview = content_lines.first(3)
         preview = [""] if preview.empty?
-        lines = [format_line(header, width, heart)] + preview
+        lines = [format_line(header, width, like_indicator)] + preview
       end
 
       cache_post_block(cache_key, lines)
@@ -1749,7 +1748,7 @@ module Termcourse
     end
 
     def ljust_visible(text, width)
-      pad = [width - display_width(text), 0].max
+      pad = [width - visible_length(text), 0].max
       text + (" " * pad)
     end
 
@@ -1757,6 +1756,8 @@ module Termcourse
       text.each_codepoint.sum do |cp|
         if combining_codepoint?(cp) || zero_width_codepoint?(cp)
           0
+        elsif narrow_like_heart_codepoint?(cp)
+          1
         else
           wide_codepoint?(cp) ? 2 : 1
         end
@@ -1776,6 +1777,10 @@ module Termcourse
         cp == 0x200D || # ZERO WIDTH JOINER
         (cp >= 0xFE00 && cp <= 0xFE0F) || # variation selectors
         (cp >= 0xE0100 && cp <= 0xE01EF)  # supplemental variation selectors
+    end
+
+    def narrow_like_heart_codepoint?(cp)
+      cp == 0x2661 || cp == 0x2665
     end
 
     def take_by_display_width(text, max_width)
@@ -1808,14 +1813,14 @@ module Termcourse
         (cp >= 0x1F300 && cp <= 0x1FAFF)
     end
 
-    def format_line(text, width, heart = nil)
-      heart_width = 2
-      heart = " " if heart.nil?
-      heart = clamp(heart, heart_width)
-      body_width = [width - heart_width - 1, 1].max
-      body = clamp(text.to_s, body_width).ljust(body_width)
-      line = "#{body} #{heart}"
-      line
+    def format_line(text, width, right = nil)
+      return ljust_visible(truncate_visible_with_ansi(text.to_s, width), width) if right.nil?
+
+      right = right.to_s
+      right_width = visible_length(right)
+      body_width = [width - right_width, 1].max
+      body = truncate_visible_with_ansi(text.to_s, body_width)
+      "#{ljust_visible(body, body_width)}#{right}"
     end
 
     def clamp(text, width)
@@ -2278,13 +2283,31 @@ module Termcourse
     end
 
     def post_liked?(post)
+      like_action(post)&.fetch("acted", false) ? true : false
+    end
+
+    def post_like_count(post)
+      like_action(post)&.fetch("count", 0).to_i
+    end
+
+    def post_like_indicator(post)
+      count = post_like_count(post)
+      liked = post_liked?(post)
+      heart = colorize(liked ? "♥" : (count.positive? ? "♥" : "♡"), fg: parse_color(liked ? "red" : "white"))
+
+      return heart if count <= 1
+
+      "#{count} #{heart}"
+    end
+
+    def like_action(post)
       summary = post["actions_summary"] || []
-      summary.any? { |action| action["id"] == 2 && action["acted"] }
+      summary.find { |action| action["id"].to_i == 2 }
     end
 
     def apply_local_like_state(post, liked)
       summary = post["actions_summary"] ||= []
-      action = summary.find { |item| item["id"] == 2 }
+      action = like_action(post)
       unless action
         action = { "id" => 2, "count" => 0, "acted" => false }
         summary << action
@@ -2732,6 +2755,7 @@ module Termcourse
         raw.bytesize,
         post["username"].to_s,
         post_liked?(post),
+        post_like_count(post),
         expanded,
         width,
         @images_enabled,
