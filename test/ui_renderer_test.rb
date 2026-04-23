@@ -614,6 +614,53 @@ module Termcourse
 
       assert_equal 1, selected
     end
+
+    def test_format_line_places_like_control_at_right_edge
+      line = @ui.send(:format_line, "@sam", 10, "♡")
+
+      assert_equal "@sam     ♡", line
+      assert_equal "♡", line[-1]
+    end
+
+    def test_format_line_places_like_control_at_right_edge_with_styled_left_text
+      line = @ui.send(:format_line, @ui.send(:theme_text, "@sam", fg: "post_username"), 10, "♡")
+      visible = @ui.send(:strip_all_ansi, line)
+
+      assert_equal "@sam     ♡", visible
+      assert_equal "♡", visible[-1]
+    end
+
+    def test_post_like_indicator_shows_empty_heart_without_likes
+      indicator = @ui.send(:post_like_indicator, { "actions_summary" => [] })
+
+      assert_equal "♡", @ui.send(:strip_all_ansi, indicator)
+    end
+
+    def test_post_like_indicator_shows_solid_heart_for_one_other_like
+      post = { "actions_summary" => [{ "id" => 2, "count" => 1, "acted" => false }] }
+
+      indicator = @ui.send(:post_like_indicator, post)
+
+      assert_equal "♥", @ui.send(:strip_all_ansi, indicator)
+    end
+
+    def test_post_like_indicator_shows_count_for_multiple_likes
+      post = { "actions_summary" => [{ "id" => 2, "count" => 3, "acted" => false }] }
+
+      indicator = @ui.send(:post_like_indicator, post)
+
+      assert_equal "3 ♥", @ui.send(:strip_all_ansi, indicator)
+    end
+
+    def test_post_like_indicator_uses_red_heart_when_current_user_liked
+      post = { "actions_summary" => [{ "id" => 2, "count" => 2, "acted" => true }] }
+
+      indicator = @ui.send(:post_like_indicator, post)
+      red = @ui.send(:ansi_fg, @ui.send(:parse_color, "red"))
+
+      assert_equal "2 ♥", @ui.send(:strip_all_ansi, indicator)
+      assert_includes indicator, red
+    end
   end
 
   class UINotificationStateTest < Minitest::Test
