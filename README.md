@@ -27,45 +27,44 @@ Termcourse is a Go 1.26.6 terminal UI for browsing and posting to Discourse foru
 - Incremental screen repainting and resize-responsive layouts, with a compact branded masthead, wide-terminal logo, rounded titled panels, and themed block gauges.
 - Rate-limit errors show the server-provided retry duration and local deadline when available, and explicitly identify untimed responses.
 
-## Build
+## Install and run
 
-Go 1.26.6 or newer is required.
+Go 1.26.6 or newer is required when installing from source. The shortest installation path is:
+
+```sh
+go install github.com/merefield/termcourse/cmd/termcourse@latest
+termcourse meta.discourse.org
+```
+
+Replace `meta.discourse.org` with the hostname or URL of any Discourse site. If no credentials are configured, Termcourse prompts for the missing username and password. Password input is hidden.
+
+If the shell cannot find `termcourse`, add the Go binary directory to `PATH`. `go install` uses `GOBIN` when configured and otherwise uses `$(go env GOPATH)/bin`:
+
+```sh
+export PATH="$(go env GOPATH)/bin:$PATH"
+```
+
+To build a local executable instead:
 
 ```sh
 git clone https://github.com/merefield/termcourse.git
 cd termcourse
 make build
+./termcourse meta.discourse.org
 ```
 
-`make build` creates `./termcourse` in the repository root. The equivalent direct command is:
+`make build` creates `./termcourse` in the repository root. Without `make`, use `go build -o ./termcourse ./cmd/termcourse`. You can also run directly from a checkout without keeping a binary:
 
 ```sh
-go build -o ./termcourse ./cmd/termcourse
+go run ./cmd/termcourse meta.discourse.org
 ```
 
-Run the local checks with:
-
-```sh
-make test
-make vet
-```
-
-Install directly:
-
-```sh
-go install github.com/merefield/termcourse/cmd/termcourse@latest
-```
-
-`go install` writes the executable to `GOBIN`, or to `$(go env GOPATH)/bin` when `GOBIN` is unset; it does not create `./termcourse` in the current directory.
-
-## Quick start
-
-Username/password login (enables realtime MessageBus updates):
+For repeat use, credentials can be supplied in `.env` or the host-mapped credentials file described under [Configuration](#configuration). The examples below use an installed `termcourse`; replace it with `./termcourse` when running a binary built in the repository. Username/password login enables realtime MessageBus updates:
 
 ```sh
 DISCOURSE_USERNAME="you@example.com" \
 DISCOURSE_PASSWORD="your_password" \
-./termcourse --theme slate --lang fr https://your.discourse.host
+termcourse --theme slate --lang fr https://your.discourse.host
 ```
 
 API-key login (HTTP features only):
@@ -73,17 +72,36 @@ API-key login (HTTP features only):
 ```sh
 DISCOURSE_API_KEY="your_key" \
 DISCOURSE_API_USERNAME="your_username" \
-./termcourse --theme fairground https://your.discourse.host
+termcourse --theme fairground https://your.discourse.host
 ```
 
 List the built-in and configured themes, or preview one theme:
 
 ```sh
-./termcourse themes
-./termcourse themes hacker
+termcourse themes
+termcourse themes hacker
 ```
 
 A local `.env` is loaded automatically. CLI credentials override host credentials from YAML, which override generic environment variables. If both login and API pairs exist, login is tried first unless the host entry selects `auth: api`.
+
+For contributors, run the local checks with `make test` and `make vet`.
+
+## Migrating from the Ruby version
+
+The Go version is a replacement rather than a separately configured application. Existing `.env` files, generic Discourse credential variables, and host entries in `credentials.yml` remain compatible. Authentication precedence is unchanged, so most users can replace `bundle exec bin/termcourse HOST` with `termcourse HOST` and keep their credentials as they are.
+
+Be mindful of these differences:
+
+- Ruby, Bundler, and the gem bundle are no longer required. The Go build produces one `termcourse` executable; use `termcourse` for an installed binary or `./termcourse` for one built in the repository.
+- `./theme.yml` is no longer discovered automatically. Move it to the platform user configuration directory (`~/.config/termcourse/theme.yml` on Linux), set `TERMCOURSE_THEME_FILE`, or pass `--theme-file PATH`. This prevents the active theme changing with the launch directory.
+- Existing theme names, all 12 color fields, partial overrides, and the legacy top-level theme-map YAML format remain supported. The newer format can also contain `theme: NAME` and a `themes:` map. Remove or leave `TERMCOURSE_THEME` blank if the file's `theme:` selection should take effect.
+- Theme files are now checked strictly. Unknown fields, invalid colors, unreadable explicitly selected files, and unknown themes stop startup with an explanatory error instead of being silently ignored or replaced with the default theme.
+- If an old `.env` contains `TERMCOURSE_IMAGE_MODE=stable`, replace it with `balanced`. The supported values are `compat`, `balanced`, and `high`.
+- The default symbol-thumbnail size changed from 14 lines to 48 columns by 6 lines. Existing explicit `TERMCOURSE_IMAGE_LINES` values still work; use `TERMCOURSE_IMAGE_COLUMNS` to set the width.
+- Automatic color handling now detects terminal capabilities instead of using the Ruby version's platform heuristic. `TERMCOURSE_COLOR_MODE=truecolor`, `256`, or `16` still forces a specific mode.
+- New optional controls include `TERMCOURSE_MOUSE`, `TERMCOURSE_IMAGE_PROTOCOL`, and `TERMCOURSE_IMAGE_COLUMNS`. They require no migration because their defaults preserve automatic behaviour.
+
+There is no new monolithic Go configuration file. Configuration remains split between environment variables, credentials YAML, and theme YAML, and no effective Ruby theme color or authentication option has been removed.
 
 ## Configuration
 
