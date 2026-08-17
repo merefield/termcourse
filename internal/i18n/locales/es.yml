@@ -125,6 +125,9 @@ es:
       title: "Error"
       continue: "Pulse cualquier tecla para continuar..."
       rate_limit_retry: "Nuevo intento disponible en %{duration} (a las %{time})."
+      rate_limit_retry_server: "Nuevo intento disponible en %{duration}."
+      rate_limit_retry_now: "El servidor indica que puede volver a intentarlo ahora."
+      rate_limit_retry_unknown: "El servidor no proporcionó un tiempo de espera."
       rate_limit_code: "Código del límite: %{code}"
     time:
       seconds: "%{count}s"

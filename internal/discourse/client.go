@@ -31,9 +31,11 @@ type HTTPError struct {
 }
 
 type RateLimitInfo struct {
-	Wait    time.Duration
-	RetryAt time.Time
-	Code    string
+	Wait           time.Duration
+	RetryAt        time.Time
+	ServerTimeLeft string
+	TimingProvided bool
+	Code           string
 }
 
 func (e *HTTPError) Error() string {
@@ -47,8 +49,8 @@ func (e *HTTPError) RateLimit() (RateLimitInfo, bool) {
 	var payload struct {
 		ErrorType string `json:"error_type"`
 		Extras    struct {
-			WaitSeconds float64 `json:"wait_seconds"`
-			TimeLeft    float64 `json:"time_left"`
+			WaitSeconds any `json:"wait_seconds"`
+			TimeLeft    any `json:"time_left"`
 		} `json:"extras"`
 	}
 	_ = json.Unmarshal(e.Body, &payload)
@@ -60,24 +62,42 @@ func (e *HTTPError) RateLimit() (RateLimitInfo, bool) {
 	if receivedAt.IsZero() {
 		receivedAt = time.Now()
 	}
-	wait, ok := retryAfter(e.Header.Get("Retry-After"), receivedAt)
-	if !ok || wait <= 0 {
-		seconds := payload.Extras.WaitSeconds
-		if seconds <= 0 {
-			seconds = payload.Extras.TimeLeft
-		}
-		if seconds > 0 {
-			wait = time.Duration(seconds * float64(time.Second))
+	wait, timingProvided := retryAfter(e.Header.Get("Retry-After"), receivedAt)
+	serverTimeLeft := ""
+	if !timingProvided {
+		if seconds, ok := numericSeconds(payload.Extras.WaitSeconds); ok {
+			wait, timingProvided = time.Duration(seconds*float64(time.Second)), true
+		} else if seconds, ok := numericSeconds(payload.Extras.TimeLeft); ok {
+			wait, timingProvided = time.Duration(seconds*float64(time.Second)), true
+		} else if label, ok := payload.Extras.TimeLeft.(string); ok && strings.TrimSpace(label) != "" {
+			serverTimeLeft, timingProvided = strings.TrimSpace(label), true
 		}
 	}
 	if wait < 0 {
 		wait = 0
 	}
 	return RateLimitInfo{
-		Wait:    wait,
-		RetryAt: receivedAt.Add(wait),
-		Code:    e.Header.Get("Discourse-Rate-Limit-Error-Code"),
+		Wait:           wait,
+		RetryAt:        receivedAt.Add(wait),
+		ServerTimeLeft: serverTimeLeft,
+		TimingProvided: timingProvided,
+		Code:           e.Header.Get("Discourse-Rate-Limit-Error-Code"),
 	}, true
+}
+
+func numericSeconds(value any) (float64, bool) {
+	switch number := value.(type) {
+	case float64:
+		return number, true
+	case json.Number:
+		seconds, err := number.Float64()
+		return seconds, err == nil
+	case string:
+		seconds, err := strconv.ParseFloat(strings.TrimSpace(number), 64)
+		return seconds, err == nil
+	default:
+		return 0, false
+	}
 }
 
 func retryAfter(value string, receivedAt time.Time) (time.Duration, bool) {
@@ -484,7 +504,11 @@ func (c *Client) perform(method, path string, payload JSON) (*http.Response, err
 		c.log("http_request method=%s path=%s ipv4=%t", method, path, ipv4)
 		response, requestErr := httpClient.Do(request)
 		if requestErr == nil {
-			c.log("http_response method=%s path=%s status=%d ms=%.1f", method, path, response.StatusCode, time.Since(started).Seconds()*1000)
+			c.log(
+				"http_response method=%s path=%s status=%d ms=%.1f retry_after=%q rate_limit_code=%q",
+				method, path, response.StatusCode, time.Since(started).Seconds()*1000,
+				response.Header.Get("Retry-After"), response.Header.Get("Discourse-Rate-Limit-Error-Code"),
+			)
 			return response, nil
 		}
 		lastErr = requestErr

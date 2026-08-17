@@ -125,6 +125,9 @@ fr:
       title: "Erreur"
       continue: "Appuyez sur une touche pour continuer..."
       rate_limit_retry: "Nouvelle tentative possible dans %{duration} (à %{time})."
+      rate_limit_retry_server: "Nouvelle tentative possible dans %{duration}."
+      rate_limit_retry_now: "Le serveur indique que vous pouvez réessayer maintenant."
+      rate_limit_retry_unknown: "Le serveur n’a fourni aucun délai avant la nouvelle tentative."
       rate_limit_code: "Code de limitation : %{code}"
     time:
       seconds: "%{count}s"

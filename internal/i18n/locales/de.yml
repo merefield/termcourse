@@ -125,6 +125,9 @@ de:
       title: "Fehler"
       continue: "Beliebige Taste drücken, um fortzufahren..."
       rate_limit_retry: "Erneuter Versuch in %{duration} möglich (um %{time})."
+      rate_limit_retry_server: "Erneuter Versuch in %{duration} möglich."
+      rate_limit_retry_now: "Der Server meldet, dass Sie es jetzt erneut versuchen können."
+      rate_limit_retry_unknown: "Der Server hat keine Wartezeit angegeben."
       rate_limit_code: "Ratenbegrenzungscode: %{code}"
     time:
       seconds: "%{count}s"

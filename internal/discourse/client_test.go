@@ -106,3 +106,27 @@ func TestRetryAfterAcceptsSecondsAndHTTPDate(t *testing.T) {
 		t.Fatalf("date retry-after = %v, present=%v", wait, ok)
 	}
 }
+
+func TestRateLimitDistinguishesZeroHumanAndMissingTiming(t *testing.T) {
+	receivedAt := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name           string
+		body           string
+		timingProvided bool
+		serverTimeLeft string
+	}{
+		{"zero", `{"error_type":"rate_limit","extras":{"wait_seconds":0}}`, true, ""},
+		{"human", `{"error_type":"rate_limit","extras":{"time_left":"about 2 minutes"}}`, true, "about 2 minutes"},
+		{"missing", `{"error_type":"rate_limit"}`, false, ""},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			limit, ok := (&HTTPError{
+				Status: http.StatusTooManyRequests, Body: []byte(test.body), ReceivedAt: receivedAt,
+			}).RateLimit()
+			if !ok || limit.TimingProvided != test.timingProvided || limit.ServerTimeLeft != test.serverTimeLeft {
+				t.Fatalf("rate limit = %#v, present=%v", limit, ok)
+			}
+		})
+	}
+}

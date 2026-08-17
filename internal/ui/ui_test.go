@@ -47,6 +47,42 @@ func TestRateLimitErrorShowsRetryDurationDeadlineAndDebugCode(t *testing.T) {
 	}
 }
 
+func TestRateLimitErrorExplainsZeroHumanAndMissingTiming(t *testing.T) {
+	receivedAt := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
+	u := &UI{locale: "en"}
+	tests := []struct {
+		name     string
+		body     string
+		expected string
+	}{
+		{
+			"zero",
+			`{"errors":["Slow down"],"error_type":"rate_limit","extras":{"wait_seconds":0}}`,
+			"The server reports that you can retry now.",
+		},
+		{
+			"human",
+			`{"errors":["Slow down"],"error_type":"rate_limit","extras":{"time_left":"about 2 minutes"}}`,
+			"Retry available in about 2 minutes.",
+		},
+		{
+			"missing",
+			`{"errors":["Slow down"],"error_type":"rate_limit"}`,
+			"The server did not provide a retry time.",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			message := u.errorMessage(&discourse.HTTPError{
+				Status: http.StatusTooManyRequests, Body: []byte(test.body), ReceivedAt: receivedAt,
+			}, receivedAt)
+			if !strings.Contains(message, test.expected) {
+				t.Fatalf("message missing %q: %q", test.expected, message)
+			}
+		})
+	}
+}
+
 func TestScreenRendererBuildsCompleteCharmFrame(t *testing.T) {
 	content := normalizeScreen([]string{"one", "two"}, 5, 3)
 	if content != "one  \ntwo  \n     " {

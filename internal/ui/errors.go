@@ -38,18 +38,24 @@ func (u *UI) errorMessage(err error, now time.Time) string {
 	}
 	message = discourse.ErrorMessage(httpErr.Body)
 	limit, ok := httpErr.RateLimit()
-	if !ok || limit.Wait <= 0 {
+	if !ok {
 		return message
 	}
 	remaining := limit.RetryAt.Sub(now)
-	if remaining <= 0 {
-		return message
+	switch {
+	case limit.Wait > 0 && remaining > 0:
+		message += "\n\n" + u.t(
+			"ui.errors.rate_limit_retry",
+			"duration", u.retryDuration(remaining),
+			"time", limit.RetryAt.Local().Format("15:04:05"),
+		)
+	case limit.ServerTimeLeft != "":
+		message += "\n\n" + u.t("ui.errors.rate_limit_retry_server", "duration", limit.ServerTimeLeft)
+	case limit.TimingProvided:
+		message += "\n\n" + u.t("ui.errors.rate_limit_retry_now")
+	default:
+		message += "\n\n" + u.t("ui.errors.rate_limit_retry_unknown")
 	}
-	message += "\n\n" + u.t(
-		"ui.errors.rate_limit_retry",
-		"duration", u.retryDuration(remaining),
-		"time", limit.RetryAt.Local().Format("15:04:05"),
-	)
 	if u.debug && limit.Code != "" {
 		message += "\n" + u.t("ui.errors.rate_limit_code", "code", limit.Code)
 	}

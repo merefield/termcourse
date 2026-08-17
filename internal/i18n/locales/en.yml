@@ -125,6 +125,9 @@ en:
       title: "Error"
       continue: "Press any key to continue..."
       rate_limit_retry: "Retry available in %{duration} (at %{time})."
+      rate_limit_retry_server: "Retry available in %{duration}."
+      rate_limit_retry_now: "The server reports that you can retry now."
+      rate_limit_retry_unknown: "The server did not provide a retry time."
       rate_limit_code: "Rate-limit code: %{code}"
     time:
       seconds: "%{count}s"
