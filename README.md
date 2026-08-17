@@ -11,6 +11,8 @@ Termcourse is a Go 1.26.6 terminal UI for browsing and posting to Discourse foru
 - Create topics, select categories, reply to topics or posts, and like/unlike posts.
 - Search posts and open the matching post context.
 - Browse/filter notifications and jump to their topic/post.
+- Responsive two-level folder tabs for Topics, Search, Notifications, and their contextual filters.
+- Mouse-clickable tabs and rows plus wheel scrolling, with keyboard navigation retained throughout.
 - Cookie login with username/password, TOTP, or backup codes.
 - API-key fallback for sites where browser login is unsuitable.
 - MessageBus list/topic updates, notification and PM badges, resume positions, and watchdog recovery for cookie sessions.
@@ -121,6 +123,7 @@ Use `TERMCOURSE_IMAGE_PROTOCOL=kitty` to force Kitty or `TERMCOURSE_IMAGE_PROTOC
 | `TERMCOURSE_LANG` | `en`, `fr`, `de`, or `es`; then `LC_ALL`, `LC_MESSAGES`, `LANG`. |
 | `TERMCOURSE_COLOR_MODE` | `auto`, `truecolor`, `256`, or `16`; auto detects output capabilities. |
 | `TERMCOURSE_LINKS`, `TERMCOURSE_EMOJI` | Set to `0` to disable. |
+| `TERMCOURSE_MOUSE` | Set to `0` to disable click/wheel capture and retain ordinary terminal text selection. |
 | `TERMCOURSE_IMAGES` | Set to `0` to disable previews. |
 | `TERMCOURSE_IMAGE_PROTOCOL` | `auto`, `kitty`, or `symbols`; auto probes Kitty and falls back safely. |
 | `TERMCOURSE_IMAGE_BACKEND` | `auto`, `chafa`, `viu`, or `off`. |
@@ -134,6 +137,14 @@ Use `TERMCOURSE_IMAGE_PROTOCOL=kitty` to force Kitty or `TERMCOURSE_IMAGE_PROTOC
 | `TERMCOURSE_DEBUG`, `TERMCOURSE_IMAGE_DEBUG` | Set to `1` for UI/MessageBus or image diagnostics. |
 
 ## Controls
+
+Global navigation:
+
+- `Tab` and `Shift+Tab` move between Topics, Search, and Notifications.
+- Click a primary or contextual folder tab to select it.
+- Click a post or row to select it; click a selected list row again to open it.
+- The mouse wheel moves through lists and scrolls the expanded post body.
+- Hold the terminal's mouse-bypass modifier (commonly Shift) for text selection, or set `TERMCOURSE_MOUSE=0`.
 
 Topic list:
 

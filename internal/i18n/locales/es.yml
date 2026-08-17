@@ -29,6 +29,11 @@ es:
       missing_url: "Falta discourse_url."
       login_failed: "Error de inicio de sesión."
   ui:
+    tabs:
+      topics: "Temas"
+      search: "Buscar"
+      notifications: "Notificaciones"
+      period: "Período: %{period}"
     controls:
       topic_list: "flechas: mover | ↵, 1-0: abrir | c: nuevo | n: notif | s: buscar | f: filtro | g: refrescar | q: salir"
       topic_list_top: "flechas: mover | ↵, 1-0: abrir | c: nuevo | n: notif | s: buscar | f: filtro | p: período | g: refrescar | q: salir"

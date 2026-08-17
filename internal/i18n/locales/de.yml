@@ -29,6 +29,11 @@ de:
       missing_url: "discourse_url fehlt."
       login_failed: "Anmeldung fehlgeschlagen."
   ui:
+    tabs:
+      topics: "Themen"
+      search: "Suche"
+      notifications: "Benachrichtigungen"
+      period: "Zeitraum: %{period}"
     controls:
       topic_list: "Pfeile: bewegen | ↵, 1-0: öffnen | c: neu | n: notifs | s: suchen | f: filter | g: aktualisieren | q: beenden"
       topic_list_top: "Pfeile: bewegen | ↵, 1-0: öffnen | c: neu | n: notifs | s: suchen | f: filter | p: zeitraum | g: aktualisieren | q: beenden"

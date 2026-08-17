@@ -29,6 +29,11 @@ fr:
       missing_url: "discourse_url manquant."
       login_failed: "Échec de la connexion."
   ui:
+    tabs:
+      topics: "Sujets"
+      search: "Recherche"
+      notifications: "Notifications"
+      period: "Période : %{period}"
     controls:
       topic_list: "flèches: déplacer | ↵, 1-0: ouvrir | c: nouveau | n: notif | s: rechercher | f: filtre | g: actualiser | q: quitter"
       topic_list_top: "flèches: déplacer | ↵, 1-0: ouvrir | c: nouveau | n: notif | s: rechercher | f: filtre | p: période | g: actualiser | q: quitter"

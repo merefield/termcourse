@@ -513,6 +513,8 @@ func (u *UI) evictKittyImage() {
 
 func (u *UI) fullscreenImage(imageURL string) {
 	width, height := u.terminal.Size()
+	u.resetMouseLayout()
+	u.addMouseRegion(0, max(height-1, 0), width, min(height, 1), "x")
 	if u.kittyAvailable() && u.fullscreenKittyImage(imageURL) {
 		return
 	}
@@ -529,7 +531,7 @@ func (u *UI) fullscreenImage(imageURL string) {
 			footer := padLine(u.style.Text(u.t("ui.controls.fullscreen_image"), roleListMeta), width)
 			u.terminal.Raw(xansi.HideCursor + xansi.EraseEntireScreen + xansi.CursorPosition(1, 1) + string(payload) + xansi.CursorPosition(1, height) + xansi.ResetStyle + xansi.EraseEntireLine + footer + xansi.HideCursor)
 			for {
-				key, err := u.terminal.ReadKey(u.tick)
+				key, err := u.readKey(u.tick)
 				if err != nil || key == "x" || key == "esc" {
 					return
 				}
@@ -553,7 +555,7 @@ func (u *UI) fullscreenImage(imageURL string) {
 	screen[height-1] = headerLine(u.t("ui.controls.fullscreen_image"), u.displayURL, width)
 	u.renderer.Render(screen, width, height, "fullscreen-image", -1, -1, true)
 	for {
-		key, err := u.terminal.ReadKey(u.tick)
+		key, err := u.readKey(u.tick)
 		if err != nil || key == "x" || key == "esc" {
 			return
 		}
@@ -563,6 +565,8 @@ func (u *UI) fullscreenImage(imageURL string) {
 func (u *UI) fullscreenKittyImage(imageURL string) bool {
 	for {
 		width, height := u.terminal.Size()
+		u.resetMouseLayout()
+		u.addMouseRegion(0, max(height-1, 0), width, min(height, 1), "x")
 		rendered, err := u.renderKittyImage(imageURL, width, max(height-1, 1))
 		if err != nil || len(rendered) == 0 {
 			if err != nil {
@@ -578,7 +582,7 @@ func (u *UI) fullscreenKittyImage(imageURL string) bool {
 		screen[height-1] = headerLine(u.t("ui.controls.fullscreen_image"), u.displayURL, width)
 		u.renderer.Render(screen, width, height, "fullscreen-image-kitty", -1, -1, true)
 		for {
-			key, readErr := u.terminal.ReadKey(u.tick)
+			key, readErr := u.readKey(u.tick)
 			if readErr != nil || key == "x" || key == "esc" {
 				return true
 			}

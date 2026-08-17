@@ -24,6 +24,7 @@ type terminalState struct {
 	done   chan error
 	width  atomic.Int32
 	height atomic.Int32
+	mouse  atomic.Bool
 	once   sync.Once
 }
 
@@ -102,28 +103,7 @@ func (t *Terminal) Size() (int, int) {
 	return width, height
 }
 
-func (t *Terminal) ReadKey(timeout time.Duration) (string, error) {
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
-	select {
-	case input := <-t.state.inputs:
-		switch msg := input.msg.(type) {
-		case tea.KeyPressMsg:
-			return msg.String(), nil
-		case tea.PasteMsg:
-			return msg.Content, nil
-		default:
-			return keyTick, nil
-		}
-	case err := <-t.state.done:
-		if err == nil {
-			err = io.EOF
-		}
-		return "", err
-	case <-timer.C:
-		return keyTick, nil
-	}
-}
+func (t *Terminal) SetMouseEnabled(enabled bool) { t.state.mouse.Store(enabled) }
 
 func (t *Terminal) ReadMsg(timeout time.Duration) (tea.Msg, error) {
 	timer := time.NewTimer(timeout)
@@ -246,6 +226,8 @@ func (m terminalModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.enqueue(msg)
 	case tea.PasteMsg:
 		m.enqueue(msg)
+	case tea.MouseMsg:
+		m.enqueue(msg)
 	case terminalRenderMsg:
 		m.content = msg.content
 		m.progress = msg.progress
@@ -291,6 +273,9 @@ func (m terminalModel) View() tea.View {
 	view.WindowTitle = "termcourse"
 	view.Cursor = m.cursor
 	view.ProgressBar = m.progress
+	if m.state.mouse.Load() {
+		view.MouseMode = tea.MouseModeCellMotion
+	}
 	return view
 }
 

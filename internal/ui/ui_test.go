@@ -5,6 +5,7 @@ import (
 	"image"
 	"image/color"
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -92,6 +93,7 @@ func TestScreenRendererBuildsCompleteCharmFrame(t *testing.T) {
 
 func TestCharmTerminalModelOwnsResizeInputCursorAndQueries(t *testing.T) {
 	state := &terminalState{inputs: make(chan terminalInput, 4), ready: make(chan struct{}), done: make(chan error, 1)}
+	state.mouse.Store(true)
 	model := terminalModel{state: state}
 
 	updated, _ := model.Update(tea.WindowSizeMsg{Width: 149, Height: 40})
@@ -105,12 +107,17 @@ func TestCharmTerminalModelOwnsResizeInputCursorAndQueries(t *testing.T) {
 	if input := <-state.inputs; input.msg.(tea.KeyPressMsg).String() != "up" {
 		t.Fatalf("Charm key event = %#v", input.msg)
 	}
+	updated, _ = model.Update(tea.MouseClickMsg{X: 4, Y: 2, Button: tea.MouseLeft})
+	model = updated.(terminalModel)
+	if input := <-state.inputs; input.msg.(tea.MouseClickMsg).X != 4 {
+		t.Fatalf("Charm mouse event = %#v", input.msg)
+	}
 
 	progress := tea.NewProgressBar(tea.ProgressBarDefault, 75)
 	updated, _ = model.Update(terminalRenderMsg{content: "themed", cursorX: 3, cursorY: 2, progress: progress})
 	model = updated.(terminalModel)
 	view := model.View()
-	if view.Content != "themed" || !view.AltScreen || view.Cursor == nil || view.Cursor.X != 3 || view.Cursor.Y != 2 || view.ProgressBar.Value != 75 {
+	if view.Content != "themed" || !view.AltScreen || view.MouseMode != tea.MouseModeCellMotion || view.Cursor == nil || view.Cursor.X != 3 || view.Cursor.Y != 2 || view.ProgressBar.Value != 75 {
 		t.Fatalf("Charm view = %#v", view)
 	}
 
@@ -150,6 +157,129 @@ func TestCharmTerminalModelOwnsResizeInputCursorAndQueries(t *testing.T) {
 	model = updated.(terminalModel)
 	if len(model.queries) != 0 {
 		t.Fatalf("timed-out terminal query was retained: %#v", model.queries)
+	}
+}
+
+func TestTabRailsStayCompleteAndResponsive(t *testing.T) {
+	specs := []tabSpec{
+		{id: "latest", label: "Latest", short: "LAT", micro: "L", selected: true},
+		{id: "unread", label: "Unread", short: "UNR", micro: "U"},
+		{id: "private", label: "Private Messages", short: "PRI", micro: "P"},
+		{id: "hot", label: "Hot", short: "HOT", micro: "H"},
+		{id: "new", label: "New", short: "NEW", micro: "N"},
+		{id: "top", label: "Top", short: "TOP", micro: "T"},
+	}
+	for _, width := range []int{6, 12, 30, 60, 100} {
+		rail := layoutTabRail(specs, width)
+		if len(rail.tabs) != len(specs) {
+			t.Fatalf("width %d rendered %d tabs, want %d: %#v", width, len(rail.tabs), len(specs), rail)
+		}
+		if rail.width > width {
+			t.Fatalf("width %d produced rail width %d", width, rail.width)
+		}
+		for _, tab := range rail.tabs {
+			if tab.x < 0 || tab.x+tab.width > width {
+				t.Fatalf("width %d tab %q has invalid geometry %#v", width, tab.id, tab)
+			}
+		}
+	}
+}
+
+func TestNavigationTabsRenderAndHitTestFromSameGeometry(t *testing.T) {
+	t.Setenv("TERMCOURSE_COLOR_MODE", "truecolor")
+	style := NewStyle(testTheme(), &bytes.Buffer{})
+	u := &UI{
+		style: style, locale: "en", displayURL: "community.example", mouseEnabled: true,
+		options: Options{Username: "member"}, notificationUnread: 3, pmUnread: 2,
+	}
+	header := u.navigationHeader("Topic List", primaryTopics, "topics", "top", "monthly", nil, 88, 24)
+	for index, line := range header {
+		if visibleWidth(line) != 88 {
+			t.Fatalf("header line %d width = %d: %q", index, visibleWidth(line), line)
+		}
+	}
+
+	wanted := map[string]bool{
+		primaryTabKey(primarySearch): false,
+		contextTabKey("private"):     false,
+		contextTabKey("period"):      false,
+	}
+	for _, region := range u.mouseRegions {
+		if _, ok := wanted[region.key]; !ok {
+			continue
+		}
+		key := u.mouseKey(tea.MouseClickMsg{X: region.x0, Y: region.y0, Button: tea.MouseLeft})
+		if key != region.key {
+			t.Fatalf("region %q produced %q at (%d,%d)", region.key, key, region.x0, region.y0)
+		}
+		wanted[region.key] = true
+	}
+	for key, hit := range wanted {
+		if !hit {
+			t.Fatalf("navigation region %q was not rendered: %#v", key, u.mouseRegions)
+		}
+	}
+}
+
+func TestTabbedListScreensRemainSafeAtShortTerminalHeights(t *testing.T) {
+	t.Setenv("TERMCOURSE_COLOR_MODE", "truecolor")
+	for _, height := range []int{3, 5, 8} {
+		terminal := NewTerminal(nil, &bytes.Buffer{})
+		terminal.state.width.Store(52)
+		terminal.state.height.Store(int32(height))
+		u := &UI{
+			terminal: terminal, renderer: NewScreenRenderer(terminal), style: NewStyle(testTheme(), &bytes.Buffer{}),
+			locale: "en", displayURL: "community.example", mouseEnabled: true, options: Options{Username: "member"},
+		}
+		t.Run(strconv.Itoa(height), func(t *testing.T) {
+			u.renderTopicList([]discourse.JSON{{"id": 1, "title": "One", "posts_count": 1}}, 0, "latest", "monthly", false)
+			u.renderSearch("one", []discourse.JSON{{"topic_id": 1, "blurb": "One"}}, map[int]string{1: "Topic"}, 0)
+			u.renderNotifications([]discourse.JSON{{"topic_id": 1, "data": discourse.JSON{"display_username": "member"}}}, 0, "all", false)
+		})
+	}
+}
+
+func TestTabKeyboardAndMouseWheelUseUnifiedInput(t *testing.T) {
+	terminal := NewTerminal(nil, &bytes.Buffer{})
+	u := &UI{terminal: terminal, activePrimary: primaryTopics, mouseEnabled: true}
+	terminal.state.inputs <- terminalInput{msg: tea.KeyPressMsg(tea.Key{Code: tea.KeyTab})}
+	key, err := u.readKey(time.Second)
+	if err != nil || key != primaryTabKey(primarySearch) {
+		t.Fatalf("Tab input = %q, %v", key, err)
+	}
+	terminal.state.inputs <- terminalInput{msg: tea.KeyPressMsg(tea.Key{Code: tea.KeyTab, Mod: tea.ModShift})}
+	key, err = u.readKey(time.Second)
+	if err != nil || key != primaryTabKey(primaryNotifications) {
+		t.Fatalf("Shift+Tab input = %q, %v", key, err)
+	}
+	terminal.state.inputs <- terminalInput{msg: tea.MouseWheelMsg{Button: tea.MouseWheelDown}}
+	key, err = u.readKey(time.Second)
+	if err != nil || key != "wheeldown" {
+		t.Fatalf("wheel input = %q, %v", key, err)
+	}
+}
+
+func TestPostRenderingRetainsMouseSelectionGeometry(t *testing.T) {
+	u := &UI{style: NewStyle(testTheme(), &bytes.Buffer{}), locale: "en"}
+	posts := []discourse.JSON{
+		{"username": "one", "raw": "First"},
+		{"username": "two", "raw": "Second\n\nwith detail"},
+		{"username": "three", "raw": "Third"},
+	}
+	lines, indexes := u.postListLines(posts, 1, 0, 18, 52)
+	if len(lines) != len(indexes) {
+		t.Fatalf("post lines=%d, hit indexes=%d", len(lines), len(indexes))
+	}
+	found := map[int]bool{}
+	for _, index := range indexes {
+		if index >= 0 {
+			found[index] = true
+		}
+	}
+	for index := range posts {
+		if !found[index] {
+			t.Fatalf("post %d has no selectable rendered cells: %#v", index, indexes)
+		}
 	}
 }
 

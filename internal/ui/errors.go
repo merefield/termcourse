@@ -15,6 +15,7 @@ func (u *UI) showError(err error) bool {
 	}
 	message := u.errorMessage(err, time.Now())
 	width, height := u.terminal.Size()
+	u.resetMouseLayout()
 	inner := max(width-4, 1)
 	lines := wrapLines(strings.TrimSpace(message), inner, u.linksEnabled)
 	maxMessageLines := max(height-7, 1)
@@ -26,7 +27,8 @@ func (u *UI) showError(err error) bool {
 	screen := make([]string, height)
 	copy(screen, panel[:min(len(panel), height)])
 	u.renderer.Render(screen, width, height, "error", -1, -1, true)
-	key, readErr := u.terminal.ReadKey(24 * time.Hour)
+	u.addMouseRegion(0, max(height-2, 0), width, min(2, height), "enter")
+	key, readErr := u.readKey(24 * time.Hour)
 	return readErr == nil && key != "q"
 }
 

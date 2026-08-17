@@ -269,6 +269,7 @@ func printHelp(out io.Writer, locale string) {
 		{"TERMCOURSE_HTTP_DEBUG", "Set to 1 to enable HTTP/auth debug logs."},
 		{"TERMCOURSE_DEBUG", "Set to 1 to enable UI debug logs."},
 		{"TERMCOURSE_LINKS", "Set to 0 to disable clickable links."},
+		{"TERMCOURSE_MOUSE", "Set to 0 to disable mouse clicks and wheel input."},
 		{"TERMCOURSE_THEME", "Theme: default|slate|fairground|rust|hacker."},
 		{"TERMCOURSE_LANG", i18n.Tr(locale, "cli.env.lang")},
 		{"TERMCOURSE_COLOR_MODE", "UI colors: auto|truecolor|256|16."},

@@ -245,8 +245,22 @@ func WriteThemePreviews(output io.Writer, themes []theme.Theme) {
 			fmt.Fprintln(output)
 		}
 		fmt.Fprintf(output, "%s (%s)\n", value.Name, style.ColorMode)
+		primary := layoutTabRail([]tabSpec{
+			{id: "topics", label: "Topics", short: "TOP", micro: "T", selected: true},
+			{id: "search", label: "Search", short: "SRC", micro: "S"},
+			{id: "notifications", label: "Notifications", short: "NOT", micro: "N", badge: 3},
+		}, 32)
+		filters := layoutTabRail([]tabSpec{
+			{id: "latest", label: "Latest", short: "LAT", micro: "L", selected: true},
+			{id: "unread", label: "Unread", short: "UNR", micro: "U"},
+			{id: "private", label: "Private", short: "PRI", micro: "P"},
+			{id: "hot", label: "Hot", short: "HOT", micro: "H"},
+			{id: "new", label: "New", short: "NEW", micro: "N"},
+			{id: "top", label: "Top", short: "TOP", micro: "T"},
+		}, 48)
 		for _, line := range style.AppHeader("Latest", "community.example", []string{
-			headerLine("arrows: move | enter: open | q: quit", "member · 3 unread", 48),
+			headerLine(style.renderTabRail(primary), "member", 48),
+			style.renderTabRail(filters),
 		}, 52, 24) {
 			fmt.Fprintln(output, line)
 		}

@@ -29,6 +29,11 @@ en:
       missing_url: "Missing discourse_url."
       login_failed: "Login failed."
   ui:
+    tabs:
+      topics: "Topics"
+      search: "Search"
+      notifications: "Notifications"
+      period: "Period: %{period}"
     controls:
       topic_list: "arrows: move | ↵, 1-0: open | c: new | n: notifs | s: search | f: filter | g: refresh | q: quit"
       topic_list_top: "arrows: move | ↵, 1-0: open | c: new | n: notifs | s: search | f: filter | p: period | g: refresh | q: quit"

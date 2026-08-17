@@ -15,7 +15,7 @@ func (u *UI) searchFlow(query string) {
 			return
 		}
 		quit, back := u.topicLoop(discourse.Int(selection["topic_id"]), discourse.Int(selection["post_number"]), "search")
-		if quit || back != "search" {
+		if quit || u.requestedPrimary != nil || back != "search" {
 			return
 		}
 	}
@@ -39,24 +39,50 @@ func (u *UI) searchLoop(query string) discourse.JSON {
 	selected := 0
 	for {
 		u.renderSearch(query, results, topics, selected)
-		key, readErr := u.terminal.ReadKey(u.tick)
+		key, readErr := u.readKey(u.tick)
 		if readErr != nil {
 			return nil
 		}
+		if tab, ok := parsePrimaryTabKey(key); ok {
+			if tab != primarySearch {
+				u.requestPrimary(tab)
+				return nil
+			}
+			continue
+		}
+		if row, ok := parseRowKey(key); ok {
+			if row >= 0 && row < len(results) {
+				if row == selected {
+					return results[row]
+				}
+				selected = row
+			}
+			continue
+		}
 		switch key {
-		case "up":
-			selected = max(selected-1, 0)
-		case "down":
-			selected = min(selected+1, max(len(results)-1, 0))
+		case "up", "wheelup":
+			step := 1
+			if key == "wheelup" {
+				step = 3
+			}
+			selected = max(selected-step, 0)
+		case "down", "wheeldown":
+			step := 1
+			if key == "wheeldown" {
+				step = 3
+			}
+			selected = min(selected+step, max(len(results)-1, 0))
 		case "enter":
 			if selected < len(results) {
 				return results[selected]
 			}
 		case "n":
-			if u.notificationsLoop() {
-				return nil
-			}
-		case "q", "esc":
+			u.requestPrimary(primaryNotifications)
+			return nil
+		case "q":
+			u.quitRequested = true
+			return nil
+		case "esc":
 			return nil
 		}
 	}
@@ -64,19 +90,29 @@ func (u *UI) searchLoop(query string) discourse.JSON {
 
 func (u *UI) renderSearch(query string, results []discourse.JSON, topics map[int]string, selected int) {
 	width, height := u.terminal.Size()
-	header := u.style.AppHeader(u.t("ui.search.title"), u.displayURL, []string{
-		u.t("ui.controls.search_results"),
+	controls := u.t("ui.controls.search_results")
+	header := u.navigationHeader(
 		u.t("ui.status.search", "query", truncate(query, max(width-4, 1))),
-	}, width, height)
+		primarySearch, "", "", "", nil, width, height,
+	)
 	screen := make([]string, height)
 	copy(screen, header)
+	if height > 0 {
+		screen[height-1] = controlsFooter(u.style, controls, width)
+	}
 	startRow := len(header) + 1
 	if len(results) == 0 {
-		screen[min(startRow, height-1)] = u.t("ui.empty.results")
+		if height > 1 {
+			screen[min(startRow, height-2)] = u.t("ui.empty.results")
+		}
 		u.renderer.Render(screen, width, height, "search-"+query, -1, -1, false)
 		return
 	}
-	rows := max(height-startRow-1, 1)
+	rows := max(height-startRow-1, 0)
+	if rows == 0 {
+		u.renderer.Render(screen, width, height, "search-"+query, -1, -1, false)
+		return
+	}
 	start := max(selected-rows/2, 0)
 	titleWidth := max((width-4)/3, 10)
 	blurbWidth := max(width-titleWidth-4, 10)
@@ -90,6 +126,7 @@ func (u *UI) renderSearch(query string, results []discourse.JSON, topics map[int
 			line = u.style.Selected(line)
 		}
 		screen[startRow+index-start] = line
+		u.addMouseRegion(0, startRow+index-start, width, 1, rowKey(index))
 	}
 	u.renderer.Render(screen, width, height, "search-"+query, -1, -1, false)
 }
@@ -113,15 +150,48 @@ func (u *UI) notificationsLoop() bool {
 		filtered := u.filterNotifications(all, filter)
 		selected = min(selected, max(len(filtered)-1, 0))
 		u.renderNotifications(filtered, selected, filter, loading)
-		key, readErr := u.terminal.ReadKey(u.tick)
+		key, readErr := u.readKey(u.tick)
 		if readErr != nil {
 			return false
 		}
+		if tab, ok := parsePrimaryTabKey(key); ok {
+			if tab != primaryNotifications {
+				u.requestPrimary(tab)
+				return false
+			}
+			continue
+		}
+		if context, ok := parseContextTabKey(key); ok {
+			if index := indexOf(notificationFilters, context); index >= 0 {
+				filterIndex = index
+				selected = 0
+			}
+			continue
+		}
+		if row, ok := parseRowKey(key); ok {
+			if row >= 0 && row < len(filtered) {
+				if row != selected {
+					selected = row
+					continue
+				}
+				key = "enter"
+			} else {
+				continue
+			}
+		}
 		switch key {
-		case "up":
-			selected = max(selected-1, 0)
-		case "down":
-			selected = min(selected+1, max(len(filtered)-1, 0))
+		case "up", "wheelup":
+			step := 1
+			if key == "wheelup" {
+				step = 3
+			}
+			selected = max(selected-step, 0)
+		case "down", "wheeldown":
+			step := 1
+			if key == "wheeldown" {
+				step = 3
+			}
+			selected = min(selected+step, max(len(filtered)-1, 0))
 			if nextURL != "" && selected >= len(filtered)-3 && !loading {
 				loading = true
 				u.renderNotifications(filtered, selected, filter, loading)
@@ -148,6 +218,9 @@ func (u *UI) notificationsLoop() bool {
 				if quit {
 					return true
 				}
+				if u.requestedPrimary != nil {
+					return false
+				}
 			}
 		case "q":
 			return true
@@ -163,20 +236,27 @@ func (u *UI) renderNotifications(notifications []discourse.JSON, selected int, f
 	if loading {
 		status += " · " + u.t("ui.status.loading_more")
 	}
-	innerWidth, _ := frameInnerWidth(width)
-	header := u.style.AppHeader(status, u.displayURL, []string{
-		headerLine(u.t("ui.controls.notifications"), u.rightStatus(), innerWidth),
-	}, width, height)
+	controls := u.t("ui.controls.notifications")
+	header := u.navigationHeader(status, primaryNotifications, "notifications", filter, "", nil, width, height)
 	screen := make([]string, height)
 	copy(screen, header)
+	if height > 0 {
+		screen[height-1] = controlsFooter(u.style, controls, width)
+	}
 	startRow := len(header) + 1
 	if len(notifications) == 0 {
-		screen[min(startRow, height-1)] = u.t("ui.empty.notifications")
+		if height > 1 {
+			screen[min(startRow, height-2)] = u.t("ui.empty.notifications")
+		}
 		u.renderer.Render(screen, width, height, "notifications-"+filter, -1, -1, false)
 		return
 	}
 	userWidth, typeWidth, timeWidth := min(max(width*18/100, 12), 20), min(max(width*14/100, 10), 14), 6
 	titleWidth := max(width-userWidth-typeWidth-timeWidth-7, 12)
+	if startRow >= height-1 {
+		u.renderer.Render(screen, width, height, "notifications-"+filter, -1, -1, false)
+		return
+	}
 	screen[startRow] = u.style.Text(tableRow([]cell{
 		{u.t("ui.notifications.columns.user"), userWidth, false},
 		{u.t("ui.notifications.columns.type"), typeWidth, false},
@@ -184,7 +264,11 @@ func (u *UI) renderNotifications(notifications []discourse.JSON, selected int, f
 		{u.t("ui.notifications.columns.ago"), timeWidth, true},
 	}), roleListMeta)
 	startRow++
-	rows := max(height-startRow-1, 1)
+	rows := max(height-startRow-1, 0)
+	if rows == 0 {
+		u.renderer.Render(screen, width, height, "notifications-"+filter, -1, -1, false)
+		return
+	}
 	start := max(selected-rows/2, 0)
 	for index := start; index < min(start+rows, len(notifications)); index++ {
 		item := notifications[index]
@@ -202,6 +286,7 @@ func (u *UI) renderNotifications(notifications []discourse.JSON, selected int, f
 			line = u.style.Selected(line)
 		}
 		screen[startRow+index-start] = line
+		u.addMouseRegion(0, startRow+index-start, width, 1, rowKey(index))
 	}
 	u.renderer.Render(screen, width, height, "notifications-"+filter, -1, -1, false)
 }

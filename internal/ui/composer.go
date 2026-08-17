@@ -175,27 +175,43 @@ func (u *UI) pickCategory() (*int, string) {
 	selected := defaultIndex
 	for {
 		width, height := u.terminal.Size()
+		u.resetMouseLayout()
 		header := u.style.AppHeader(u.t("ui.composer.select_category"), u.displayURL, []string{u.t("ui.controls.category_picker")}, width, height)
 		screen := make([]string, height)
 		copy(screen, header)
-		rows := max(height-len(header)-2, 1)
+		rows := max(height-len(header)-1, 0)
 		start := max(selected-rows/2, 0)
 		for index := start; index < min(start+rows, len(options)); index++ {
 			line := options[index].label
 			if index == selected {
 				line = u.style.Selected(line)
 			}
-			screen[len(header)+1+index-start] = line
+			y := len(header) + 1 + index - start
+			if y < 0 || y >= height {
+				continue
+			}
+			screen[y] = line
+			u.addMouseRegion(0, y, width, 1, rowKey(index))
 		}
 		u.renderer.Render(screen, width, height, "category-picker", -1, -1, false)
-		key, err := u.terminal.ReadKey(u.tick)
+		key, err := u.readKey(u.tick)
 		if err != nil {
 			return nil, u.t("ui.composer.category_none")
 		}
+		if row, ok := parseRowKey(key); ok {
+			if row >= 0 && row < len(options) {
+				if row == selected {
+					key = "enter"
+				} else {
+					selected = row
+					continue
+				}
+			}
+		}
 		switch key {
-		case "up":
+		case "up", "wheelup":
 			selected = max(selected-1, 0)
-		case "down":
+		case "down", "wheeldown":
 			selected = min(selected+1, len(options)-1)
 		case "enter":
 			label := u.t("ui.composer.category_named", "name", options[selected].label)

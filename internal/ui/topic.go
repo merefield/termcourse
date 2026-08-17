@@ -45,9 +45,20 @@ func (u *UI) topicLoop(topicID, selectedPostNumber int, back string) (quit bool,
 			}
 		}
 		u.renderTopic(topic, all, selected, scroll[selected], changed)
-		key, readErr := u.terminal.ReadKey(u.tick)
+		key, readErr := u.readKey(u.tick)
 		if readErr != nil {
+			u.quitRequested = true
 			return true, ""
+		}
+		if tab, ok := parsePrimaryTabKey(key); ok {
+			u.requestPrimary(tab)
+			return false, "navigate"
+		}
+		if row, ok := parseRowKey(key); ok {
+			if row >= 0 && row < len(all) {
+				selected = row
+			}
+			continue
 		}
 		switch key {
 		case keyTick:
@@ -56,9 +67,9 @@ func (u *UI) topicLoop(topicID, selectedPostNumber int, back string) (quit bool,
 			selected = max(selected-1, 0)
 		case "down":
 			selected = min(selected+1, max(len(all)-1, 0))
-		case "right":
+		case "right", "wheeldown":
 			scroll[selected] += 3
-		case "left":
+		case "left", "wheelup":
 			scroll[selected] = max(scroll[selected]-3, 0)
 		case "l":
 			if selected < len(all) {
@@ -90,20 +101,11 @@ func (u *UI) topicLoop(topicID, selectedPostNumber int, back string) (quit bool,
 				}
 			}
 		case "s":
-			query := u.promptSingleLine("ui.search.title", "ui.search.prompt", "Search: ")
-			if query != "" {
-				if selection := u.searchLoop(query); selection != nil {
-					newID := discourse.Int(selection["topic_id"])
-					if newID != topicID {
-						return u.topicLoop(newID, discourse.Int(selection["post_number"]), back)
-					}
-					selected = findPost(all, discourse.Int(selection["post_number"]))
-				}
-			}
+			u.requestPrimary(primarySearch)
+			return false, "navigate"
 		case "n":
-			if u.notificationsLoop() {
-				return true, ""
-			}
+			u.requestPrimary(primaryNotifications)
+			return false, "navigate"
 		case "x":
 			if selected < len(all) {
 				urls := extractImageURLs(discourse.String(all[selected]["raw"]), u.options.BaseURL)
@@ -112,6 +114,7 @@ func (u *UI) topicLoop(topicID, selectedPostNumber int, back string) (quit bool,
 				}
 			}
 		case "q":
+			u.quitRequested = true
 			return true, ""
 		case "esc", "backspace":
 			return false, back
@@ -130,26 +133,37 @@ func (u *UI) renderTopic(topic discourse.JSON, all []discourse.JSON, selected, s
 		controls = u.t("ui.controls.topic_with_image")
 	}
 	title := truncate(discourse.String(topic["title"]), max(width-18, 1))
-	header := u.style.AppHeader(title, u.displayURL, []string{
-		controls,
-		headerLine(fmt.Sprintf("%d/%d", min(selected+1, len(all)), len(all)), u.categoryLabel(topic), max(width-4, 1)),
+	innerWidth, _ := frameInnerWidth(width)
+	meta := fmt.Sprintf("%d/%d", min(selected+1, len(all)), len(all))
+	if category := u.categoryLabel(topic); category != "" {
+		meta += " · " + category
+	}
+	header := u.navigationHeader(title, primaryTopics, "", "", "", []string{
+		headerLine(controls, meta, innerWidth),
 	}, width, height)
 	footer := u.progressFooter(len(all), selected, width)
 	available := max(height-len(header)-len(footer), 1)
-	body := u.postListLines(all, selected, scroll, available, width)
+	body, postIndexes := u.postListLines(all, selected, scroll, available, width)
 	screen := make([]string, height)
 	copy(screen, header)
 	for index := 0; index < available && index < len(body); index++ {
-		screen[len(header)+index] = body[index]
+		y := len(header) + index
+		if y >= height {
+			break
+		}
+		screen[y] = body[index]
+		if index < len(postIndexes) && postIndexes[index] >= 0 {
+			u.addMouseRegion(0, y, width, 1, rowKey(postIndexes[index]))
+		}
 	}
 	copy(screen[max(height-len(footer), 0):], footer)
 	u.renderer.SetProgress(min(selected+1, len(all)), len(all))
 	u.renderer.Render(screen, width, height, "topic-"+formatCount(topic["id"]), -1, -1, force)
 }
 
-func (u *UI) postListLines(all []discourse.JSON, selected, scroll, available, width int) []string {
+func (u *UI) postListLines(all []discourse.JSON, selected, scroll, available, width int) ([]string, []int) {
 	if len(all) == 0 {
-		return []string{u.t("ui.empty.posts")}
+		return []string{u.t("ui.empty.posts")}, []int{-1}
 	}
 	selectedBlock := u.postBlock(all[selected], true, width)
 	maxSelected := min(max(int(float64(available)*0.6), 6), len(selectedBlock))
@@ -190,13 +204,18 @@ func (u *UI) postListLines(all []discourse.JSON, selected, scroll, available, wi
 		}
 	}
 	var out []string
+	var postIndexes []int
 	for index, item := range blocks {
 		out = append(out, item.lines...)
+		for range item.lines {
+			postIndexes = append(postIndexes, item.index)
+		}
 		if index != len(blocks)-1 {
 			out = append(out, u.style.Text(strings.Repeat("─", width), roleSeparator))
+			postIndexes = append(postIndexes, -1)
 		}
 	}
-	return out
+	return out, postIndexes
 }
 
 func (u *UI) postBlock(post discourse.JSON, expanded bool, width int) []string {

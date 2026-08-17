@@ -86,6 +86,11 @@ type UI struct {
 	lastStatusRefresh  time.Time
 	resized            bool
 	debug              bool
+	mouseEnabled       bool
+	mouseRegions       []mouseRegion
+	activePrimary      primaryTabID
+	requestedPrimary   *primaryTabID
+	quitRequested      bool
 }
 
 func New(client Client, options Options) *UI {
@@ -110,8 +115,10 @@ func New(client Client, options Options) *UI {
 		topicCache: map[int]discourse.JSON{}, users: map[int]discourse.JSON{}, lastRead: map[int]int{},
 		imageCache:  map[string][]string{},
 		kittyImages: map[string]*kittyInlineImage{}, kittyIDs: map[int]string{},
-		debug: os.Getenv("TERMCOURSE_DEBUG") == "1",
+		debug:        os.Getenv("TERMCOURSE_DEBUG") == "1",
+		mouseEnabled: os.Getenv("TERMCOURSE_MOUSE") != "0",
 	}
+	terminal.SetMouseEnabled(result.mouseEnabled)
 	if options.EnableLiveUpdates {
 		result.live = liveupdates.New(options.BaseURL, client.MessageBusHeaders(), liveupdates.Options{
 			CurrentUserID: options.CurrentUserID, NotificationChannelPosition: options.NotificationChannelPosition,
@@ -141,7 +148,29 @@ func (u *UI) Run() error {
 	u.refreshStatusCounts(true)
 
 	filter, period := "latest", "monthly"
+	active := primaryTopics
 	for {
+		active = u.takeRequestedPrimary(active)
+		if u.quitRequested {
+			return nil
+		}
+		switch active {
+		case primarySearch:
+			if query := u.promptSingleLine("ui.search.title", "ui.search.prompt", "Search: "); query != "" {
+				u.searchFlow(query)
+			}
+			if u.quitRequested {
+				return nil
+			}
+			active = u.takeRequestedPrimary(primaryTopics)
+			continue
+		case primaryNotifications:
+			if u.notificationsLoop() {
+				return nil
+			}
+			active = u.takeRequestedPrimary(primaryTopics)
+			continue
+		}
 		u.trackLive(filter)
 		data, err := u.loadList(filter, period, false)
 		if err != nil {
@@ -164,8 +193,8 @@ func (u *UI) Run() error {
 			if quit, _ := u.topicLoop(result.id, 0, ""); quit {
 				return nil
 			}
-		case "search":
-			u.searchFlow(result.text)
+		case "navigate":
+			active = u.takeRequestedPrimary(primaryTopics)
 		case "new":
 			if result.data != nil {
 				_, err := u.client.CreateTopic(discourse.String(result.data["title"]), discourse.String(result.data["raw"]), optionalInt(result.data["category"]))
@@ -198,17 +227,50 @@ func (u *UI) topicListLoop(data discourse.JSON, filter, period string) loopResul
 		topics := topicList(data)
 		nextURL := discourse.String(discourse.Map(data["topic_list"])["more_topics_url"])
 		u.renderTopicList(topics, selected, filter, period, loading)
-		key, err := u.terminal.ReadKey(u.tick)
+		key, err := u.readKey(u.tick)
 		if err != nil {
 			return loopResult{kind: "quit"}
+		}
+		if tab, ok := parsePrimaryTabKey(key); ok {
+			if tab != primaryTopics {
+				u.requestPrimary(tab)
+				return loopResult{kind: "navigate"}
+			}
+			continue
+		}
+		if context, ok := parseContextTabKey(key); ok {
+			if context == "period" && filter == "top" {
+				return loopResult{kind: "period", text: periods[(indexOf(periods, period)+1)%len(periods)]}
+			}
+			if indexOf(filters, context) >= 0 && context != filter {
+				return loopResult{kind: "filter", text: context}
+			}
+			continue
+		}
+		if row, ok := parseRowKey(key); ok {
+			if row >= 0 && row < len(topics) {
+				if row == selected {
+					return loopResult{kind: "topic", id: discourse.Int(topics[row]["id"])}
+				}
+				selected = row
+			}
+			continue
 		}
 		switch key {
 		case keyTick:
 			continue
-		case "up":
-			selected = max(selected-1, 0)
-		case "down":
-			selected = min(selected+1, max(len(topics)-1, 0))
+		case "up", "wheelup":
+			step := 1
+			if key == "wheelup" {
+				step = 3
+			}
+			selected = max(selected-step, 0)
+		case "down", "wheeldown":
+			step := 1
+			if key == "wheeldown" {
+				step = 3
+			}
+			selected = min(selected+step, max(len(topics)-1, 0))
 			if nextURL != "" && selected >= len(topics)-3 && !loading {
 				loading = true
 				u.renderTopicList(topics, selected, filter, period, loading)
@@ -229,17 +291,15 @@ func (u *UI) topicListLoop(data discourse.JSON, filter, period string) loopResul
 				return loopResult{kind: "period", text: periods[(indexOf(periods, period)+1)%len(periods)]}
 			}
 		case "s":
-			if query := u.promptSingleLine("ui.search.title", "ui.search.prompt", "Search: "); query != "" {
-				return loopResult{kind: "search", text: query}
-			}
+			u.requestPrimary(primarySearch)
+			return loopResult{kind: "navigate"}
 		case "c":
 			if topic := u.newTopicFlow(); topic != nil {
 				return loopResult{kind: "new", data: topic}
 			}
 		case "n":
-			if u.notificationsLoop() {
-				return loopResult{kind: "quit"}
-			}
+			u.requestPrimary(primaryNotifications)
+			return loopResult{kind: "navigate"}
 		case "g":
 			return loopResult{kind: "reload"}
 		case "q", "esc":
@@ -271,15 +331,15 @@ func (u *UI) renderTopicList(topics []discourse.JSON, selected int, filter, peri
 	if loading {
 		status += " · " + u.t("ui.status.loading_more")
 	}
-	innerWidth, _ := frameInnerWidth(width)
-	header := u.style.AppHeader(status, u.displayURL, []string{
-		headerLine(controls, u.rightStatus(), innerWidth),
-	}, width, height)
+	header := u.navigationHeader(status, primaryTopics, "topics", filter, period, nil, width, height)
 	screen := make([]string, height)
 	copy(screen, header)
+	if height > 0 {
+		screen[height-1] = controlsFooter(u.style, controls, width)
+	}
 	startRow := len(header) + 1
 	if len(topics) == 0 {
-		if startRow < height {
+		if startRow >= 0 && startRow < height-1 {
 			screen[startRow] = u.t("ui.empty.topics")
 		}
 		u.renderer.Render(screen, width, height, "topic-list-"+filter+"-"+period, -1, -1, false)
@@ -291,11 +351,15 @@ func (u *UI) renderTopicList(topics []discourse.JSON, selected int, filter, peri
 	} else if width >= 125 {
 		mode = "category"
 	}
-	if mode != "compact" && startRow < height {
+	if mode != "compact" && startRow < height-1 {
 		screen[startRow] = u.topicTableHeader(width, filter, mode)
 		startRow++
 	}
-	rows := max(height-startRow-1, 1)
+	rows := max(height-startRow-1, 0)
+	if rows == 0 {
+		u.renderer.Render(screen, width, height, "topic-list-"+filter+"-"+period+"-"+mode, -1, -1, false)
+		return
+	}
 	start := max(selected-rows/2, 0)
 	end := min(start+rows, len(topics))
 	for index := start; index < end; index++ {
@@ -304,6 +368,7 @@ func (u *UI) renderTopicList(topics []discourse.JSON, selected int, filter, peri
 			line = u.style.Selected(line)
 		}
 		screen[startRow+index-start] = line
+		u.addMouseRegion(0, startRow+index-start, width, 1, rowKey(index))
 	}
 	u.renderer.Render(screen, width, height, "topic-list-"+filter+"-"+period+"-"+mode, -1, -1, false)
 }
@@ -394,20 +459,6 @@ func tableRow(cells []cell) string {
 		}
 	}
 	return strings.Join(values, "  ")
-}
-
-func (u *UI) rightStatus() string {
-	parts := []string{u.t("ui.status.logged_in", "username", u.options.Username)}
-	if u.notificationUnread > 0 {
-		parts = append(parts, fmt.Sprintf("[%d]", u.notificationUnread))
-	}
-	if u.pmUnread > 0 {
-		parts = append(parts, u.t("ui.status.pm_unread", "count", u.pmUnread))
-	}
-	if u.live != nil && u.live.HasIncoming() {
-		parts = append(parts, u.t("ui.status.new_updated", "count", u.live.IncomingCount()))
-	}
-	return strings.Join(parts, " · ")
 }
 
 func (u *UI) pmUsers(topic discourse.JSON) string {
