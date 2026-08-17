@@ -31,6 +31,7 @@ en:
   ui:
     headers:
       topic: "Topic"
+      search: "Search"
     tabs:
       topics: "Topics"
       search: "Search"

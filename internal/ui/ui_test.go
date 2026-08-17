@@ -357,6 +357,29 @@ func TestWideMastheadKeepsPaddingBeforePersistentRails(t *testing.T) {
 	}
 }
 
+func TestSearchResultsHeaderKeepsQueryInsideStableBox(t *testing.T) {
+	t.Setenv("TERMCOURSE_COLOR_MODE", "truecolor")
+	u := &UI{
+		style: NewStyle(testTheme(), &bytes.Buffer{}), locale: "en", displayURL: "community.example",
+		options: Options{Username: "member"},
+	}
+	header := u.searchResultsHeader("rate limit debugging", 88, 24)
+	plain := make([]string, len(header))
+	for index := range header {
+		plain[index] = stripANSI(header[index])
+	}
+	joined := strings.Join(plain, "\n")
+	if !strings.Contains(joined, "╭─ SEARCH ") {
+		t.Fatalf("search border has no stable title: %q", joined)
+	}
+	if strings.Contains(joined, "╭─ SEARCH: rate limit debugging") {
+		t.Fatalf("query leaked into search border: %q", joined)
+	}
+	if !strings.Contains(joined, "│ rate limit debugging") {
+		t.Fatalf("query is not inside search header: %q", joined)
+	}
+}
+
 func TestTopicsListSuppressesRedundantHeaderAndUsesRoundedBody(t *testing.T) {
 	t.Setenv("TERMCOURSE_COLOR_MODE", "truecolor")
 	terminal := NewTerminal(nil, &bytes.Buffer{})

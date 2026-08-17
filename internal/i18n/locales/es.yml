@@ -31,6 +31,7 @@ es:
   ui:
     headers:
       topic: "Tema"
+      search: "Buscar"
     tabs:
       topics: "Temas"
       search: "Buscar"

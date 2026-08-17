@@ -101,10 +101,7 @@ func (u *UI) searchLoop(query string) discourse.JSON {
 func (u *UI) renderSearch(query string, results []discourse.JSON, topics map[int]string, selected int) {
 	width, height := u.terminal.Size()
 	controls := u.t("ui.controls.search_results")
-	header := u.navigationHeader(
-		u.t("ui.status.search", "query", truncate(query, max(width-4, 1))),
-		primarySearch, "search", "results", "", nil, width, height,
-	)
+	header := u.searchResultsHeader(query, width, height)
 	screen := make([]string, height)
 	copy(screen, header)
 	startRow := len(header) + 1
@@ -139,6 +136,14 @@ func (u *UI) renderSearch(query string, results []discourse.JSON, topics map[int
 	}
 	u.placeControlsFooter(screen, controls, width)
 	u.renderer.Render(screen, width, height, "search-"+query, -1, -1, false)
+}
+
+func (u *UI) searchResultsHeader(query string, width, height int) []string {
+	innerWidth, _ := frameInnerWidth(width)
+	return u.navigationHeader(
+		u.t("ui.headers.search"), primarySearch, "search", "results", "",
+		[]string{truncate(query, max(innerWidth, 1))}, width, height,
+	)
 }
 
 var notificationFilters = []string{"all", "responses", "likes", "mentions", "edits", "links", "messages"}
