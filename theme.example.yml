@@ -1,76 +1,26 @@
-# Copy this file to:
-# - ./theme.yml (project-local), or
-# - ~/.config/termcourse/theme.yml (global), or
-# set TERMCOURSE_THEME_FILE to a custom path.
+# Copy to ~/.config/termcourse/theme.yml, or pass this file explicitly with:
+#   termcourse --theme-file ./theme.example.yml --theme ocean HOST
 #
-# Select a theme name with TERMCOURSE_THEME (for example: default, slate, fairground, rust).
+# The optional top-level selection has lower precedence than TERMCOURSE_THEME
+# and --theme. Built-in themes are default, slate, fairground, rust, and hacker.
+theme: ocean
 
-default:
-  primary: "#f2f2f2"
-  background: "none"
-  highlighted: "#2a5ea8"
-  highlighted_text: "#ffffff"
-  borders: "#a8a8a8"
-  bar_backgrounds: "#1f1f1f"
-  separators: "#6f6f6f"
-  list_numbers: "#f2f2f2"
-  list_text: "#e6e6e6"
-  post_username: "#b5b5b5"
-  list_meta: "#b5b5b5"
-  accent: "#6cc4ff"
+themes:
+  # Built-in themes can be changed with partial overrides.
+  slate:
+    accent: cyan
 
-slate:
-  primary: "#e6edf3"
-  background: "none"
-  highlighted: "#355f8a"
-  highlighted_text: "#ffffff"
-  borders: "#5f6f80"
-  bar_backgrounds: "#1f2733"
-  separators: "#8ca0b3"
-  list_numbers: "#8fbce6"
-  list_text: "#dde7f0"
-  post_username: "#9ab0c6"
-  list_meta: "#9ab0c6"
-  accent: "#66c2ff"
-
-fairground:
-  primary: "#f6fff5"
-  background: "none"
-  highlighted: "#0055aa"
-  highlighted_text: "#ffffff"
-  borders: "#1f8f5f"
-  bar_backgrounds: "#103f33"
-  separators: "#ff4b4b"
-  list_numbers: "#4ecb71"
-  list_text: "#d8f7e4"
-  post_username: "#8fd9ad"
-  list_meta: "#8fd9ad"
-  accent: "#2a9dff"
-
-rust:
-  primary: "#efe2c4"
-  background: "none"
-  highlighted: "#b5521e"
-  highlighted_text: "#fff7e8"
-  borders: "#b06c2f"
-  bar_backgrounds: "#3a2516"
-  separators: "#d2b168"
-  list_numbers: "#d58a3d"
-  list_text: "#f2e4c8"
-  post_username: "#c9b287"
-  list_meta: "#c9b287"
-  accent: "#e0b85f"
-
-hacker:
-  primary: "#2cfc03"
-  background: "none"
-  highlighted: "#1a9402"
-  highlighted_text: "#000000"
-  borders: "#23c602"
-  bar_backgrounds: "#0a1f02"
-  separators: "#145c01"
-  list_numbers: "#2cfc03"
-  list_text: "#1df002"
-  post_username: "#158a01"
-  list_meta: "#158a01"
-  accent: "#8cff00"
+  # New themes inherit unspecified values from the built-in default theme.
+  ocean:
+    primary: "#e8f4ff"
+    background: none
+    highlighted: "#176b9c"
+    highlighted_text: white
+    borders: "#4f91b8"
+    bar_backgrounds: "#102c3d"
+    separators: "#69b7e5"
+    list_numbers: "#7dcbff"
+    list_text: "#d5edff"
+    post_username: "#8fc9ed"
+    list_meta: "#8fc9ed"
+    accent: "#40cfff"

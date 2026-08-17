@@ -1,0 +1,417 @@
+package ui
+
+import (
+	"bytes"
+	"image"
+	"image/color"
+	"strings"
+	"testing"
+
+	"charm.land/bubbles/v2/textarea"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
+	ultraviolet "github.com/charmbracelet/ultraviolet"
+	"github.com/merefield/termcourse/internal/theme"
+)
+
+func TestScreenRendererBuildsCompleteCharmFrame(t *testing.T) {
+	content := normalizeScreen([]string{"one", "two"}, 5, 3)
+	if content != "one  \ntwo  \n     " {
+		t.Fatalf("normalized frame = %q", content)
+	}
+}
+
+func TestCharmTerminalModelOwnsResizeInputCursorAndQueries(t *testing.T) {
+	state := &terminalState{inputs: make(chan terminalInput, 4), ready: make(chan struct{}), done: make(chan error, 1)}
+	model := terminalModel{state: state}
+
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 149, Height: 40})
+	model = updated.(terminalModel)
+	if width, height := int(state.width.Load()), int(state.height.Load()); width != 149 || height != 40 {
+		t.Fatalf("Charm resize = %dx%d", width, height)
+	}
+
+	updated, _ = model.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyUp}))
+	model = updated.(terminalModel)
+	if input := <-state.inputs; input.msg.(tea.KeyPressMsg).String() != "up" {
+		t.Fatalf("Charm key event = %#v", input.msg)
+	}
+
+	progress := tea.NewProgressBar(tea.ProgressBarDefault, 75)
+	updated, _ = model.Update(terminalRenderMsg{content: "themed", cursorX: 3, cursorY: 2, progress: progress})
+	model = updated.(terminalModel)
+	view := model.View()
+	if view.Content != "themed" || !view.AltScreen || view.Cursor == nil || view.Cursor.X != 3 || view.Cursor.Y != 2 || view.ProgressBar.Value != 75 {
+		t.Fatalf("Charm view = %#v", view)
+	}
+
+	// A renderer invalidation must retain the current model. Raw terminal
+	// graphics are drawn outside the cell renderer and would otherwise be
+	// immediately covered by a blank frame.
+	updated, _ = model.Update(terminalInvalidateMsg{})
+	model = updated.(terminalModel)
+	if stripANSI(model.View().Content) != "themed" || model.View().Content == "themed" {
+		t.Fatalf("renderer invalidation cleared model content: %#v", model.View())
+	}
+
+	response := make(chan any, 1)
+	updated, cmd := model.Update(terminalQueryMsg{
+		sequence: "\x1b[c",
+		accept: func(msg any) bool {
+			_, ok := msg.(ultraviolet.PrimaryDeviceAttributesEvent)
+			return ok
+		},
+		response: response,
+	})
+	model = updated.(terminalModel)
+	if raw, ok := cmd().(tea.RawMsg); !ok || raw.Msg != "\x1b[c" {
+		t.Fatalf("Charm raw query command = %#v", raw)
+	}
+	attributes := ultraviolet.PrimaryDeviceAttributesEvent{1, 4, 6}
+	updated, _ = model.Update(attributes)
+	model = updated.(terminalModel)
+	if got := (<-response).(ultraviolet.PrimaryDeviceAttributesEvent); len(got) != 3 || got[1] != 4 || len(model.queries) != 0 {
+		t.Fatalf("Charm query response = %#v, pending=%d", got, len(model.queries))
+	}
+
+	timedOut := make(chan any, 1)
+	updated, _ = model.Update(terminalQueryMsg{sequence: "query", accept: func(any) bool { return true }, response: timedOut})
+	model = updated.(terminalModel)
+	updated, _ = model.Update(terminalCancelQueryMsg{response: timedOut})
+	model = updated.(terminalModel)
+	if len(model.queries) != 0 {
+		t.Fatalf("timed-out terminal query was retained: %#v", model.queries)
+	}
+}
+
+func TestBubblesInputsPreserveEditingAndTermcourseTheme(t *testing.T) {
+	t.Setenv("TERMCOURSE_COLOR_MODE", "truecolor")
+	style := NewStyle(testTheme(), &bytes.Buffer{})
+	u := &UI{style: style}
+
+	input := textinput.New()
+	input.Prompt = "Search: "
+	u.styleTextInput(&input)
+	_ = input.Focus()
+	input, _ = input.Update(tea.KeyPressMsg(tea.Key{Code: 'a', Text: "a"}))
+	if input.Value() != "a" || !strings.Contains(input.View(), "38;2;108;196;255") {
+		t.Fatalf("themed Bubbles text input = %q, value=%q", input.View(), input.Value())
+	}
+
+	area := textarea.New()
+	area.ShowLineNumbers = false
+	u.styleTextArea(&area)
+	_ = area.Focus()
+	area, _ = area.Update(tea.PasteMsg{Content: "first\nsecond"})
+	if area.Value() != "first\nsecond" || !strings.Contains(area.View(), "38;2;230;230;230") {
+		t.Fatalf("themed Bubbles textarea = %q, value=%q", area.View(), area.Value())
+	}
+}
+
+func TestDisplayWidthAndTruncation(t *testing.T) {
+	if displayWidth("abc") != 3 || displayWidth("界") != 2 || displayWidth("e\u0301") != 1 || displayWidth("♥") != 1 {
+		t.Fatalf("widths: ascii=%d wide=%d combining=%d heart=%d", displayWidth("abc"), displayWidth("界"), displayWidth("e\u0301"), displayWidth("♥"))
+	}
+	if actual := truncate("abcdefgh", 6); actual != "abc..." {
+		t.Fatalf("truncate = %q", actual)
+	}
+}
+
+func TestPadLinePreservesOSC8LinkTerminators(t *testing.T) {
+	link := linkify("https://example.com", true)
+	padded := padLine(link, 24)
+	if !strings.Contains(padded, "\a") || visibleWidth(padded) != 24 {
+		t.Fatalf("padded OSC8 link = %q width=%d", padded, visibleWidth(padded))
+	}
+}
+
+func TestHeaderLineRightAlignsStatusAndStaysWithinWidth(t *testing.T) {
+	const width = 48
+	status := "Logged in: member · [3]"
+	line := headerLine("arrows: move · q: quit", status, width)
+	if visibleWidth(line) != width || !strings.HasSuffix(stripANSI(line), status) {
+		t.Fatalf("header line = %q, width=%d", line, visibleWidth(line))
+	}
+
+	narrow := headerLine("controls", "Logged in: a-very-long-username · [12]", 12)
+	if visibleWidth(narrow) != 12 {
+		t.Fatalf("narrow header width = %d: %q", visibleWidth(narrow), narrow)
+	}
+}
+
+func TestMarkdownRenderingUsesGFMAndTerminalLinks(t *testing.T) {
+	lines := wrapLines("## Heading\n\n- first\n- second\n\n[site](https://example.com)", 40, true)
+	joined := strings.Join(lines, "\n")
+	for _, expected := range []string{"## Heading", "first", "second", "\x1b]8;", "https://example.com"} {
+		if !strings.Contains(joined, expected) {
+			t.Fatalf("rendered Markdown %q missing %q", joined, expected)
+		}
+	}
+	for _, line := range lines {
+		if visibleWidth(line) > 40 {
+			t.Fatalf("Markdown line width = %d: %q", visibleWidth(line), line)
+		}
+	}
+}
+
+func TestStyleUsesRequestedColorProfile(t *testing.T) {
+	t.Setenv("TERMCOURSE_COLOR_MODE", "16")
+	style := NewStyle(testTheme(), &bytes.Buffer{})
+	styled := style.Text("value", rolePrimary)
+	if !strings.Contains(styled, "\x1b[") || strings.Contains(styled, "38;2;") {
+		t.Fatalf("16-color styled value = %q", styled)
+	}
+	for _, line := range style.Box([]string{"body"}, 20) {
+		if visibleWidth(line) != 20 {
+			t.Fatalf("box line width = %d: %q", visibleWidth(line), line)
+		}
+	}
+}
+
+func TestSemanticHeaderStylesUseHeaderBackgroundAndSeparators(t *testing.T) {
+	t.Setenv("TERMCOURSE_COLOR_MODE", "truecolor")
+	style := NewStyle(testTheme(), &bytes.Buffer{})
+	joined := strings.Join(style.HeaderBox("Section", []string{"left | right", "--------", "status"}, 20), "\n")
+	for _, sequence := range []string{
+		"48;2;31;31;31m",
+		"38;2;111;111;111;48;2;31;31;31m",
+		"\x1b[38;2;168;168;168m",
+	} {
+		if !strings.Contains(joined, sequence) {
+			t.Fatalf("themed header %q missing %q", joined, sequence)
+		}
+	}
+}
+
+func TestPanelsUseRoundedIntegratedTitlesAndResponsiveBranding(t *testing.T) {
+	t.Setenv("TERMCOURSE_COLOR_MODE", "truecolor")
+	style := NewStyle(testTheme(), &bytes.Buffer{})
+	compact := style.AppHeader("Latest Topics", "community.example", []string{"arrows: move | q: quit", "Logged in: member"}, 52, 24)
+	plain := stripANSI(strings.Join(compact, "\n"))
+	if !strings.HasPrefix(plain, "▰ TERMCOURSE ▰") || !strings.Contains(plain, "╭─ LATEST TOPICS ") || !strings.HasSuffix(plain, "╰"+strings.Repeat("─", 50)+"╯") {
+		t.Fatalf("compact app header =\n%s", plain)
+	}
+	if !strings.Contains(plain, " · ") || strings.Contains(plain, " | ") || strings.Contains(plain, " // ") {
+		t.Fatalf("control separators were not restyled: %q", plain)
+	}
+	for index, line := range compact {
+		if visibleWidth(line) != 52 {
+			t.Fatalf("compact line %d width = %d: %q", index, visibleWidth(line), line)
+		}
+	}
+
+	wide := stripANSI(strings.Join(style.AppHeader("Latest", "community.example", []string{"controls", "status"}, 90, 32), "\n"))
+	if !strings.Contains(wide, "▀█▀ █▀▀ █▀█ █▀▄▀█") || !strings.Contains(wide, "◉ DISCOURSE TERMINAL · TEST") || !strings.Contains(wide, "● ONLINE") {
+		t.Fatalf("wide app header =\n%s", wide)
+	}
+}
+
+func TestPanelsRemainExactWidthAtTinyTerminalSizes(t *testing.T) {
+	t.Setenv("TERMCOURSE_COLOR_MODE", "truecolor")
+	style := NewStyle(testTheme(), &bytes.Buffer{})
+	for width := 1; width <= 12; width++ {
+		lines := style.HeaderBox("A title that is too long", []string{"content"}, width)
+		for index, line := range lines {
+			if visibleWidth(line) != width {
+				t.Fatalf("width %d line %d rendered at %d: %q", width, index, visibleWidth(line), line)
+			}
+		}
+	}
+}
+
+func TestProgressPanelUsesBlockGaugeAndThemeRoles(t *testing.T) {
+	t.Setenv("TERMCOURSE_COLOR_MODE", "truecolor")
+	style := NewStyle(testTheme(), &bytes.Buffer{})
+	lines := style.ProgressBox("Read Progress", 3, 4, 32)
+	plain := stripANSI(strings.Join(lines, "\n"))
+	if !strings.Contains(plain, "╭─ READ PROGRESS ") || !strings.Contains(plain, "███") ||
+		!strings.Contains(plain, "░") || !strings.Contains(plain, "3/4") {
+		t.Fatalf("progress panel =\n%s", plain)
+	}
+	for index, line := range lines {
+		if visibleWidth(line) != 32 {
+			t.Fatalf("progress line %d width = %d: %q", index, visibleWidth(line), line)
+		}
+	}
+	joined := strings.Join(lines, "\n")
+	if !strings.Contains(joined, "38;2;108;196;255") || !strings.Contains(joined, "38;2;111;111;111") {
+		t.Fatalf("progress panel does not use accent and separator roles: %q", joined)
+	}
+}
+
+func TestTopicRowsKeepThemeColorsAcrossResponsiveBreakpoints(t *testing.T) {
+	t.Setenv("TERMCOURSE_COLOR_MODE", "truecolor")
+	var output bytes.Buffer
+	style := NewStyle(testTheme(), &output)
+	u := &UI{style: style, emojiEnabled: true}
+	topic := map[string]any{
+		"title": "Responsive topic", "posts_count": 8, "category_name": "Support", "views": 1234,
+	}
+
+	for _, test := range []struct {
+		width int
+		mode  string
+	}{
+		{124, "compact"},
+		{125, "category"},
+		{149, "stats"},
+	} {
+		t.Run(test.mode, func(t *testing.T) {
+			row := u.topicRow(topic, 1, test.width, "latest", test.mode)
+			for _, role := range []textRole{roleListNumber, roleListText, roleListMeta} {
+				sequence := style.Text("x", role)
+				sequence = sequence[:strings.Index(sequence, "x")]
+				if !strings.Contains(row, sequence) {
+					t.Fatalf("%s row lost role %d styling after resize: %q", test.mode, role, row)
+				}
+			}
+			if test.mode != "compact" && visibleWidth(row) != test.width {
+				t.Fatalf("%s row width = %d, terminal width = %d", test.mode, visibleWidth(row), test.width)
+			}
+		})
+	}
+}
+
+func TestEveryBuiltinThemeRendersInEveryExplicitColorMode(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	catalog, err := theme.Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, value := range catalog.All() {
+		for _, mode := range []string{"truecolor", "256", "16"} {
+			t.Run(value.Name+"/"+mode, func(t *testing.T) {
+				t.Setenv("TERMCOURSE_COLOR_MODE", mode)
+				style := NewStyle(value, &bytes.Buffer{})
+				lines := style.HeaderBox("Section", []string{"left | right", "--------", "status"}, 24)
+				lines = append(lines, style.Selected("selected"))
+				joined := strings.Join(lines, "\n")
+				if !strings.Contains(joined, "\x1b[") || style.ColorMode != mode {
+					t.Fatalf("theme output = %q, color mode = %q", joined, style.ColorMode)
+				}
+				switch mode {
+				case "truecolor":
+					if !strings.Contains(joined, "38;2;") || !strings.Contains(joined, "48;2;") {
+						t.Fatalf("truecolor output = %q", joined)
+					}
+				case "256":
+					if !strings.Contains(joined, "38;5;") || !strings.Contains(joined, "48;5;") {
+						t.Fatalf("256-color output = %q", joined)
+					}
+				case "16":
+					if strings.Contains(joined, ";2;") || strings.Contains(joined, ";5;") {
+						t.Fatalf("16-color output = %q", joined)
+					}
+				}
+				for _, line := range lines[:5] {
+					if visibleWidth(line) != 24 {
+						t.Fatalf("header width = %d: %q", visibleWidth(line), line)
+					}
+				}
+			})
+		}
+	}
+}
+
+func testTheme() theme.Theme {
+	return theme.Theme{
+		Name: "test", Primary: "#f2f2f2", Border: "#a8a8a8", HeaderBackground: "#1f1f1f",
+		Separator: "#6f6f6f", Selected: "#2a5ea8", SelectedText: "#ffffff",
+		ListNumber: "#f2f2f2", ListText: "#e6e6e6", PostUsername: "#b5b5b5",
+		ListMeta: "#b5b5b5", Accent: "#6cc4ff",
+	}
+}
+
+func TestImageExtractionAndModes(t *testing.T) {
+	raw := "![one](upload://abc.png) /uploads/default/two.jpg https://x.test/three.webp?q=1"
+	urls := extractImageURLs(raw, "https://meta.example")
+	if len(urls) != 3 || urls[0] != "https://meta.example/uploads/short-url/abc.png" {
+		t.Fatalf("URLs = %#v", urls)
+	}
+	t.Setenv("TERMCOURSE_IMAGE_MODE", "balanced")
+	t.Setenv("TERMCOURSE_IMAGE_COLORS", "full")
+	args := strings.Join(chafaArgs("/tmp/example.png", 40, 12, false), " ")
+	for _, expected := range []string{"--symbols vhalf", "--colors full", "--optimize 5", "--work 5", "--size 40x12"} {
+		if !strings.Contains(args, expected) {
+			t.Fatalf("args %q missing %q", args, expected)
+		}
+	}
+	t.Setenv("TERMCOURSE_IMAGE_MODE", "")
+	if defaults := strings.Join(chafaArgs("/tmp/example.png", 32, 6, false), " "); !strings.Contains(defaults, "--symbols vhalf") || !strings.Contains(defaults, "--colors full") {
+		t.Fatalf("default Chafa fallback is not colored and balanced: %q", defaults)
+	}
+}
+
+func TestKittyThumbnailGeometryPreservesPixelAspectRatio(t *testing.T) {
+	columns, rows := kittyCellGeometry(1600, 900, 48, 8, 8, 16)
+	if columns != 28 || rows != 8 {
+		t.Fatalf("landscape Kitty geometry = %dx%d", columns, rows)
+	}
+	columns, rows = kittyCellGeometry(600, 1200, 48, 8, 8, 16)
+	if columns != 8 || rows != 8 {
+		t.Fatalf("portrait Kitty geometry = %dx%d", columns, rows)
+	}
+	width, height := boundedPixelSize(8000, 4000, 8_000_000)
+	if width != 4000 || height != 2000 {
+		t.Fatalf("bounded Kitty pixels = %dx%d", width, height)
+	}
+}
+
+func TestKittyPlaceholdersOccupyManagedTerminalCells(t *testing.T) {
+	lines := kittyPlaceholderLines(0x123456, 4, 3)
+	if len(lines) != 3 {
+		t.Fatalf("Kitty placeholder rows = %d", len(lines))
+	}
+	for index, line := range lines {
+		if visibleWidth(line) != 4 || !strings.Contains(line, "38;2;18;52;86m") {
+			t.Fatalf("Kitty placeholder row %d = %q, width=%d", index, line, visibleWidth(line))
+		}
+	}
+	if kittyPlaceholderLines(0, 4, 3) != nil || kittyPlaceholderLines(1, 0, 3) != nil {
+		t.Fatal("invalid Kitty placeholder geometry was accepted")
+	}
+}
+
+func TestKittyPlacementUsesChunkedPNGVirtualCells(t *testing.T) {
+	source := image.NewRGBA(image.Rect(0, 0, 2, 2))
+	source.Set(0, 0, color.RGBA{R: 255, A: 255})
+	encoded, err := encodeKittyPlacement(source, 0x123456, 4, 3, func(sequence string) string {
+		return "<passthrough>" + sequence + "</passthrough>"
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"<passthrough>", "\x1b_G", "f=100", "i=1193046", "U=1", "c=4", "r=3", "a=T"} {
+		if !strings.Contains(encoded, expected) {
+			t.Fatalf("Kitty transmission %q missing %q", encoded, expected)
+		}
+	}
+}
+
+func TestSixelAndPixelResponses(t *testing.T) {
+	if !parseDA1Sixel("\x1b[?1;2;4;6c") || parseDA1Sixel("\x1b[?1;2;6c") {
+		t.Fatal("DA1 sixel detection mismatch")
+	}
+	width, height, ok := parsePixelResponse("\x1b[4;900;1440t", "4")
+	if !ok || width != 1440 || height != 900 {
+		t.Fatalf("pixel response = %dx%d/%v", width, height, ok)
+	}
+	width, height, ok = parseGraphicsResponse("\x1b[?2;0;1200;800S", "2")
+	if !ok || width != 1200 || height != 800 {
+		t.Fatalf("graphics response = %dx%d/%v", width, height, ok)
+	}
+}
+
+func TestMergeTopicLists(t *testing.T) {
+	target := map[string]any{"topic_list": map[string]any{"topics": []any{
+		map[string]any{"id": 1}, map[string]any{"id": 2},
+	}}}
+	incoming := map[string]any{"topic_list": map[string]any{"topics": []any{
+		map[string]any{"id": 2}, map[string]any{"id": 3},
+	}, "more_topics_url": "/latest?page=2"}}
+	mergeTopicLists(target, incoming, false)
+	topics := topicList(target)
+	if len(topics) != 3 || intNumber(topics[2]["id"]) != 3 {
+		t.Fatalf("topics = %#v", topics)
+	}
+}
