@@ -10,6 +10,7 @@ import (
 )
 
 func (u *UI) topicLoop(topicID, selectedPostNumber int, back string) (quit bool, result string) {
+	u.lastTopicID, u.lastTopicPost = topicID, selectedPostNumber
 	topic, err := u.loadTopic(topicID, selectedPostNumber, selectedPostNumber == 0)
 	if err != nil {
 		u.showError(err)
@@ -28,6 +29,9 @@ func (u *UI) topicLoop(topicID, selectedPostNumber int, back string) (quit bool,
 		defer u.live.ClearTopic()
 	}
 	for {
+		if u.requestedPrimary != nil {
+			return false, "navigate"
+		}
 		changed := u.applyLiveTopic(topicID, topic, &selected)
 		before, total := u.ensureChunks(topicID, topic, selected)
 		if total > 0 {
@@ -38,6 +42,7 @@ func (u *UI) topicLoop(topicID, selectedPostNumber int, back string) (quit bool,
 		selected = min(selected, max(len(all)-1, 0))
 		if selected < len(all) {
 			postNumber := discourse.Int(all[selected]["post_number"])
+			u.lastTopicPost = postNumber
 			if postNumber > 0 && u.lastRead[topicID] != postNumber {
 				if u.client.UpdateTopicReadState(topicID, postNumber, 1200) {
 					u.lastRead[topicID] = postNumber
@@ -51,6 +56,9 @@ func (u *UI) topicLoop(topicID, selectedPostNumber int, back string) (quit bool,
 			return true, ""
 		}
 		if tab, ok := parsePrimaryTabKey(key); ok {
+			if tab == primaryTopic {
+				continue
+			}
 			u.requestPrimary(tab)
 			return false, "navigate"
 		}
@@ -76,7 +84,7 @@ func (u *UI) topicLoop(topicID, selectedPostNumber int, back string) (quit bool,
 				u.toggleLike(all[selected])
 			}
 		case "r":
-			if body := u.compose(u.t("ui.composer.reply_to_topic"), nil, u.categoryLabel(topic)); body != "" {
+			if body := u.compose(u.t("ui.composer.reply_to_topic"), nil, u.categoryLabel(topic), "reply_topic"); body != "" {
 				if created, createErr := u.client.CreatePost(topicID, body, 0); createErr != nil {
 					u.showError(createErr)
 				} else {
@@ -90,7 +98,7 @@ func (u *UI) topicLoop(topicID, selectedPostNumber int, back string) (quit bool,
 				post := all[selected]
 				context := u.replyContext(post)
 				title := u.t("ui.composer.reply_to_post", "post_number", discourse.Int(post["post_number"]))
-				if body := u.compose(title, context, u.categoryLabel(topic)); body != "" {
+				if body := u.compose(title, context, u.categoryLabel(topic), "reply_post"); body != "" {
 					if created, createErr := u.client.CreatePost(topicID, body, discourse.Int(post["post_number"])); createErr != nil {
 						u.showError(createErr)
 					} else {
@@ -110,6 +118,7 @@ func (u *UI) topicLoop(topicID, selectedPostNumber int, back string) (quit bool,
 			if selected < len(all) {
 				urls := extractImageURLs(discourse.String(all[selected]["raw"]), u.options.BaseURL)
 				if len(urls) > 0 {
+					u.lastImageURL = urls[0]
 					u.fullscreenImage(urls[0])
 				}
 			}
@@ -129,7 +138,12 @@ func (u *UI) renderTopic(topic discourse.JSON, all []discourse.JSON, selected, s
 		selectedPost = all[selected]
 	}
 	controls := u.t("ui.controls.topic")
-	if os.Getenv("TERMCOURSE_IMAGES") != "0" && (u.kittyAvailable() || imageBackend() != "") && len(extractImageURLs(discourse.String(selectedPost["raw"]), u.options.BaseURL)) > 0 {
+	imageURLs := extractImageURLs(discourse.String(selectedPost["raw"]), u.options.BaseURL)
+	imagesEnabled := os.Getenv("TERMCOURSE_IMAGES") != "0"
+	if imagesEnabled && len(imageURLs) > 0 {
+		u.lastImageURL = imageURLs[0]
+	}
+	if imagesEnabled && (u.kittyAvailable() || imageBackend() != "") && len(imageURLs) > 0 {
 		controls = u.t("ui.controls.topic_with_image")
 	}
 	title := truncate(discourse.String(topic["title"]), max(width-18, 1))
@@ -138,7 +152,7 @@ func (u *UI) renderTopic(topic discourse.JSON, all []discourse.JSON, selected, s
 	if category := u.categoryLabel(topic); category != "" {
 		meta += " · " + category
 	}
-	header := u.navigationHeader(title, primaryTopics, "", "", "", []string{
+	header := u.navigationHeader(title, primaryTopic, "", "", "", []string{
 		headerLine(controls, meta, innerWidth),
 	}, width, height)
 	footer := u.progressFooter(len(all), selected, width)

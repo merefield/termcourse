@@ -91,6 +91,13 @@ type UI struct {
 	activePrimary      primaryTabID
 	requestedPrimary   *primaryTabID
 	quitRequested      bool
+	lastTopicID        int
+	lastTopicPost      int
+	lastImageURL       string
+	activeContext      string
+	activeContextValue string
+	activePeriod       string
+	navigationLocked   bool
 }
 
 func New(client Client, options Options) *UI {
@@ -155,8 +162,16 @@ func (u *UI) Run() error {
 			return nil
 		}
 		switch active {
+		case primaryTopic:
+			if u.lastTopicID > 0 {
+				if quit, _ := u.topicLoop(u.lastTopicID, u.lastTopicPost, ""); quit {
+					return nil
+				}
+			}
+			active = u.takeRequestedPrimary(primaryTopics)
+			continue
 		case primarySearch:
-			if query := u.promptSingleLine("ui.search.title", "ui.search.prompt", "Search: "); query != "" {
+			if query := u.promptSingleLine("ui.search.title", "ui.search.prompt", "Search: ", primarySearch, "search", "query"); query != "" {
 				u.searchFlow(query)
 			}
 			if u.quitRequested {
@@ -169,6 +184,20 @@ func (u *UI) Run() error {
 				return nil
 			}
 			active = u.takeRequestedPrimary(primaryTopics)
+			continue
+		case primaryCompose:
+			u.createNewTopic(u.newTopicFlow())
+			active = u.takeRequestedPrimary(primaryTopics)
+			continue
+		case primaryImage:
+			if u.lastImageURL != "" {
+				u.fullscreenImage(u.lastImageURL)
+			}
+			fallback := primaryTopics
+			if u.lastTopicID > 0 {
+				fallback = primaryTopic
+			}
+			active = u.takeRequestedPrimary(fallback)
 			continue
 		}
 		u.trackLive(filter)
@@ -195,24 +224,26 @@ func (u *UI) Run() error {
 			}
 		case "navigate":
 			active = u.takeRequestedPrimary(primaryTopics)
-		case "new":
-			if result.data != nil {
-				_, err := u.client.CreateTopic(discourse.String(result.data["title"]), discourse.String(result.data["raw"]), optionalInt(result.data["category"]))
-				if err != nil {
-					u.showError(err)
-				} else {
-					u.listCache = map[string]discourse.JSON{}
-				}
-			}
 		}
 	}
+}
+
+func (u *UI) createNewTopic(data discourse.JSON) {
+	if data == nil {
+		return
+	}
+	_, err := u.client.CreateTopic(discourse.String(data["title"]), discourse.String(data["raw"]), optionalInt(data["category"]))
+	if err != nil {
+		u.showError(err)
+		return
+	}
+	u.listCache = map[string]discourse.JSON{}
 }
 
 type loopResult struct {
 	kind string
 	id   int
 	text string
-	data discourse.JSON
 }
 
 func (u *UI) topicListLoop(data discourse.JSON, filter, period string) loopResult {
@@ -220,6 +251,9 @@ func (u *UI) topicListLoop(data discourse.JSON, filter, period string) loopResul
 	filters := []string{"latest", "unread", "private", "hot", "new", "top"}
 	periods := []string{"daily", "weekly", "monthly", "quarterly", "yearly"}
 	for {
+		if u.requestedPrimary != nil {
+			return loopResult{kind: "navigate"}
+		}
 		u.refreshStatusCounts(false)
 		if u.live != nil && u.live.ConsumeTopicListRefreshRequest() {
 			return loopResult{kind: "reload"}
@@ -294,9 +328,8 @@ func (u *UI) topicListLoop(data discourse.JSON, filter, period string) loopResul
 			u.requestPrimary(primarySearch)
 			return loopResult{kind: "navigate"}
 		case "c":
-			if topic := u.newTopicFlow(); topic != nil {
-				return loopResult{kind: "new", data: topic}
-			}
+			u.requestPrimary(primaryCompose)
+			return loopResult{kind: "navigate"}
 		case "n":
 			u.requestPrimary(primaryNotifications)
 			return loopResult{kind: "navigate"}
@@ -331,12 +364,9 @@ func (u *UI) renderTopicList(topics []discourse.JSON, selected int, filter, peri
 	if loading {
 		status += " · " + u.t("ui.status.loading_more")
 	}
-	header := u.navigationHeader(status, primaryTopics, "topics", filter, period, nil, width, height)
+	header := u.navigationHeader(status, primaryTopics, "topics", filter, period, []string{controls}, width, height)
 	screen := make([]string, height)
 	copy(screen, header)
-	if height > 0 {
-		screen[height-1] = controlsFooter(u.style, controls, width)
-	}
 	startRow := len(header) + 1
 	if len(topics) == 0 {
 		if startRow >= 0 && startRow < height-1 {

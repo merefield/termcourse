@@ -106,6 +106,10 @@ func (s *Style) Box(lines []string, width int) []string {
 }
 
 func (s *Style) AppHeader(section, host string, lines []string, width, height int) []string {
+	return append(s.AppTitle(host, width, height), s.HeaderBox(section, lines, width)...)
+}
+
+func (s *Style) AppTitle(host string, width, height int) []string {
 	var output []string
 	if width >= 64 && height >= 30 {
 		logo := []string{
@@ -120,7 +124,7 @@ func (s *Style) AppHeader(section, host string, lines []string, width, height in
 	} else {
 		output = append(output, headerLine(s.brand.Render("▰ TERMCOURSE ▰"), s.Text(host, roleListMeta), width))
 	}
-	return append(output, s.HeaderBox(section, lines, width)...)
+	return output
 }
 
 func (s *Style) HeaderBox(title string, lines []string, width int) []string {
@@ -246,22 +250,29 @@ func WriteThemePreviews(output io.Writer, themes []theme.Theme) {
 		}
 		fmt.Fprintf(output, "%s (%s)\n", value.Name, style.ColorMode)
 		primary := layoutTabRail([]tabSpec{
-			{id: "topics", label: "Topics", short: "TOP", micro: "T", selected: true},
-			{id: "search", label: "Search", short: "SRC", micro: "S"},
-			{id: "notifications", label: "Notifications", short: "NOT", micro: "N", badge: 3},
-		}, 32)
+			{id: "topics", label: "Topics", short: "TPS", micro: "L", selected: true, enabled: true},
+			{id: "topic", label: "Topic", short: "TPC", micro: "T", enabled: true},
+			{id: "search", label: "Search", short: "SRC", micro: "S", enabled: true},
+			{id: "notifications", label: "Notifications", short: "NOT", micro: "N", badge: 3, enabled: true},
+			{id: "compose", label: "Compose", short: "CMP", micro: "C", enabled: true},
+			{id: "image", label: "Image", short: "IMG", micro: "I", enabled: true},
+		}, 38)
 		filters := layoutTabRail([]tabSpec{
-			{id: "latest", label: "Latest", short: "LAT", micro: "L", selected: true},
-			{id: "unread", label: "Unread", short: "UNR", micro: "U"},
-			{id: "private", label: "Private", short: "PRI", micro: "P"},
-			{id: "hot", label: "Hot", short: "HOT", micro: "H"},
-			{id: "new", label: "New", short: "NEW", micro: "N"},
-			{id: "top", label: "Top", short: "TOP", micro: "T"},
+			{id: "latest", label: "Latest", short: "LAT", micro: "L", selected: true, enabled: true},
+			{id: "unread", label: "Unread", short: "UNR", micro: "U", enabled: true},
+			{id: "private", label: "Private", short: "PRI", micro: "P", enabled: true},
+			{id: "hot", label: "Hot", short: "HOT", micro: "H", enabled: true},
+			{id: "new", label: "New", short: "NEW", micro: "N", enabled: true},
+			{id: "top", label: "Top", short: "TOP", micro: "T", enabled: true},
 		}, 48)
-		for _, line := range style.AppHeader("Latest", "community.example", []string{
-			headerLine(style.renderTabRail(primary), "member", 48),
+		header := style.AppTitle("community.example", 52, 24)
+		header = append(header, strings.Repeat(" ", 52))
+		header = append(header,
+			headerLine(style.renderTabRail(primary), "member", 52),
 			style.renderTabRail(filters),
-		}, 52, 24) {
+		)
+		header = append(header, style.HeaderBox("Latest", []string{"arrows: move · enter: open · q: quit"}, 52)...)
+		for _, line := range header {
 			fmt.Fprintln(output, line)
 		}
 		fmt.Fprintln(output, style.Text(" 1", roleListNumber)+" "+style.Text("A themed topic", roleListText)+"  "+style.Text("@member", rolePostUsername))

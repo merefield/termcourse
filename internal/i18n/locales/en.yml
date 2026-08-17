@@ -31,8 +31,11 @@ en:
   ui:
     tabs:
       topics: "Topics"
+      topic: "Topic"
       search: "Search"
       notifications: "Notifications"
+      compose: "Compose"
+      image: "Image"
       period: "Period: %{period}"
     controls:
       topic_list: "arrows: move | ↵, 1-0: open | c: new | n: notifs | s: search | f: filter | g: refresh | q: quit"
@@ -67,6 +70,12 @@ en:
       image: "[image]"
       expand_image: "x: expand image"
     composer:
+      variants:
+        title: "Title"
+        category: "Category"
+        new_topic: "New Body"
+        reply_topic: "Reply to Topic"
+        reply_post: "Reply to Post"
       reply_to_topic: "Reply to topic"
       reply_to_post: "Reply to post #%{post_number} (Ctrl+D to finish)"
       new_topic_title: "New Topic"
@@ -84,6 +93,9 @@ en:
       compose: "Compose"
       replying_to: "Replying to @%{username}:"
     search:
+      variants:
+        query: "Query"
+        results: "Results"
       title: "Search"
       prompt: "Type query and press Enter"
       topic_fallback: "Topic %{id}"

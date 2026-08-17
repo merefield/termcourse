@@ -12,8 +12,11 @@ type primaryTabID int
 
 const (
 	primaryTopics primaryTabID = iota
+	primaryTopic
 	primarySearch
 	primaryNotifications
+	primaryCompose
+	primaryImage
 	primaryTabCount
 )
 
@@ -64,6 +67,7 @@ type tabSpec struct {
 	micro    string
 	badge    int
 	selected bool
+	enabled  bool
 }
 
 type laidOutTab struct {
@@ -72,6 +76,7 @@ type laidOutTab struct {
 	x        int
 	width    int
 	selected bool
+	enabled  bool
 }
 
 type tabRail struct {
@@ -127,7 +132,8 @@ func layoutTabRail(specs []tabSpec, width int) tabRail {
 			break
 		}
 		rail.tabs = append(rail.tabs, laidOutTab{
-			id: specs[index].id, label: label, x: x, width: tabWidth, selected: specs[index].selected,
+			id: specs[index].id, label: label, x: x, width: tabWidth,
+			selected: specs[index].selected, enabled: specs[index].enabled,
 		})
 		x += tabWidth
 		if index != len(chosen.labels)-1 {
@@ -141,13 +147,16 @@ func layoutTabRail(specs []tabSpec, width int) tabRail {
 func (s *Style) renderTabRail(rail tabRail) string {
 	parts := make([]string, 0, len(rail.tabs))
 	for _, tab := range rail.tabs {
-		style := s.headerSep
+		style := s.roles[roleSeparator]
+		if !tab.enabled {
+			style = s.roles[roleListMeta]
+		}
 		if tab.selected {
 			style = s.selected.Bold(true)
 		}
 		parts = append(parts, style.Render(tab.label))
 	}
-	return strings.Join(parts, s.headerSep.Render(rail.separator))
+	return strings.Join(parts, s.roles[roleSeparator].Render(rail.separator))
 }
 
 type mouseRegion struct {
@@ -195,9 +204,9 @@ func (u *UI) readKey(timeout time.Duration) (string, error) {
 		key := msg.String()
 		switch key {
 		case "tab":
-			return primaryTabKey(u.activePrimary.next(false)), nil
+			return primaryTabKey(u.nextEnabledPrimary(false)), nil
 		case "shift+tab":
-			return primaryTabKey(u.activePrimary.next(true)), nil
+			return primaryTabKey(u.nextEnabledPrimary(true)), nil
 		default:
 			return key, nil
 		}
@@ -223,11 +232,30 @@ func (u *UI) primarySpecs(active primaryTabID) []tabSpec {
 	if u.live != nil && u.live.HasIncoming() {
 		incoming = u.live.IncomingCount()
 	}
-	return []tabSpec{
-		{id: primaryTabKey(primaryTopics), label: u.t("ui.tabs.topics"), short: "TOP", micro: "T", badge: incoming, selected: active == primaryTopics},
-		{id: primaryTabKey(primarySearch), label: u.t("ui.tabs.search"), short: "SRC", micro: "S", selected: active == primarySearch},
-		{id: primaryTabKey(primaryNotifications), label: u.t("ui.tabs.notifications"), short: "NOT", micro: "N", badge: u.notificationUnread, selected: active == primaryNotifications},
+	enabled := func(tab primaryTabID, available bool) bool {
+		return available && (!u.navigationLocked || tab == active)
 	}
+	return []tabSpec{
+		{id: primaryTabKey(primaryTopics), label: u.t("ui.tabs.topics"), short: "TPS", micro: "L", badge: incoming, selected: active == primaryTopics, enabled: enabled(primaryTopics, true)},
+		{id: primaryTabKey(primaryTopic), label: u.t("ui.tabs.topic"), short: "TPC", micro: "T", selected: active == primaryTopic, enabled: enabled(primaryTopic, active == primaryTopic || u.lastTopicID > 0)},
+		{id: primaryTabKey(primarySearch), label: u.t("ui.tabs.search"), short: "SRC", micro: "S", selected: active == primarySearch, enabled: enabled(primarySearch, true)},
+		{id: primaryTabKey(primaryNotifications), label: u.t("ui.tabs.notifications"), short: "NOT", micro: "N", badge: u.notificationUnread, selected: active == primaryNotifications, enabled: enabled(primaryNotifications, true)},
+		{id: primaryTabKey(primaryCompose), label: u.t("ui.tabs.compose"), short: "CMP", micro: "C", selected: active == primaryCompose, enabled: enabled(primaryCompose, true)},
+		{id: primaryTabKey(primaryImage), label: u.t("ui.tabs.image"), short: "IMG", micro: "I", selected: active == primaryImage, enabled: enabled(primaryImage, active == primaryImage || u.lastImageURL != "")},
+	}
+}
+
+func (u *UI) nextEnabledPrimary(reverse bool) primaryTabID {
+	next := u.activePrimary
+	for range primaryTabCount {
+		next = next.next(reverse)
+		for _, spec := range u.primarySpecs(u.activePrimary) {
+			if spec.id == primaryTabKey(next) && spec.enabled {
+				return next
+			}
+		}
+	}
+	return u.activePrimary
 }
 
 func (u *UI) primaryNavigationLine(active primaryTabID, width int) navigationLine {
@@ -257,6 +285,12 @@ func (u *UI) contextNavigationLine(kind, selected, period string, width int) nav
 	case "notifications":
 		values = notificationFilters
 		micro = map[string]string{"all": "A", "responses": "R", "likes": "K", "mentions": "@", "edits": "E", "links": "L", "messages": "M"}
+	case "compose":
+		values = []string{"title", "category", "new_topic", "reply_topic", "reply_post"}
+		micro = map[string]string{"title": "1", "category": "2", "new_topic": "3", "reply_topic": "R", "reply_post": "P"}
+	case "search":
+		values = []string{"query", "results"}
+		micro = map[string]string{"query": "Q", "results": "R"}
 	default:
 		return navigationLine{}
 	}
@@ -265,14 +299,22 @@ func (u *UI) contextNavigationLine(kind, selected, period string, width int) nav
 		key := "ui." + kind + ".filters." + value
 		if kind == "topics" {
 			key = "ui.topic_list.filters." + value
+		} else if kind == "compose" {
+			key = "ui.composer.variants." + value
+		} else if kind == "search" {
+			key = "ui.search.variants." + value
 		}
 		label := u.t(key)
 		badge := 0
 		if kind == "topics" && value == "private" {
 			badge = u.pmUnread
 		}
+		enabled := !u.navigationLocked || value == selected
+		if kind == "compose" {
+			enabled = value == selected
+		}
 		specs = append(specs, tabSpec{
-			id: contextTabKey(value), label: label, short: abbreviated(label), micro: micro[value], badge: badge, selected: value == selected,
+			id: contextTabKey(value), label: label, short: abbreviated(label), micro: micro[value], badge: badge, selected: value == selected, enabled: enabled,
 		})
 	}
 
@@ -304,36 +346,33 @@ func (u *UI) contextNavigationLine(kind, selected, period string, width int) nav
 func (u *UI) navigationHeader(section string, active primaryTabID, context, selected, period string, extra []string, width, height int) []string {
 	u.resetMouseLayout()
 	u.activePrimary = active
-	innerWidth, sidePadding := frameInnerWidth(width)
-	lines := []navigationLine{u.primaryNavigationLine(active, innerWidth)}
+	u.activeContext, u.activeContextValue, u.activePeriod = context, selected, period
+	lines := []navigationLine{u.primaryNavigationLine(active, width)}
 	if context != "" {
-		lines = append(lines, u.contextNavigationLine(context, selected, period, innerWidth))
+		lines = append(lines, u.contextNavigationLine(context, selected, period, width))
 	}
-	content := make([]string, 0, len(lines)+len(extra))
+	content := make([]string, 0, len(lines))
 	for _, line := range lines {
 		content = append(content, line.content)
 	}
-	content = append(content, extra...)
-	header := u.style.AppHeader(section, u.displayURL, content, width, height)
-	brandHeight := len(header) - len(content) - 2
-	xOffset := 1
-	if sidePadding {
-		xOffset = 2
-	}
+	title := u.style.AppTitle(u.displayURL, width, height)
+	header := append([]string{}, title...)
+	header = append(header, strings.Repeat(" ", max(width, 0)))
+	header = append(header, content...)
+	header = append(header, u.style.HeaderBox(section, extra, width)...)
+	tabStartY := len(title) + 1
 	for lineIndex, line := range lines {
-		y := brandHeight + 1 + lineIndex
+		y := tabStartY + lineIndex
 		for _, tab := range line.tabs {
-			u.addMouseRegion(xOffset+tab.x, y, tab.width, 1, tab.id)
+			if tab.enabled {
+				u.addMouseRegion(tab.x, y, tab.width, 1, tab.id)
+			}
 		}
 		if line.rightID != "" {
-			u.addMouseRegion(xOffset+line.rightX, y, line.rightW, 1, line.rightID)
+			u.addMouseRegion(line.rightX, y, line.rightW, 1, line.rightID)
 		}
 	}
 	return header
-}
-
-func controlsFooter(style *Style, controls string, width int) string {
-	return style.Text(padLine(controls, width), roleListMeta)
 }
 
 func (u *UI) requestPrimary(tab primaryTabID) {

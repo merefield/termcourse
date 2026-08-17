@@ -13,17 +13,28 @@ func (u *UI) showError(err error) bool {
 	if err == nil {
 		return true
 	}
+	previousLock := u.navigationLocked
+	u.navigationLocked = true
+	defer func() { u.navigationLocked = previousLock }()
 	message := u.errorMessage(err, time.Now())
 	width, height := u.terminal.Size()
 	u.resetMouseLayout()
 	inner := max(width-4, 1)
 	lines := wrapLines(strings.TrimSpace(message), inner, u.linksEnabled)
-	maxMessageLines := max(height-7, 1)
+	contextRows := 0
+	if u.activeContext != "" {
+		contextRows = 1
+	}
+	chromeRows := len(u.style.AppTitle(u.displayURL, width, height)) + 1 + 1 + contextRows + 2
+	maxMessageLines := max(height-chromeRows-2, 1)
 	if len(lines) > maxMessageLines {
 		lines = append(lines[:maxMessageLines-1], truncate(u.t("ui.scroll.more_below"), inner))
 	}
 	lines = append(lines, "", u.t("ui.errors.continue"))
-	panel := u.style.AppHeader(u.t("ui.errors.title"), u.displayURL, lines, width, height)
+	panel := u.navigationHeader(
+		u.t("ui.errors.title"), u.activePrimary, u.activeContext, u.activeContextValue, u.activePeriod,
+		lines, width, height,
+	)
 	screen := make([]string, height)
 	copy(screen, panel[:min(len(panel), height)])
 	u.renderer.Render(screen, width, height, "error", -1, -1, true)

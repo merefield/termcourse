@@ -12,7 +12,9 @@ import (
 	"github.com/merefield/termcourse/internal/discourse"
 )
 
-func (u *UI) promptSingleLine(titleKey, promptKey, prefix string) string {
+func (u *UI) promptSingleLine(titleKey, promptKey, prefix string, active primaryTabID, context, selected string) string {
+	u.navigationLocked = true
+	defer func() { u.navigationLocked = false }()
 	input := textinput.New()
 	input.Prompt = prefix
 	u.styleTextInput(&input)
@@ -20,7 +22,7 @@ func (u *UI) promptSingleLine(titleKey, promptKey, prefix string) string {
 	for {
 		width, height := u.terminal.Size()
 		input.SetWidth(max(width, 1))
-		header := u.style.AppHeader(u.t(titleKey), u.displayURL, []string{u.t(promptKey)}, width, height)
+		header := u.navigationHeader(u.t(titleKey), active, context, selected, "", []string{u.t(promptKey)}, width, height)
 		screen := make([]string, height)
 		copy(screen, header)
 		row := min(len(header)+1, height-1)
@@ -44,7 +46,9 @@ func (u *UI) promptSingleLine(titleKey, promptKey, prefix string) string {
 	}
 }
 
-func (u *UI) compose(title string, context []string, category string) string {
+func (u *UI) compose(title string, context []string, category, variant string) string {
+	u.navigationLocked = true
+	defer func() { u.navigationLocked = false }()
 	const minLength = 20
 	area := textarea.New()
 	area.Prompt = " "
@@ -53,7 +57,7 @@ func (u *UI) compose(title string, context []string, category string) string {
 	u.styleTextArea(&area)
 	u.terminal.Run(area.Focus())
 	for {
-		u.renderComposer(title, &area, minLength, context, category, "")
+		u.renderComposer(title, &area, minLength, context, category, variant, "")
 		msg, err := u.terminal.ReadMsg(u.tick)
 		if err != nil {
 			return ""
@@ -65,7 +69,7 @@ func (u *UI) compose(title string, context []string, category string) string {
 				if len([]rune(value)) >= minLength {
 					return area.Value()
 				}
-				u.renderComposer(title, &area, minLength, context, category, u.t("ui.composer.retry"))
+				u.renderComposer(title, &area, minLength, context, category, variant, u.t("ui.composer.retry"))
 				_, _ = u.terminal.ReadMsg(24 * time.Hour)
 				area.SetValue("")
 				continue
@@ -79,7 +83,7 @@ func (u *UI) compose(title string, context []string, category string) string {
 	}
 }
 
-func (u *UI) renderComposer(title string, area *textarea.Model, minLength int, context []string, category, notice string) {
+func (u *UI) renderComposer(title string, area *textarea.Model, minLength int, context []string, category, variant, notice string) {
 	width, height := u.terminal.Size()
 	inner := max(width-4, 1)
 	count := len([]rune(strings.TrimSpace(area.Value())))
@@ -90,7 +94,7 @@ func (u *UI) renderComposer(title string, area *textarea.Model, minLength int, c
 		lines = append(lines, strings.Repeat("-", inner))
 	}
 	lines = append(lines, headerLine(status, category, inner))
-	header := u.style.AppHeader(u.t("ui.composer.compose")+" "+title, u.displayURL, lines, width, height)
+	header := u.navigationHeader(u.t("ui.composer.compose")+" "+title, primaryCompose, "compose", variant, "", lines, width, height)
 	screen := make([]string, height)
 	copy(screen, header)
 	start := len(header) + 1
@@ -136,12 +140,12 @@ func (u *UI) styleTextArea(area *textarea.Model) {
 }
 
 func (u *UI) newTopicFlow() discourse.JSON {
-	title := u.promptSingleLine("ui.composer.new_topic_title", "ui.composer.enter_title", "Title: ")
+	title := u.promptSingleLine("ui.composer.new_topic_title", "ui.composer.enter_title", "Title: ", primaryCompose, "compose", "title")
 	if title == "" {
 		return nil
 	}
 	category, label := u.pickCategory()
-	body := u.compose(u.t("ui.composer.new_topic_body", "title", title), nil, label)
+	body := u.compose(u.t("ui.composer.new_topic_body", "title", title), nil, label, "new_topic")
 	if body == "" {
 		return nil
 	}
@@ -153,6 +157,8 @@ func (u *UI) newTopicFlow() discourse.JSON {
 }
 
 func (u *UI) pickCategory() (*int, string) {
+	u.navigationLocked = true
+	defer func() { u.navigationLocked = false }()
 	info := u.siteInfo()
 	type option struct {
 		id    *int
@@ -175,8 +181,7 @@ func (u *UI) pickCategory() (*int, string) {
 	selected := defaultIndex
 	for {
 		width, height := u.terminal.Size()
-		u.resetMouseLayout()
-		header := u.style.AppHeader(u.t("ui.composer.select_category"), u.displayURL, []string{u.t("ui.controls.category_picker")}, width, height)
+		header := u.navigationHeader(u.t("ui.composer.select_category"), primaryCompose, "compose", "category", "", []string{u.t("ui.controls.category_picker")}, width, height)
 		screen := make([]string, height)
 		copy(screen, header)
 		rows := max(height-len(header)-1, 0)

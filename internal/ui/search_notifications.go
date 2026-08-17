@@ -38,6 +38,9 @@ func (u *UI) searchLoop(query string) discourse.JSON {
 	}
 	selected := 0
 	for {
+		if u.requestedPrimary != nil {
+			return nil
+		}
 		u.renderSearch(query, results, topics, selected)
 		key, readErr := u.readKey(u.tick)
 		if readErr != nil {
@@ -46,6 +49,13 @@ func (u *UI) searchLoop(query string) discourse.JSON {
 		if tab, ok := parsePrimaryTabKey(key); ok {
 			if tab != primarySearch {
 				u.requestPrimary(tab)
+				return nil
+			}
+			continue
+		}
+		if context, ok := parseContextTabKey(key); ok {
+			if context == "query" {
+				u.requestPrimary(primarySearch)
 				return nil
 			}
 			continue
@@ -93,13 +103,10 @@ func (u *UI) renderSearch(query string, results []discourse.JSON, topics map[int
 	controls := u.t("ui.controls.search_results")
 	header := u.navigationHeader(
 		u.t("ui.status.search", "query", truncate(query, max(width-4, 1))),
-		primarySearch, "", "", "", nil, width, height,
+		primarySearch, "search", "results", "", []string{controls}, width, height,
 	)
 	screen := make([]string, height)
 	copy(screen, header)
-	if height > 0 {
-		screen[height-1] = controlsFooter(u.style, controls, width)
-	}
 	startRow := len(header) + 1
 	if len(results) == 0 {
 		if height > 1 {
@@ -146,6 +153,9 @@ func (u *UI) notificationsLoop() bool {
 	nextURL := discourse.String(data["load_more_notifications"])
 	selected, filterIndex, loading := 0, 0, false
 	for {
+		if u.requestedPrimary != nil {
+			return false
+		}
 		filter := notificationFilters[filterIndex]
 		filtered := u.filterNotifications(all, filter)
 		selected = min(selected, max(len(filtered)-1, 0))
@@ -237,12 +247,9 @@ func (u *UI) renderNotifications(notifications []discourse.JSON, selected int, f
 		status += " · " + u.t("ui.status.loading_more")
 	}
 	controls := u.t("ui.controls.notifications")
-	header := u.navigationHeader(status, primaryNotifications, "notifications", filter, "", nil, width, height)
+	header := u.navigationHeader(status, primaryNotifications, "notifications", filter, "", []string{controls}, width, height)
 	screen := make([]string, height)
 	copy(screen, header)
-	if height > 0 {
-		screen[height-1] = controlsFooter(u.style, controls, width)
-	}
 	startRow := len(header) + 1
 	if len(notifications) == 0 {
 		if height > 1 {

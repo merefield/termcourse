@@ -162,12 +162,12 @@ func TestCharmTerminalModelOwnsResizeInputCursorAndQueries(t *testing.T) {
 
 func TestTabRailsStayCompleteAndResponsive(t *testing.T) {
 	specs := []tabSpec{
-		{id: "latest", label: "Latest", short: "LAT", micro: "L", selected: true},
-		{id: "unread", label: "Unread", short: "UNR", micro: "U"},
-		{id: "private", label: "Private Messages", short: "PRI", micro: "P"},
-		{id: "hot", label: "Hot", short: "HOT", micro: "H"},
-		{id: "new", label: "New", short: "NEW", micro: "N"},
-		{id: "top", label: "Top", short: "TOP", micro: "T"},
+		{id: "latest", label: "Latest", short: "LAT", micro: "L", selected: true, enabled: true},
+		{id: "unread", label: "Unread", short: "UNR", micro: "U", enabled: true},
+		{id: "private", label: "Private Messages", short: "PRI", micro: "P", enabled: true},
+		{id: "hot", label: "Hot", short: "HOT", micro: "H", enabled: true},
+		{id: "new", label: "New", short: "NEW", micro: "N", enabled: true},
+		{id: "top", label: "Top", short: "TOP", micro: "T", enabled: true},
 	}
 	for _, width := range []int{6, 12, 30, 60, 100} {
 		rail := layoutTabRail(specs, width)
@@ -198,6 +198,19 @@ func TestNavigationTabsRenderAndHitTestFromSameGeometry(t *testing.T) {
 			t.Fatalf("header line %d width = %d: %q", index, visibleWidth(line), line)
 		}
 	}
+	plain := make([]string, len(header))
+	for index, line := range header {
+		plain[index] = stripANSI(line)
+	}
+	if strings.TrimSpace(plain[1]) != "" {
+		t.Fatalf("masthead spacer row = %q", plain[1])
+	}
+	if !strings.Contains(plain[2], "TPS") || !strings.Contains(plain[2], "TPC") {
+		t.Fatalf("primary screen rail is not above the panel: %#v", plain)
+	}
+	if !strings.Contains(plain[3], "TOP") || !strings.HasPrefix(plain[4], "╭─ TOPIC LIST") {
+		t.Fatalf("context rail/header order is wrong: %#v", plain)
+	}
 
 	wanted := map[string]bool{
 		primaryTabKey(primarySearch): false,
@@ -218,6 +231,57 @@ func TestNavigationTabsRenderAndHitTestFromSameGeometry(t *testing.T) {
 		if !hit {
 			t.Fatalf("navigation region %q was not rendered: %#v", key, u.mouseRegions)
 		}
+	}
+	for _, region := range u.mouseRegions {
+		if region.key == primaryTabKey(primaryTopic) || region.key == primaryTabKey(primaryImage) {
+			t.Fatalf("unavailable history tab was clickable: %#v", region)
+		}
+	}
+	u.lastTopicID = 42
+	u.lastImageURL = "https://example.com/image.png"
+	u.navigationHeader("Topic List", primaryTopics, "topics", "latest", "", nil, 88, 24)
+	enabled := map[string]bool{}
+	for _, region := range u.mouseRegions {
+		enabled[region.key] = true
+	}
+	if !enabled[primaryTabKey(primaryTopic)] || !enabled[primaryTabKey(primaryImage)] {
+		t.Fatalf("history-aware tabs did not become clickable: %#v", u.mouseRegions)
+	}
+}
+
+func TestWideMastheadKeepsPaddingBeforePersistentRails(t *testing.T) {
+	t.Setenv("TERMCOURSE_COLOR_MODE", "truecolor")
+	u := &UI{
+		style: NewStyle(testTheme(), &bytes.Buffer{}), locale: "en", displayURL: "community.example",
+		options: Options{Username: "member"},
+	}
+	header := u.navigationHeader("Search", primarySearch, "search", "results", "", nil, 100, 32)
+	if len(header) < 8 || strings.TrimSpace(stripANSI(header[3])) != "" {
+		t.Fatalf("wide masthead does not have one padding row before rails: %#v", header)
+	}
+	if !strings.Contains(stripANSI(header[4]), "SEARCH") || !strings.Contains(stripANSI(header[5]), "RESULTS") || !strings.HasPrefix(stripANSI(header[6]), "╭─ SEARCH") {
+		t.Fatalf("wide rail/header order is wrong: %#v", header)
+	}
+}
+
+func TestPrimaryAndContextRailsClassifyEveryScreen(t *testing.T) {
+	u := &UI{
+		style: NewStyle(testTheme(), &bytes.Buffer{}), locale: "en",
+		lastTopicID: 42, lastImageURL: "https://example.com/image.png",
+	}
+	specs := u.primarySpecs(primaryCompose)
+	if len(specs) != int(primaryTabCount) {
+		t.Fatalf("primary screens = %d, want %d: %#v", len(specs), primaryTabCount, specs)
+	}
+	wanted := []string{"Topics", "Topic", "Search", "Notifications", "Compose", "Image"}
+	for index, label := range wanted {
+		if specs[index].label != label || !specs[index].enabled || specs[index].selected != (index == int(primaryCompose)) {
+			t.Fatalf("primary screen %d = %#v, want label %q", index, specs[index], label)
+		}
+	}
+	compose := u.contextNavigationLine("compose", "reply_post", "", 80)
+	if len(compose.tabs) != 5 || compose.tabs[4].id != contextTabKey("reply_post") || !compose.tabs[4].selected {
+		t.Fatalf("compose subclasses = %#v", compose.tabs)
 	}
 }
 
@@ -249,7 +313,7 @@ func TestTabKeyboardAndMouseWheelUseUnifiedInput(t *testing.T) {
 	}
 	terminal.state.inputs <- terminalInput{msg: tea.KeyPressMsg(tea.Key{Code: tea.KeyTab, Mod: tea.ModShift})}
 	key, err = u.readKey(time.Second)
-	if err != nil || key != primaryTabKey(primaryNotifications) {
+	if err != nil || key != primaryTabKey(primaryCompose) {
 		t.Fatalf("Shift+Tab input = %q, %v", key, err)
 	}
 	terminal.state.inputs <- terminalInput{msg: tea.MouseWheelMsg{Button: tea.MouseWheelDown}}

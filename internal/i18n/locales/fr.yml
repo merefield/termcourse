@@ -31,8 +31,11 @@ fr:
   ui:
     tabs:
       topics: "Sujets"
+      topic: "Sujet"
       search: "Recherche"
       notifications: "Notifications"
+      compose: "Composer"
+      image: "Image"
       period: "Période : %{period}"
     controls:
       topic_list: "flèches: déplacer | ↵, 1-0: ouvrir | c: nouveau | n: notif | s: rechercher | f: filtre | g: actualiser | q: quitter"
@@ -67,6 +70,12 @@ fr:
       image: "[image]"
       expand_image: "x : agrandir l’image"
     composer:
+      variants:
+        title: "Titre"
+        category: "Catégorie"
+        new_topic: "Nouveau corps"
+        reply_topic: "Réponse au sujet"
+        reply_post: "Réponse au post"
       reply_to_topic: "Répondre au sujet"
       reply_to_post: "Répondre au post #%{post_number} (Ctrl+D pour terminer)"
       new_topic_title: "Nouveau sujet"
@@ -84,6 +93,9 @@ fr:
       compose: "Composer"
       replying_to: "Réponse à @%{username} :"
     search:
+      variants:
+        query: "Requête"
+        results: "Résultats"
       title: "Recherche"
       prompt: "Saisissez une requête puis appuyez sur Entrée"
       topic_fallback: "Sujet %{id}"

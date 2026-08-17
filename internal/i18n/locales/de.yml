@@ -31,8 +31,11 @@ de:
   ui:
     tabs:
       topics: "Themen"
+      topic: "Thema"
       search: "Suche"
       notifications: "Benachrichtigungen"
+      compose: "Verfassen"
+      image: "Bild"
       period: "Zeitraum: %{period}"
     controls:
       topic_list: "Pfeile: bewegen | ↵, 1-0: öffnen | c: neu | n: notifs | s: suchen | f: filter | g: aktualisieren | q: beenden"
@@ -67,6 +70,12 @@ de:
       image: "[bild]"
       expand_image: "x: bild vergrößern"
     composer:
+      variants:
+        title: "Titel"
+        category: "Kategorie"
+        new_topic: "Neuer Text"
+        reply_topic: "Antwort aufs Thema"
+        reply_post: "Antwort auf Beitrag"
       reply_to_topic: "Auf Thema antworten"
       reply_to_post: "Auf Beitrag #%{post_number} antworten (Ctrl+D zum Beenden)"
       new_topic_title: "Neues Thema"
@@ -84,6 +93,9 @@ de:
       compose: "Verfassen"
       replying_to: "Antwort an @%{username}:"
     search:
+      variants:
+        query: "Abfrage"
+        results: "Ergebnisse"
       title: "Suche"
       prompt: "Suchbegriff eingeben und Enter drücken"
       topic_fallback: "Thema %{id}"
