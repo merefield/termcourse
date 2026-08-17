@@ -12,11 +12,9 @@ type primaryTabID int
 
 const (
 	primaryTopics primaryTabID = iota
-	primaryTopic
 	primarySearch
 	primaryNotifications
 	primaryCompose
-	primaryImage
 	primaryTabCount
 )
 
@@ -236,12 +234,10 @@ func (u *UI) primarySpecs(active primaryTabID) []tabSpec {
 		return available && (!u.navigationLocked || tab == active)
 	}
 	return []tabSpec{
-		{id: primaryTabKey(primaryTopics), label: u.t("ui.tabs.topics"), short: "TPS", micro: "L", badge: incoming, selected: active == primaryTopics, enabled: enabled(primaryTopics, true)},
-		{id: primaryTabKey(primaryTopic), label: u.t("ui.tabs.topic"), short: "TPC", micro: "T", selected: active == primaryTopic, enabled: enabled(primaryTopic, active == primaryTopic || u.lastTopicID > 0)},
+		{id: primaryTabKey(primaryTopics), label: u.t("ui.tabs.topics"), short: "TPS", micro: "T", badge: incoming, selected: active == primaryTopics, enabled: enabled(primaryTopics, true)},
 		{id: primaryTabKey(primarySearch), label: u.t("ui.tabs.search"), short: "SRC", micro: "S", selected: active == primarySearch, enabled: enabled(primarySearch, true)},
 		{id: primaryTabKey(primaryNotifications), label: u.t("ui.tabs.notifications"), short: "NOT", micro: "N", badge: u.notificationUnread, selected: active == primaryNotifications, enabled: enabled(primaryNotifications, true)},
 		{id: primaryTabKey(primaryCompose), label: u.t("ui.tabs.compose"), short: "CMP", micro: "C", selected: active == primaryCompose, enabled: enabled(primaryCompose, true)},
-		{id: primaryTabKey(primaryImage), label: u.t("ui.tabs.image"), short: "IMG", micro: "I", selected: active == primaryImage, enabled: enabled(primaryImage, active == primaryImage || u.lastImageURL != "")},
 	}
 }
 

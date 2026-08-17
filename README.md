@@ -11,7 +11,7 @@ Termcourse is a Go 1.26.6 terminal UI for browsing and posting to Discourse foru
 - Create topics, select categories, reply to topics or posts, and like/unlike posts.
 - Search posts and open the matching post context.
 - Browse/filter notifications and jump to their topic/post.
-- Persistent folder tabs above each screen panel: Topics, Topic, Search, Notifications, Compose, and Image.
+- Persistent folder tabs above each screen panel: Topics, Search, Notifications, and Compose. Open topics and images remain within the destination that led to them.
 - A contextual second rail for topic/notification filters plus search and composition stages, with one spacer row below the masthead.
 - Mouse-clickable tabs and rows plus wheel scrolling, with keyboard navigation retained throughout.
 - Cookie login with username/password, TOTP, or backup codes.
@@ -141,7 +141,7 @@ Use `TERMCOURSE_IMAGE_PROTOCOL=kitty` to force Kitty or `TERMCOURSE_IMAGE_PROTOC
 
 Global navigation:
 
-- `Tab` and `Shift+Tab` move between available first-row screens; Topic and Image become available after they have content to revisit.
+- `Tab` and `Shift+Tab` move between the four first-row destinations.
 - Click a primary or contextual folder tab to select it.
 - Click a post or row to select it; click a selected list row again to open it.
 - The mouse wheel moves through lists and scrolls the expanded post body.

@@ -512,7 +512,6 @@ func (u *UI) evictKittyImage() {
 }
 
 func (u *UI) fullscreenImage(imageURL string) {
-	u.lastImageURL = imageURL
 	width, height := u.terminal.Size()
 	if u.kittyAvailable() && u.fullscreenKittyImage(imageURL) {
 		return
@@ -605,7 +604,7 @@ func (u *UI) fullscreenKittyImage(imageURL string) bool {
 }
 
 func (u *UI) imageScreenHeader(width, height int) []string {
-	header := u.navigationHeader(u.t("ui.tabs.image"), primaryImage, "", "", "", []string{
+	header := u.navigationHeader(u.t("ui.status.image"), u.activePrimary, "", "", "", []string{
 		u.t("ui.controls.fullscreen_image"),
 	}, width, height)
 	if len(header) >= 2 {
@@ -616,7 +615,7 @@ func (u *UI) imageScreenHeader(width, height int) []string {
 
 func (u *UI) leaveImageForKey(key string) bool {
 	if tab, ok := parsePrimaryTabKey(key); ok {
-		if tab == primaryImage {
+		if tab == u.activePrimary {
 			return false
 		}
 		u.requestPrimary(tab)

@@ -205,7 +205,7 @@ func TestNavigationTabsRenderAndHitTestFromSameGeometry(t *testing.T) {
 	if strings.TrimSpace(plain[1]) != "" {
 		t.Fatalf("masthead spacer row = %q", plain[1])
 	}
-	if !strings.Contains(plain[2], "TPS") || !strings.Contains(plain[2], "TPC") {
+	if !strings.Contains(plain[2], "╭ TOPICS ╮") || !strings.Contains(plain[2], "╭ SEARCH ╮") {
 		t.Fatalf("primary screen rail is not above the panel: %#v", plain)
 	}
 	if !strings.Contains(plain[3], "TOP") || !strings.HasPrefix(plain[4], "╭─ TOPIC LIST") {
@@ -232,21 +232,6 @@ func TestNavigationTabsRenderAndHitTestFromSameGeometry(t *testing.T) {
 			t.Fatalf("navigation region %q was not rendered: %#v", key, u.mouseRegions)
 		}
 	}
-	for _, region := range u.mouseRegions {
-		if region.key == primaryTabKey(primaryTopic) || region.key == primaryTabKey(primaryImage) {
-			t.Fatalf("unavailable history tab was clickable: %#v", region)
-		}
-	}
-	u.lastTopicID = 42
-	u.lastImageURL = "https://example.com/image.png"
-	u.navigationHeader("Topic List", primaryTopics, "topics", "latest", "", nil, 88, 24)
-	enabled := map[string]bool{}
-	for _, region := range u.mouseRegions {
-		enabled[region.key] = true
-	}
-	if !enabled[primaryTabKey(primaryTopic)] || !enabled[primaryTabKey(primaryImage)] {
-		t.Fatalf("history-aware tabs did not become clickable: %#v", u.mouseRegions)
-	}
 }
 
 func TestWideMastheadKeepsPaddingBeforePersistentRails(t *testing.T) {
@@ -267,13 +252,12 @@ func TestWideMastheadKeepsPaddingBeforePersistentRails(t *testing.T) {
 func TestPrimaryAndContextRailsClassifyEveryScreen(t *testing.T) {
 	u := &UI{
 		style: NewStyle(testTheme(), &bytes.Buffer{}), locale: "en",
-		lastTopicID: 42, lastImageURL: "https://example.com/image.png",
 	}
 	specs := u.primarySpecs(primaryCompose)
 	if len(specs) != int(primaryTabCount) {
 		t.Fatalf("primary screens = %d, want %d: %#v", len(specs), primaryTabCount, specs)
 	}
-	wanted := []string{"Topics", "Topic", "Search", "Notifications", "Compose", "Image"}
+	wanted := []string{"Topics", "Search", "Notifications", "Compose"}
 	for index, label := range wanted {
 		if specs[index].label != label || !specs[index].enabled || specs[index].selected != (index == int(primaryCompose)) {
 			t.Fatalf("primary screen %d = %#v, want label %q", index, specs[index], label)
@@ -282,6 +266,24 @@ func TestPrimaryAndContextRailsClassifyEveryScreen(t *testing.T) {
 	compose := u.contextNavigationLine("compose", "reply_post", "", 80)
 	if len(compose.tabs) != 5 || compose.tabs[4].id != contextTabKey("reply_post") || !compose.tabs[4].selected {
 		t.Fatalf("compose subclasses = %#v", compose.tabs)
+	}
+}
+
+func TestImageDrillDownRetainsOriginatingPrimaryDestination(t *testing.T) {
+	u := &UI{
+		style: NewStyle(testTheme(), &bytes.Buffer{}), locale: "en", activePrimary: primarySearch,
+		options: Options{Username: "member"}, mouseEnabled: true,
+	}
+	header := u.imageScreenHeader(88, 24)
+	if u.activePrimary != primarySearch {
+		t.Fatalf("image changed active destination to %v", u.activePrimary)
+	}
+	plain := strings.Join(header, "\n")
+	if !strings.Contains(stripANSI(plain), "╭ SEARCH ╮") {
+		t.Fatalf("image header did not retain Search destination: %q", stripANSI(plain))
+	}
+	if len(u.primarySpecs(primarySearch)) != 4 {
+		t.Fatalf("content drill-down leaked into primary destinations: %#v", u.primarySpecs(primarySearch))
 	}
 }
 

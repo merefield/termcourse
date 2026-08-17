@@ -10,7 +10,10 @@ import (
 )
 
 func (u *UI) topicLoop(topicID, selectedPostNumber int, back string) (quit bool, result string) {
-	u.lastTopicID, u.lastTopicPost = topicID, selectedPostNumber
+	origin := u.activePrimary
+	if origin != primaryTopics && origin != primarySearch && origin != primaryNotifications {
+		origin = primaryTopics
+	}
 	topic, err := u.loadTopic(topicID, selectedPostNumber, selectedPostNumber == 0)
 	if err != nil {
 		u.showError(err)
@@ -42,21 +45,20 @@ func (u *UI) topicLoop(topicID, selectedPostNumber int, back string) (quit bool,
 		selected = min(selected, max(len(all)-1, 0))
 		if selected < len(all) {
 			postNumber := discourse.Int(all[selected]["post_number"])
-			u.lastTopicPost = postNumber
 			if postNumber > 0 && u.lastRead[topicID] != postNumber {
 				if u.client.UpdateTopicReadState(topicID, postNumber, 1200) {
 					u.lastRead[topicID] = postNumber
 				}
 			}
 		}
-		u.renderTopic(topic, all, selected, scroll[selected], changed)
+		u.renderTopic(topic, all, selected, scroll[selected], changed, origin)
 		key, readErr := u.readKey(u.tick)
 		if readErr != nil {
 			u.quitRequested = true
 			return true, ""
 		}
 		if tab, ok := parsePrimaryTabKey(key); ok {
-			if tab == primaryTopic {
+			if tab == origin {
 				continue
 			}
 			u.requestPrimary(tab)
@@ -118,7 +120,6 @@ func (u *UI) topicLoop(topicID, selectedPostNumber int, back string) (quit bool,
 			if selected < len(all) {
 				urls := extractImageURLs(discourse.String(all[selected]["raw"]), u.options.BaseURL)
 				if len(urls) > 0 {
-					u.lastImageURL = urls[0]
 					u.fullscreenImage(urls[0])
 				}
 			}
@@ -131,7 +132,7 @@ func (u *UI) topicLoop(topicID, selectedPostNumber int, back string) (quit bool,
 	}
 }
 
-func (u *UI) renderTopic(topic discourse.JSON, all []discourse.JSON, selected, scroll int, force bool) {
+func (u *UI) renderTopic(topic discourse.JSON, all []discourse.JSON, selected, scroll int, force bool, origin primaryTabID) {
 	width, height := u.terminal.Size()
 	selectedPost := discourse.JSON(nil)
 	if selected >= 0 && selected < len(all) {
@@ -140,9 +141,6 @@ func (u *UI) renderTopic(topic discourse.JSON, all []discourse.JSON, selected, s
 	controls := u.t("ui.controls.topic")
 	imageURLs := extractImageURLs(discourse.String(selectedPost["raw"]), u.options.BaseURL)
 	imagesEnabled := os.Getenv("TERMCOURSE_IMAGES") != "0"
-	if imagesEnabled && len(imageURLs) > 0 {
-		u.lastImageURL = imageURLs[0]
-	}
 	if imagesEnabled && (u.kittyAvailable() || imageBackend() != "") && len(imageURLs) > 0 {
 		controls = u.t("ui.controls.topic_with_image")
 	}
@@ -152,7 +150,7 @@ func (u *UI) renderTopic(topic discourse.JSON, all []discourse.JSON, selected, s
 	if category := u.categoryLabel(topic); category != "" {
 		meta += " · " + category
 	}
-	header := u.navigationHeader(title, primaryTopic, "", "", "", []string{
+	header := u.navigationHeader(title, origin, "", "", "", []string{
 		headerLine(controls, meta, innerWidth),
 	}, width, height)
 	footer := u.progressFooter(len(all), selected, width)

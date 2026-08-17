@@ -91,9 +91,6 @@ type UI struct {
 	activePrimary      primaryTabID
 	requestedPrimary   *primaryTabID
 	quitRequested      bool
-	lastTopicID        int
-	lastTopicPost      int
-	lastImageURL       string
 	activeContext      string
 	activeContextValue string
 	activePeriod       string
@@ -162,14 +159,6 @@ func (u *UI) Run() error {
 			return nil
 		}
 		switch active {
-		case primaryTopic:
-			if u.lastTopicID > 0 {
-				if quit, _ := u.topicLoop(u.lastTopicID, u.lastTopicPost, ""); quit {
-					return nil
-				}
-			}
-			active = u.takeRequestedPrimary(primaryTopics)
-			continue
 		case primarySearch:
 			if query := u.promptSingleLine("ui.search.title", "ui.search.prompt", "Search: ", primarySearch, "search", "query"); query != "" {
 				u.searchFlow(query)
@@ -188,16 +177,6 @@ func (u *UI) Run() error {
 		case primaryCompose:
 			u.createNewTopic(u.newTopicFlow())
 			active = u.takeRequestedPrimary(primaryTopics)
-			continue
-		case primaryImage:
-			if u.lastImageURL != "" {
-				u.fullscreenImage(u.lastImageURL)
-			}
-			fallback := primaryTopics
-			if u.lastTopicID > 0 {
-				fallback = primaryTopic
-			}
-			active = u.takeRequestedPrimary(fallback)
 			continue
 		}
 		u.trackLive(filter)

@@ -250,12 +250,10 @@ func WriteThemePreviews(output io.Writer, themes []theme.Theme) {
 		}
 		fmt.Fprintf(output, "%s (%s)\n", value.Name, style.ColorMode)
 		primary := layoutTabRail([]tabSpec{
-			{id: "topics", label: "Topics", short: "TPS", micro: "L", selected: true, enabled: true},
-			{id: "topic", label: "Topic", short: "TPC", micro: "T", enabled: true},
+			{id: "topics", label: "Topics", short: "TPS", micro: "T", selected: true, enabled: true},
 			{id: "search", label: "Search", short: "SRC", micro: "S", enabled: true},
 			{id: "notifications", label: "Notifications", short: "NOT", micro: "N", badge: 3, enabled: true},
 			{id: "compose", label: "Compose", short: "CMP", micro: "C", enabled: true},
-			{id: "image", label: "Image", short: "IMG", micro: "I", enabled: true},
 		}, 38)
 		filters := layoutTabRail([]tabSpec{
 			{id: "latest", label: "Latest", short: "LAT", micro: "L", selected: true, enabled: true},

@@ -31,11 +31,9 @@ en:
   ui:
     tabs:
       topics: "Topics"
-      topic: "Topic"
       search: "Search"
       notifications: "Notifications"
       compose: "Compose"
-      image: "Image"
       period: "Period: %{period}"
     controls:
       topic_list: "arrows: move | ↵, 1-0: open | c: new | n: notifs | s: search | f: filter | g: refresh | q: quit"
@@ -52,6 +50,7 @@ en:
       topic_list_with_period: "Topic List: %{filter} (%{period})"
       loading_more: "Loading more..."
       topic: "Topic: %{title}"
+      image: "Image"
       search: "Search: %{query}"
       notifications: "Notifications: %{filter}"
       logged_in: "Logged in: %{username}"
