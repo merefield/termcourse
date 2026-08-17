@@ -117,7 +117,7 @@ func TestCharmTerminalModelOwnsResizeInputCursorAndQueries(t *testing.T) {
 	updated, _ = model.Update(terminalRenderMsg{content: "themed", cursorX: 3, cursorY: 2, progress: progress})
 	model = updated.(terminalModel)
 	view := model.View()
-	if view.Content != "themed" || !view.AltScreen || view.MouseMode != tea.MouseModeCellMotion || view.Cursor == nil || view.Cursor.X != 3 || view.Cursor.Y != 2 || view.ProgressBar.Value != 75 {
+	if view.Content != "themed" || !view.AltScreen || view.MouseMode != tea.MouseModeAllMotion || view.Cursor == nil || view.Cursor.X != 3 || view.Cursor.Y != 2 || view.ProgressBar.Value != 75 {
 		t.Fatalf("Charm view = %#v", view)
 	}
 

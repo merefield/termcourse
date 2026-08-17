@@ -276,7 +276,7 @@ func (m terminalModel) View() tea.View {
 	view.Cursor = m.cursor
 	view.ProgressBar = m.progress
 	if m.state.mouse.Load() {
-		view.MouseMode = tea.MouseModeCellMotion
+		view.MouseMode = tea.MouseModeAllMotion
 	}
 	return view
 }
