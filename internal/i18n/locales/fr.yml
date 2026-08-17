@@ -50,6 +50,8 @@ fr:
       composer: "caract.: %{status} | flèches: déplacer | ctrl+d: terminer | entrée: nouvelle ligne | esc: annuler"
       continue: "entrée: continuer"
       single_line: "entrée: valider | esc: annuler"
+    guidance:
+      topic_list: "↑↓ déplacer · entrée/1–9/0 ouvrir"
     status:
       theme: "Thème // %{name}"
       topic_list: "Liste des sujets : %{filter}"

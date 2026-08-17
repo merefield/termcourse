@@ -50,6 +50,8 @@ es:
       composer: "caracteres: %{status} | flechas: mover | ctrl+d: finalizar | enter: nueva línea | esc: cancelar"
       continue: "enter: continuar"
       single_line: "enter: continuar | esc: cancelar"
+    guidance:
+      topic_list: "↑↓ mover · enter/1–9/0 abrir"
     status:
       theme: "Tema // %{name}"
       topic_list: "Lista de temas: %{filter}"

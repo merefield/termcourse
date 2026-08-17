@@ -245,6 +245,31 @@ func TestControlsFooterIsResponsiveAndMouseClickable(t *testing.T) {
 	}
 }
 
+func TestTopicListFooterSeparatesGuidanceFromClickableControls(t *testing.T) {
+	t.Setenv("TERMCOURSE_COLOR_MODE", "truecolor")
+	u := &UI{style: NewStyle(testTheme(), &bytes.Buffer{}), locale: "en", mouseEnabled: true}
+	footer := stripANSI(u.controlsFooter(
+		u.t("ui.controls.topic_list"), 120, 7, u.t("ui.guidance.topic_list"),
+	))
+	for _, expected := range []string{"↑↓ MOVE", "ENTER/1–9/0 OPEN", "(F) FILTER", "(G) REFRESH", "(Q) QUIT"} {
+		if !strings.Contains(footer, expected) {
+			t.Fatalf("topic footer missing %q: %q", expected, footer)
+		}
+	}
+	keys := map[string]bool{}
+	for _, region := range u.mouseRegions {
+		keys[region.key] = true
+	}
+	for _, key := range []string{"t", "f", "g", "q"} {
+		if !keys[key] {
+			t.Fatalf("topic footer control %q is not clickable: %#v", key, u.mouseRegions)
+		}
+	}
+	if keys["enter"] || keys["up"] || keys["down"] {
+		t.Fatalf("passive navigation guidance became clickable: %#v", u.mouseRegions)
+	}
+}
+
 func TestThemeControlCyclesConfiguredCatalog(t *testing.T) {
 	first := testTheme()
 	first.Name = "first"

@@ -50,6 +50,8 @@ en:
       composer: "count: %{status} | arrows: move | ctrl+d: finish | enter: new line | esc: cancel"
       continue: "enter: continue"
       single_line: "enter: continue | esc: cancel"
+    guidance:
+      topic_list: "↑↓ move · enter/1–9/0 open"
     status:
       theme: "Theme // %{name}"
       topic_list: "Topic List: %{filter}"

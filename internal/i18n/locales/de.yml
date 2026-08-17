@@ -50,6 +50,8 @@ de:
       composer: "Zeichen: %{status} | Pfeile: bewegen | Ctrl+D: fertig | Enter: neue Zeile | Esc: abbrechen"
       continue: "Enter: weiter"
       single_line: "Enter: weiter | Esc: abbrechen"
+    guidance:
+      topic_list: "↑↓ bewegen · Enter/1–9/0 öffnen"
     status:
       theme: "Thema // %{name}"
       topic_list: "Themenliste: %{filter}"

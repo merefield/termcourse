@@ -369,6 +369,7 @@ func (u *UI) topicListLoop(data discourse.JSON, filter, period string) loopResul
 func (u *UI) renderTopicList(topics []discourse.JSON, selected int, filter, period string, loading bool) {
 	width, height := u.terminal.Size()
 	controls := u.t("ui.controls.topic_list")
+	guidance := u.t("ui.guidance.topic_list")
 	header := u.navigationHeader("", primaryTopics, "topics", filter, period, nil, width, height)
 	screen := make([]string, height)
 	copy(screen, header)
@@ -382,7 +383,7 @@ func (u *UI) renderTopicList(topics []discourse.JSON, selected int, filter, peri
 			boxLines[0] = u.t("ui.empty.topics")
 		}
 		copy(screen[boxStart:], u.style.Box(boxLines, width))
-		u.placeControlsFooter(screen, controls, width)
+		u.placeControlsFooter(screen, controls, width, guidance)
 		u.renderer.Render(screen, width, height, "topic-list-"+filter+"-"+period, -1, -1, false)
 		return
 	}
@@ -404,7 +405,7 @@ func (u *UI) renderTopicList(topics []discourse.JSON, selected int, filter, peri
 	rows := max(len(boxLines)-contentRow, 0)
 	if rows == 0 {
 		copy(screen[boxStart:], u.style.Box(boxLines, width))
-		u.placeControlsFooter(screen, controls, width)
+		u.placeControlsFooter(screen, controls, width, guidance)
 		u.renderer.Render(screen, width, height, "topic-list-"+filter+"-"+period+"-"+mode, -1, -1, false)
 		return
 	}
@@ -420,7 +421,7 @@ func (u *UI) renderTopicList(topics []discourse.JSON, selected int, filter, peri
 		u.addMouseRegion(0, y, width, 1, rowKey(index))
 	}
 	copy(screen[boxStart:], u.style.Box(boxLines, width))
-	u.placeControlsFooter(screen, controls, width)
+	u.placeControlsFooter(screen, controls, width, guidance)
 	u.renderer.Render(screen, width, height, "topic-list-"+filter+"-"+period+"-"+mode, -1, -1, false)
 }
 

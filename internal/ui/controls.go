@@ -115,7 +115,27 @@ func (s *Style) renderControls(controls []laidOutControl, hovered string) string
 	return strings.Join(parts, "")
 }
 
-func (u *UI) controlsFooter(value string, width, y int) string {
+func minimumControlsWidth(value string) int {
+	width := 0
+	for _, segment := range strings.Split(value, " | ") {
+		width += displayWidth(controlCompactLabel(segment))
+	}
+	return width
+}
+
+func fitFooterGuidance(value string, width int) string {
+	if width <= 0 || strings.TrimSpace(value) == "" {
+		return ""
+	}
+	for _, candidate := range []string{strings.ToUpper(strings.TrimSpace(value)), "↑↓ · ↵/1–9/0"} {
+		if displayWidth(candidate) <= width {
+			return candidate
+		}
+	}
+	return ""
+}
+
+func (u *UI) controlsFooter(value string, width, y int, guidance ...string) string {
 	themeControl := u.t("ui.controls.theme")
 	if strings.TrimSpace(value) == "" {
 		value = themeControl
@@ -126,19 +146,34 @@ func (u *UI) controlsFooter(value string, width, y int) string {
 	themeStatus = truncateVisible(themeStatus, max(width, 0))
 	renderedStatus := u.style.Text(themeStatus, roleListMeta)
 	controlsWidth := max(width-visibleWidth(themeStatus)-1, 0)
-	controls := layoutControls(value, controlsWidth)
+	guidanceText := ""
+	if len(guidance) > 0 {
+		guidanceText = fitFooterGuidance(guidance[0], max(controlsWidth-minimumControlsWidth(value)-1, 0))
+	}
+	guidanceWidth := visibleWidth(guidanceText)
+	gap := 0
+	if guidanceWidth > 0 {
+		gap = 2
+	}
+	controlOffset := guidanceWidth + gap
+	controls := layoutControls(value, max(controlsWidth-controlOffset, 0))
 	for _, control := range controls {
 		if control.key != "" {
-			u.addMouseRegion(control.x, y, control.width, 1, control.key)
+			u.addMouseRegion(controlOffset+control.x, y, control.width, 1, control.key)
 		}
 	}
-	return headerLine(u.style.renderControls(controls, u.hoveredControl), renderedStatus, width)
+	left := ""
+	if guidanceText != "" {
+		left = u.style.Text(guidanceText, roleListMeta) + strings.Repeat(" ", gap)
+	}
+	left += u.style.renderControls(controls, u.hoveredControl)
+	return headerLine(left, renderedStatus, width)
 }
 
-func (u *UI) placeControlsFooter(screen []string, value string, width int) {
+func (u *UI) placeControlsFooter(screen []string, value string, width int, guidance ...string) {
 	if len(screen) == 0 {
 		return
 	}
 	y := len(screen) - 1
-	screen[y] = u.controlsFooter(value, width, y)
+	screen[y] = u.controlsFooter(value, width, y, guidance...)
 }
