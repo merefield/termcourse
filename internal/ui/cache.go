@@ -19,6 +19,7 @@ func (u *UI) loadList(filter, period string, force bool) (discourse.JSON, error)
 	if cached := u.listCache[key]; cached != nil && !force {
 		u.applyIncoming(filter, period, cached)
 		u.mergeUsers(cached)
+		_ = u.siteInfo()
 		return cached, nil
 	}
 	data, err := u.client.ListTopics(filter, period, u.options.Username, nil)
@@ -28,6 +29,7 @@ func (u *UI) loadList(filter, period string, force bool) (discourse.JSON, error)
 	u.listCache[key] = data
 	u.applyIncoming(filter, period, data)
 	u.mergeUsers(data)
+	_ = u.siteInfo()
 	return data, nil
 }
 

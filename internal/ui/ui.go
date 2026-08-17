@@ -372,7 +372,7 @@ func (u *UI) renderTopicList(topics []discourse.JSON, selected int, filter, peri
 	header := u.navigationHeader("", primaryTopics, "topics", filter, period, nil, width, height)
 	screen := make([]string, height)
 	copy(screen, header)
-	boxStart := min(len(header)+1, height)
+	boxStart := min(len(header), height)
 	boxHeight := max(height-boxStart-1, 0)
 	innerRows := max(boxHeight-2, 0)
 	innerWidth, _ := frameInnerWidth(width)
@@ -462,10 +462,7 @@ func (u *UI) topicRow(topic discourse.JSON, number, width int, filter, mode stri
 	if filter == "private" {
 		return u.topicTableRow([]cell{{strconv.Itoa(number), 4, true}, {title + badge, max(width-40, 20), false}, {u.pmUsers(topic), 22, false}, {strconv.Itoa(replies), 8, true}})
 	}
-	category := discourse.String(topic["category_name"])
-	if category == "" {
-		category = discourse.String(topic["category_slug"])
-	}
+	category := u.topicCategoryName(topic)
 	categoryWidth, viewsWidth := 22, 0
 	separatorWidth := 6
 	if mode == "stats" {
@@ -474,6 +471,25 @@ func (u *UI) topicRow(topic discourse.JSON, number, width int, filter, mode stri
 	}
 	titleWidth := max(width-4-categoryWidth-viewsWidth-8-separatorWidth, 20)
 	return u.topicTableRow([]cell{{strconv.Itoa(number), 4, true}, {title + badge, titleWidth, false}, {category, categoryWidth, false}, {strconv.Itoa(replies), 8, true}, {formatCount(topic["views"]), viewsWidth, true}})
+}
+
+func (u *UI) topicCategoryName(topic discourse.JSON) string {
+	for _, key := range []string{"category_name", "category_slug"} {
+		if name := strings.TrimSpace(discourse.String(topic[key])); name != "" {
+			return name
+		}
+	}
+	id := discourse.Int(topic["category_id"])
+	if id == 0 {
+		return ""
+	}
+	for _, raw := range discourse.Slice(u.siteCache["categories"]) {
+		category := discourse.Map(raw)
+		if discourse.Int(category["id"]) == id {
+			return discourse.String(category["name"])
+		}
+	}
+	return u.t("ui.composer.category_fallback", "id", id)
 }
 
 func (u *UI) topicTableRow(cells []cell) string {

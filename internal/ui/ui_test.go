@@ -404,8 +404,8 @@ func TestTopicsListSuppressesRedundantHeaderAndUsesRoundedBody(t *testing.T) {
 	for _, region := range u.mouseRegions {
 		if region.key == rowKey(0) {
 			foundRow = true
-			if region.y0 != 6 {
-				t.Fatalf("topic row y = %d, want 6 below the rounded top edge", region.y0)
+			if region.y0 != 5 {
+				t.Fatalf("topic row y = %d, want 5 directly below the rounded top edge", region.y0)
 			}
 		}
 	}
@@ -866,6 +866,26 @@ func TestTopicRowsKeepThemeColorsAcrossResponsiveBreakpoints(t *testing.T) {
 				t.Fatalf("%s row width = %d, terminal width = %d", test.mode, visibleWidth(row), test.width)
 			}
 		})
+	}
+}
+
+func TestTopicCategoryColumnResolvesCategoryIDFromSiteData(t *testing.T) {
+	u := &UI{
+		style:  NewStyle(testTheme(), &bytes.Buffer{}),
+		locale: "en",
+		siteCache: discourse.JSON{"categories": []any{
+			discourse.JSON{"id": 31, "name": "Support", "icon": "wrench"},
+		}},
+	}
+	topic := discourse.JSON{
+		"title": "Category lookup", "category_id": 31, "posts_count": 2, "views": 12,
+	}
+	row := stripANSI(u.topicRow(topic, 1, 125, "latest", "category"))
+	if !strings.Contains(row, "Support") {
+		t.Fatalf("category ID did not resolve to its name: %q", row)
+	}
+	if strings.Contains(row, "wrench") {
+		t.Fatalf("category icon leaked into the text column: %q", row)
 	}
 }
 
