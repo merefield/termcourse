@@ -36,8 +36,8 @@ de:
       compose: "Verfassen"
       period: "Zeitraum: %{period}"
     controls:
-      topic_list: "Pfeile: bewegen | ↵, 1-0: öffnen | f: filter | g: aktualisieren | q: beenden"
-      topic_list_top: "Pfeile: bewegen | ↵, 1-0: öffnen | f: filter | p: zeitraum | g: aktualisieren | q: beenden"
+      theme: "t: thema"
+      topic_list: "f: filter | g: aktualisieren | q: beenden"
       topic: "Pfeile: bewegen | l: liken | r: auf Thema antworten | p: auf Beitrag antworten | esc: zurück | q: beenden"
       topic_with_image: "Pfeile: bewegen | l: liken | r: auf Thema antworten | p: auf Beitrag antworten | esc: zurück | q: beenden | x: bild"
       fullscreen_image: "x/esc: zurück"

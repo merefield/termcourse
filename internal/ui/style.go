@@ -24,24 +24,27 @@ const (
 )
 
 type Style struct {
-	Theme     theme.Theme
-	ColorMode string
-	profile   colorprofile.Profile
-	roles     map[textRole]lipgloss.Style
-	body      lipgloss.Style
-	border    lipgloss.Style
-	selected  lipgloss.Style
-	header    lipgloss.Style
-	headerSep lipgloss.Style
-	bar       lipgloss.Style
-	barFill   lipgloss.Style
-	barTrack  lipgloss.Style
-	brand     lipgloss.Style
-	label     lipgloss.Style
-	liked     lipgloss.Style
-	tab       lipgloss.Style
-	tabActive lipgloss.Style
-	control   lipgloss.Style
+	Theme      theme.Theme
+	ColorMode  string
+	profile    colorprofile.Profile
+	roles      map[textRole]lipgloss.Style
+	body       lipgloss.Style
+	border     lipgloss.Style
+	selected   lipgloss.Style
+	header     lipgloss.Style
+	headerSep  lipgloss.Style
+	bar        lipgloss.Style
+	barFill    lipgloss.Style
+	barTrack   lipgloss.Style
+	brand      lipgloss.Style
+	label      lipgloss.Style
+	liked      lipgloss.Style
+	tab        lipgloss.Style
+	tabActive  lipgloss.Style
+	tabHover   lipgloss.Style
+	tabHot     lipgloss.Style
+	control    lipgloss.Style
+	controlHot lipgloss.Style
 }
 
 func NewStyle(value theme.Theme, output io.Writer) *Style {
@@ -66,7 +69,10 @@ func NewStyle(value theme.Theme, output io.Writer) *Style {
 	result.liked = result.makeStyle(theme.Color("red"), "").Bold(true)
 	result.tab = result.makeStyle(value.Border, "")
 	result.tabActive = result.makeStyle(value.Primary, value.Border).Bold(true)
+	result.tabHover = result.makeStyle(value.Accent, "").Bold(true)
+	result.tabHot = result.makeStyle(value.Primary, value.Accent).Bold(true)
 	result.control = result.makeStyle(value.Border, "").Bold(true)
+	result.controlHot = result.makeStyle(value.Accent, "").Bold(true)
 	return result
 }
 
@@ -275,16 +281,18 @@ func WriteThemePreviews(output io.Writer, themes []theme.Theme) {
 			headerLine(style.renderTabRail(primary), "member", 52),
 			style.renderTabRail(filters),
 		)
-		header = append(header, style.HeaderBox("Latest", nil, 52)...)
 		for _, line := range header {
 			fmt.Fprintln(output, line)
 		}
-		fmt.Fprintln(output, style.Text(" 1", roleListNumber)+" "+style.Text("A themed topic", roleListText)+"  "+style.Text("@member", rolePostUsername))
-		fmt.Fprintln(output, style.Selected(" 2 Selected topic                              "))
-		fmt.Fprintln(output, style.Text(" metadata", roleListMeta)+"  "+style.Text("accent", roleAccent))
-		for _, line := range style.ProgressBox("Read Progress", 3, 5, 52) {
+		fmt.Fprintln(output)
+		for _, line := range style.Box([]string{
+			style.Text(" 1", roleListNumber) + " " + style.Text("A themed topic", roleListText) + "  " + style.Text("@member", rolePostUsername),
+			style.Selected(" 2 Selected topic                              "),
+			style.Text(" metadata", roleListMeta) + "  " + style.Text("accent", roleAccent),
+		}, 52) {
 			fmt.Fprintln(output, line)
 		}
-		fmt.Fprintln(output, style.control.Render("[ (F) FILTER ]  [ (G) REFRESH ]  [ (Q) QUIT ]"))
+		controls := layoutControls("t: theme | f: filter | g: refresh | q: quit", 52)
+		fmt.Fprintln(output, style.renderControls(controls, ""))
 	}
 }

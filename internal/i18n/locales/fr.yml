@@ -36,8 +36,8 @@ fr:
       compose: "Composer"
       period: "Période : %{period}"
     controls:
-      topic_list: "flèches: déplacer | ↵, 1-0: ouvrir | f: filtre | g: actualiser | q: quitter"
-      topic_list_top: "flèches: déplacer | ↵, 1-0: ouvrir | f: filtre | p: période | g: actualiser | q: quitter"
+      theme: "t: thème"
+      topic_list: "f: filtre | g: actualiser | q: quitter"
       topic: "flèches: déplacer | l: aimer | r: répondre au sujet | p: répondre au post | esc: retour | q: quitter"
       topic_with_image: "flèches: déplacer | l: aimer | r: répondre au sujet | p: répondre au post | esc: retour | q: quitter | x: image"
       fullscreen_image: "x/esc: retour"

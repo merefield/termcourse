@@ -512,60 +512,70 @@ func (u *UI) evictKittyImage() {
 }
 
 func (u *UI) fullscreenImage(imageURL string) {
-	width, height := u.terminal.Size()
-	if u.kittyAvailable() && u.fullscreenKittyImage(imageURL) {
-		return
-	}
-	backend := imageBackend()
-	if backend == "" {
-		return
-	}
-	if backend == "chafa" && u.detectSixel() {
-		header := u.imageScreenHeader(width, height)
-		available := max(height-len(header)-1, 1)
-		if payload, nativeErr := u.renderNativeImage(imageURL, width, available, u.nativePixelViewport(height, len(header)+1)); nativeErr == nil && len(payload) > 0 {
-			// Keep Bubble Tea's current model intact while the raw Sixel payload
-			// owns the image rows beneath the persistent managed navigation.
-			defer u.renderer.Reset()
-			screen := make([]string, height)
-			copy(screen, header)
-			u.placeControlsFooter(screen, u.t("ui.controls.fullscreen_image"), width)
-			u.renderer.Render(screen, width, height, "fullscreen-image-sixel", -1, -1, true)
-			u.terminal.Raw(xansi.HideCursor + xansi.CursorPosition(len(header)+1, 1) + string(payload) + xansi.HideCursor)
-			for {
-				key, err := u.readKey(u.tick)
-				if err != nil || u.leaveImageForKey(key) {
-					return
+renderLoop:
+	for {
+		width, height := u.terminal.Size()
+		if u.kittyAvailable() && u.fullscreenKittyImage(imageURL) {
+			return
+		}
+		backend := imageBackend()
+		if backend == "" {
+			return
+		}
+		if backend == "chafa" && u.detectSixel() {
+			header := u.imageScreenHeader(width, height)
+			available := max(height-len(header)-1, 1)
+			if payload, nativeErr := u.renderNativeImage(imageURL, width, available, u.nativePixelViewport(height, len(header)+1)); nativeErr == nil && len(payload) > 0 {
+				// Keep Bubble Tea's current model intact while the raw Sixel payload
+				// owns the image rows beneath the persistent managed navigation.
+				screen := make([]string, height)
+				copy(screen, header)
+				u.placeControlsFooter(screen, u.t("ui.controls.fullscreen_image"), width)
+				u.renderer.Render(screen, width, height, "fullscreen-image-sixel", -1, -1, true)
+				u.terminal.Raw(xansi.HideCursor + xansi.CursorPosition(len(header)+1, 1) + string(payload) + xansi.HideCursor)
+				for {
+					key, err := u.readKey(u.tick)
+					if err != nil || u.leaveImageForKey(key) {
+						u.renderer.Reset()
+						return
+					}
+					if key == keyThemeChanged || key == keyHoverChanged {
+						u.renderer.Reset()
+						continue renderLoop
+					}
 				}
 			}
 		}
-	}
-	header := u.imageScreenHeader(width, height)
-	available := max(height-len(header)-1, 1)
-	rendered, err := u.renderImage(imageURL, backend, width, available, false, false)
-	if err != nil {
-		u.showError(err)
-		return
-	}
-	if len(rendered) == 0 {
-		u.showError(fmt.Errorf("image renderer returned no output"))
-		return
-	}
-	screen := make([]string, height)
-	copy(screen, header)
-	for index := 0; index < len(rendered) && index < available; index++ {
-		padding := max((width-visibleWidth(rendered[index]))/2, 0)
-		y := len(header) + index
-		if y < height {
-			screen[y] = strings.Repeat(" ", padding) + rendered[index]
-		}
-	}
-	u.placeControlsFooter(screen, u.t("ui.controls.fullscreen_image"), width)
-	u.renderer.Render(screen, width, height, "fullscreen-image", -1, -1, true)
-	for {
-		key, err := u.readKey(u.tick)
-		if err != nil || u.leaveImageForKey(key) {
+		header := u.imageScreenHeader(width, height)
+		available := max(height-len(header)-1, 1)
+		rendered, err := u.renderImage(imageURL, backend, width, available, false, false)
+		if err != nil {
+			u.showError(err)
 			return
+		}
+		if len(rendered) == 0 {
+			u.showError(fmt.Errorf("image renderer returned no output"))
+			return
+		}
+		screen := make([]string, height)
+		copy(screen, header)
+		for index := 0; index < len(rendered) && index < available; index++ {
+			padding := max((width-visibleWidth(rendered[index]))/2, 0)
+			y := len(header) + index
+			if y < height {
+				screen[y] = strings.Repeat(" ", padding) + rendered[index]
+			}
+		}
+		u.placeControlsFooter(screen, u.t("ui.controls.fullscreen_image"), width)
+		u.renderer.Render(screen, width, height, "fullscreen-image", -1, -1, true)
+		for {
+			key, err := u.readKey(u.tick)
+			if err != nil || u.leaveImageForKey(key) {
+				return
+			}
+			if key == keyThemeChanged || key == keyHoverChanged {
+				continue renderLoop
+			}
 		}
 	}
 }
@@ -597,6 +607,9 @@ func (u *UI) fullscreenKittyImage(imageURL string) bool {
 			key, readErr := u.readKey(u.tick)
 			if readErr != nil || u.leaveImageForKey(key) {
 				return true
+			}
+			if key == keyThemeChanged || key == keyHoverChanged {
+				break
 			}
 			newWidth, newHeight := u.terminal.Size()
 			if newWidth != width || newHeight != height {

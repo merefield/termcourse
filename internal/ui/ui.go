@@ -44,6 +44,7 @@ type Options struct {
 	CurrentUserID               int
 	NotificationChannelPosition *int
 	Theme                       theme.Theme
+	Themes                      []theme.Theme
 	Locale                      string
 	EnableLiveUpdates           bool
 	Input                       *os.File
@@ -88,6 +89,7 @@ type UI struct {
 	debug              bool
 	mouseEnabled       bool
 	mouseRegions       []mouseRegion
+	hoveredControl     string
 	activePrimary      primaryTabID
 	requestedPrimary   *primaryTabID
 	quitRequested      bool
@@ -104,6 +106,9 @@ func New(client Client, options Options) *UI {
 	}
 	if options.Output == nil {
 		options.Output = os.Stdout
+	}
+	if len(options.Themes) == 0 {
+		options.Themes = []theme.Theme{options.Theme}
 	}
 	tickMS, _ := strconv.Atoi(os.Getenv("TERMCOURSE_TICK_MS"))
 	if tickMS <= 0 {
@@ -131,6 +136,26 @@ func New(client Client, options Options) *UI {
 		})
 	}
 	return result
+}
+
+func (u *UI) cycleTheme() {
+	if len(u.options.Themes) < 2 {
+		return
+	}
+	current := u.style.Theme.Name
+	index := 0
+	for candidate, value := range u.options.Themes {
+		if value.Name == current {
+			index = candidate
+			break
+		}
+	}
+	next := u.options.Themes[(index+1)%len(u.options.Themes)]
+	u.options.Theme = next
+	u.style = NewStyle(next, u.options.Output)
+	if u.renderer != nil {
+		u.renderer.Reset()
+	}
 }
 
 func (u *UI) t(key string, pairs ...any) string { return i18n.Tr(u.locale, key, pairs...) }
@@ -334,24 +359,19 @@ func (u *UI) topicListLoop(data discourse.JSON, filter, period string) loopResul
 func (u *UI) renderTopicList(topics []discourse.JSON, selected int, filter, period string, loading bool) {
 	width, height := u.terminal.Size()
 	controls := u.t("ui.controls.topic_list")
-	if filter == "top" {
-		controls = u.t("ui.controls.topic_list_top")
-	}
-	status := u.t("ui.status.topic_list", "filter", u.t("ui.topic_list.filters."+filter))
-	if filter == "top" {
-		status = u.t("ui.status.topic_list_with_period", "filter", u.t("ui.topic_list.filters."+filter), "period", u.t("ui.topic_list.periods."+period))
-	}
-	if loading {
-		status += " · " + u.t("ui.status.loading_more")
-	}
-	header := u.navigationHeader(status, primaryTopics, "topics", filter, period, nil, width, height)
+	header := u.navigationHeader("", primaryTopics, "topics", filter, period, nil, width, height)
 	screen := make([]string, height)
 	copy(screen, header)
-	startRow := len(header) + 1
+	boxStart := min(len(header)+1, height)
+	boxHeight := max(height-boxStart-1, 0)
+	innerRows := max(boxHeight-2, 0)
+	innerWidth, _ := frameInnerWidth(width)
+	boxLines := make([]string, innerRows)
 	if len(topics) == 0 {
-		if startRow >= 0 && startRow < height-1 {
-			screen[startRow] = u.t("ui.empty.topics")
+		if len(boxLines) > 0 {
+			boxLines[0] = u.t("ui.empty.topics")
 		}
+		copy(screen[boxStart:], u.style.Box(boxLines, width))
 		u.placeControlsFooter(screen, controls, width)
 		u.renderer.Render(screen, width, height, "topic-list-"+filter+"-"+period, -1, -1, false)
 		return
@@ -362,12 +382,18 @@ func (u *UI) renderTopicList(topics []discourse.JSON, selected int, filter, peri
 	} else if width >= 125 {
 		mode = "category"
 	}
-	if mode != "compact" && startRow < height-1 {
-		screen[startRow] = u.topicTableHeader(width, filter, mode)
-		startRow++
+	contentRow := 0
+	if loading && contentRow < len(boxLines) {
+		boxLines[contentRow] = u.style.Text(u.t("ui.status.loading_more"), roleListMeta)
+		contentRow++
 	}
-	rows := max(height-startRow-1, 0)
+	if mode != "compact" && contentRow < len(boxLines) {
+		boxLines[contentRow] = u.topicTableHeader(innerWidth, filter, mode)
+		contentRow++
+	}
+	rows := max(len(boxLines)-contentRow, 0)
 	if rows == 0 {
+		copy(screen[boxStart:], u.style.Box(boxLines, width))
 		u.placeControlsFooter(screen, controls, width)
 		u.renderer.Render(screen, width, height, "topic-list-"+filter+"-"+period+"-"+mode, -1, -1, false)
 		return
@@ -375,13 +401,15 @@ func (u *UI) renderTopicList(topics []discourse.JSON, selected int, filter, peri
 	start := max(selected-rows/2, 0)
 	end := min(start+rows, len(topics))
 	for index := start; index < end; index++ {
-		line := u.topicRow(topics[index], index+1, width, filter, mode)
+		line := u.topicRow(topics[index], index+1, innerWidth, filter, mode)
 		if index == selected {
 			line = u.style.Selected(line)
 		}
-		screen[startRow+index-start] = line
-		u.addMouseRegion(0, startRow+index-start, width, 1, rowKey(index))
+		boxLines[contentRow+index-start] = line
+		y := boxStart + 1 + contentRow + index - start
+		u.addMouseRegion(0, y, width, 1, rowKey(index))
 	}
+	copy(screen[boxStart:], u.style.Box(boxLines, width))
 	u.placeControlsFooter(screen, controls, width)
 	u.renderer.Render(screen, width, height, "topic-list-"+filter+"-"+period+"-"+mode, -1, -1, false)
 }

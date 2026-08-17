@@ -6,14 +6,14 @@ Termcourse is a Go 1.26.6 terminal UI for browsing and posting to Discourse foru
 
 - Browse Latest, Unread, Private Messages, Hot, New, and Top topic lists.
 - Cycle Top periods: daily, weekly, monthly, quarterly, and yearly.
-- Paginated compact/category/stats layouts, including PM-specific users/replies columns.
+- Rounded, paginated compact/category/stats topic-list layouts, including PM-specific users/replies columns.
 - Read complete topics with lazy post-stream loading, scrolling, read-state updates, and a progress footer.
 - Create topics, select categories, reply to topics or posts, and like/unlike posts.
 - Search posts and open the matching post context.
 - Browse/filter notifications and jump to their topic/post.
 - Persistent folder tabs above each screen panel: Topics, Search, Notifications, and Compose. Open topics and images remain within the destination that led to them.
 - A contextual second rail for topic/notification filters plus search and composition stages, with one spacer row below the masthead.
-- Theme-colored folder rails and responsive, clickable footer controls for screen-specific hotkeys.
+- Theme-colored folder rails and responsive, clickable footer controls for screen-specific hotkeys, with pointer-hover highlighting.
 - Mouse-clickable tabs, footer controls, and rows plus wheel scrolling, with keyboard navigation retained throughout.
 - Cookie login with username/password, TOTP, or backup codes.
 - API-key fallback for sites where browser login is unsuitable.
@@ -142,6 +142,7 @@ Use `TERMCOURSE_IMAGE_PROTOCOL=kitty` to force Kitty or `TERMCOURSE_IMAGE_PROTOC
 
 Global navigation:
 
+- `t` cycles through the built-in and configured themes; the footer button is also available while typing.
 - `Tab` and `Shift+Tab` move between the four first-row destinations.
 - Click a primary or contextual folder tab to select it.
 - Click a responsive footer button or use its displayed keyboard shortcut.

@@ -36,8 +36,8 @@ en:
       compose: "Compose"
       period: "Period: %{period}"
     controls:
-      topic_list: "arrows: move | ↵, 1-0: open | f: filter | g: refresh | q: quit"
-      topic_list_top: "arrows: move | ↵, 1-0: open | f: filter | p: period | g: refresh | q: quit"
+      theme: "t: theme"
+      topic_list: "f: filter | g: refresh | q: quit"
       topic: "arrows: move | l: like | r: reply topic | p: reply post | esc: back | q: quit"
       topic_with_image: "arrows: move | l: like | r: reply topic | p: reply post | esc: back | q: quit | x: image"
       fullscreen_image: "x/esc: back"

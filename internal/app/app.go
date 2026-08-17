@@ -176,7 +176,7 @@ func Run(argv []string, stdin *os.File, stdout, stderr io.Writer) int {
 	}
 	application := ui.New(client, ui.Options{
 		BaseURL: baseURL, Username: loggedInUsername, CurrentUserID: discourse.Int(user["id"]),
-		NotificationChannelPosition: notificationPosition, Theme: selectedTheme, Locale: locale,
+		NotificationChannelPosition: notificationPosition, Theme: selectedTheme, Themes: catalog.All(), Locale: locale,
 		EnableLiveUpdates: enableLive, Input: stdin, Output: stdout,
 	})
 	if runErr := application.Run(); runErr != nil {

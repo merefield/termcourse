@@ -58,6 +58,10 @@ func (u *UI) promptSingleLine(titleKey, promptKey, prefix string, active primary
 		}
 		if mouse, ok := msg.(tea.MouseMsg); ok {
 			mouseKey := u.mouseKey(mouse)
+			if mouseKey == "t" {
+				u.cycleTheme()
+				continue
+			}
 			if tab, found := parsePrimaryTabKey(mouseKey); found {
 				if tab != active {
 					u.requestPrimary(tab)
@@ -99,6 +103,10 @@ func (u *UI) compose(title string, context []string, category, variant string) s
 			keyName = key.String()
 		} else if mouse, ok := msg.(tea.MouseMsg); ok {
 			keyName = u.mouseKey(mouse)
+			if keyName == "t" {
+				u.cycleTheme()
+				continue
+			}
 			if keyName == "enter" {
 				msg = tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter})
 			}

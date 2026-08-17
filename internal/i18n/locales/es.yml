@@ -36,8 +36,8 @@ es:
       compose: "Redactar"
       period: "Período: %{period}"
     controls:
-      topic_list: "flechas: mover | ↵, 1-0: abrir | f: filtro | g: refrescar | q: salir"
-      topic_list_top: "flechas: mover | ↵, 1-0: abrir | f: filtro | p: período | g: refrescar | q: salir"
+      theme: "t: tema"
+      topic_list: "f: filtro | g: refrescar | q: salir"
       topic: "flechas: mover | l: me gusta | r: responder tema | p: responder post | esc: volver | q: salir"
       topic_with_image: "flechas: mover | l: me gusta | r: responder tema | p: responder post | esc: volver | q: salir | x: imagen"
       fullscreen_image: "x/esc: volver"

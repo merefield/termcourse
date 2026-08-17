@@ -186,6 +186,7 @@ func TestTabRailsStayCompleteAndResponsive(t *testing.T) {
 }
 
 func TestControlsFooterIsResponsiveAndMouseClickable(t *testing.T) {
+	t.Setenv("TERMCOURSE_COLOR_MODE", "truecolor")
 	value := "arrows: move | ↵, 1-0: open | f: filter | g: refresh | q: quit"
 	for _, width := range []int{20, 40, 100} {
 		controls := layoutControls(value, width)
@@ -199,13 +200,14 @@ func TestControlsFooterIsResponsiveAndMouseClickable(t *testing.T) {
 		}
 	}
 
-	u := &UI{style: NewStyle(testTheme(), &bytes.Buffer{}), mouseEnabled: true}
+	u := &UI{style: NewStyle(testTheme(), &bytes.Buffer{}), locale: "en", mouseEnabled: true}
 	screen := make([]string, 8)
 	u.placeControlsFooter(screen, value, 100)
+	normal := screen[7]
 	if !strings.Contains(stripANSI(screen[7]), "(F) FILTER") {
 		t.Fatalf("full footer did not render button labels: %q", stripANSI(screen[7]))
 	}
-	wanted := map[string]bool{"enter": false, "f": false, "g": false, "q": false}
+	wanted := map[string]bool{"t": false, "enter": false, "f": false, "g": false, "q": false}
 	for _, region := range u.mouseRegions {
 		if _, ok := wanted[region.key]; !ok {
 			continue
@@ -220,6 +222,48 @@ func TestControlsFooterIsResponsiveAndMouseClickable(t *testing.T) {
 			t.Fatalf("footer button %q was not clickable: %#v", key, u.mouseRegions)
 		}
 	}
+	var filter mouseRegion
+	for _, region := range u.mouseRegions {
+		if region.key == "f" {
+			filter = region
+			break
+		}
+	}
+	if key := u.mouseKey(tea.MouseMotionMsg{X: filter.x0, Y: filter.y0}); key != keyHoverChanged || u.hoveredControl != "f" {
+		t.Fatalf("filter hover = %q, %q", key, u.hoveredControl)
+	}
+	u.resetMouseLayout()
+	u.placeControlsFooter(screen, value, 100)
+	if screen[7] == normal {
+		t.Fatalf("hover did not change footer appearance: %q", screen[7])
+	}
+	if key := u.mouseKey(tea.MouseMotionMsg{X: 99, Y: 0}); key != keyHoverChanged || u.hoveredControl != "" {
+		t.Fatalf("leaving controls did not clear hover: %q, %q", key, u.hoveredControl)
+	}
+}
+
+func TestThemeControlCyclesConfiguredCatalog(t *testing.T) {
+	first := testTheme()
+	first.Name = "first"
+	second := testTheme()
+	second.Name = "second"
+	second.Border = "#1f8f5f"
+	output := &bytes.Buffer{}
+	terminal := NewTerminal(nil, output)
+	u := &UI{
+		terminal: terminal, style: NewStyle(first, output), locale: "en",
+		options: Options{Theme: first, Themes: []theme.Theme{first, second}, Output: output},
+	}
+	terminal.state.inputs <- terminalInput{msg: tea.KeyPressMsg(tea.Key{Code: 't', Text: "t"})}
+	key, err := u.readKey(time.Second)
+	if err != nil || key != keyThemeChanged || u.style.Theme.Name != "second" {
+		t.Fatalf("theme key = %q, %v; theme = %q", key, err, u.style.Theme.Name)
+	}
+	terminal.state.inputs <- terminalInput{msg: tea.KeyPressMsg(tea.Key{Code: 't', Text: "t"})}
+	key, err = u.readKey(time.Second)
+	if err != nil || key != keyThemeChanged || u.style.Theme.Name != "first" {
+		t.Fatalf("wrapped theme key = %q, %v; theme = %q", key, err, u.style.Theme.Name)
+	}
 }
 
 func TestTabsAndControlsUseThemeStructuralColour(t *testing.T) {
@@ -233,6 +277,16 @@ func TestTabsAndControlsUseThemeStructuralColour(t *testing.T) {
 	}
 	if style.control.GetForeground() != style.border.GetForeground() {
 		t.Fatalf("control foreground %v does not use structural theme colour %v", style.control.GetForeground(), style.border.GetForeground())
+	}
+	if style.controlHot.GetForeground() != style.roles[roleAccent].GetForeground() {
+		t.Fatalf("hover foreground %v does not use accent colour %v", style.controlHot.GetForeground(), style.roles[roleAccent].GetForeground())
+	}
+	rail := layoutTabRail([]tabSpec{
+		{id: "topics", label: "Topics", short: "TPS", micro: "T", selected: true, enabled: true},
+		{id: "search", label: "Search", short: "SRC", micro: "S", enabled: true},
+	}, 40)
+	if style.renderTabRail(rail) == style.renderTabRail(rail, "search") {
+		t.Fatal("hover did not change tab appearance")
 	}
 }
 
@@ -297,6 +351,40 @@ func TestWideMastheadKeepsPaddingBeforePersistentRails(t *testing.T) {
 	}
 	if !strings.Contains(stripANSI(header[4]), "SEARCH") || !strings.Contains(stripANSI(header[5]), "RESULTS") || !strings.HasPrefix(stripANSI(header[6]), "╭─ SEARCH") {
 		t.Fatalf("wide rail/header order is wrong: %#v", header)
+	}
+}
+
+func TestTopicsListSuppressesRedundantHeaderAndUsesRoundedBody(t *testing.T) {
+	t.Setenv("TERMCOURSE_COLOR_MODE", "truecolor")
+	terminal := NewTerminal(nil, &bytes.Buffer{})
+	terminal.state.width.Store(88)
+	terminal.state.height.Store(24)
+	u := &UI{
+		terminal: terminal, renderer: NewScreenRenderer(terminal), style: NewStyle(testTheme(), &bytes.Buffer{}),
+		locale: "en", mouseEnabled: true,
+	}
+	header := u.navigationHeader("", primaryTopics, "topics", "latest", "", nil, 88, 24)
+	if len(header) != 4 {
+		t.Fatalf("Topics chrome has %d rows, want title, spacer, and two rails: %#v", len(header), header)
+	}
+	box := u.style.Box([]string{"A topic"}, 40)
+	if len(box) != 3 || !strings.HasPrefix(stripANSI(box[0]), "╭") || !strings.HasPrefix(stripANSI(box[1]), "│") || !strings.HasPrefix(stripANSI(box[2]), "╰") {
+		t.Fatalf("topic body is not rounded: %#v", box)
+	}
+
+	terminal.state.height.Store(12)
+	u.renderTopicList([]discourse.JSON{{"id": 1, "title": "One", "posts_count": 1}}, 0, "latest", "monthly", false)
+	foundRow := false
+	for _, region := range u.mouseRegions {
+		if region.key == rowKey(0) {
+			foundRow = true
+			if region.y0 != 6 {
+				t.Fatalf("topic row y = %d, want 6 below the rounded top edge", region.y0)
+			}
+		}
+	}
+	if !foundRow {
+		t.Fatalf("boxed topic row lost mouse geometry: %#v", u.mouseRegions)
 	}
 }
 

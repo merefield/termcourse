@@ -142,7 +142,11 @@ func layoutTabRail(specs []tabSpec, width int) tabRail {
 	return rail
 }
 
-func (s *Style) renderTabRail(rail tabRail) string {
+func (s *Style) renderTabRail(rail tabRail, hoveredID ...string) string {
+	hovered := ""
+	if len(hoveredID) > 0 {
+		hovered = hoveredID[0]
+	}
 	parts := make([]string, 0, len(rail.tabs))
 	for _, tab := range rail.tabs {
 		style := s.tab
@@ -151,6 +155,12 @@ func (s *Style) renderTabRail(rail tabRail) string {
 		}
 		if tab.selected {
 			style = s.tabActive
+		}
+		if tab.enabled && tab.id == hovered {
+			style = s.tabHover
+			if tab.selected {
+				style = s.tabHot
+			}
 		}
 		parts = append(parts, style.Render(tab.label))
 	}
@@ -174,6 +184,18 @@ func (u *UI) addMouseRegion(x, y, width, height int, key string) {
 
 func (u *UI) mouseKey(msg tea.MouseMsg) string {
 	mouse := msg.Mouse()
+	hovered := ""
+	for _, region := range u.mouseRegions {
+		if strings.HasPrefix(region.key, "__row:") {
+			continue
+		}
+		if mouse.X >= region.x0 && mouse.X < region.x1 && mouse.Y >= region.y0 && mouse.Y < region.y1 {
+			hovered = region.key
+			break
+		}
+	}
+	hoverChanged := hovered != u.hoveredControl
+	u.hoveredControl = hovered
 	switch mouse.Button {
 	case tea.MouseWheelUp:
 		return "wheelup"
@@ -189,6 +211,9 @@ func (u *UI) mouseKey(msg tea.MouseMsg) string {
 			}
 		}
 	}
+	if hoverChanged {
+		return keyHoverChanged
+	}
 	return keyTick
 }
 
@@ -201,6 +226,9 @@ func (u *UI) readKey(timeout time.Duration) (string, error) {
 	case tea.KeyPressMsg:
 		key := msg.String()
 		switch key {
+		case "t":
+			u.cycleTheme()
+			return keyThemeChanged, nil
 		case "tab":
 			return primaryTabKey(u.nextEnabledPrimary(false)), nil
 		case "shift+tab":
@@ -211,7 +239,12 @@ func (u *UI) readKey(timeout time.Duration) (string, error) {
 	case tea.PasteMsg:
 		return msg.Content, nil
 	case tea.MouseMsg:
-		return u.mouseKey(msg), nil
+		key := u.mouseKey(msg)
+		if key == "t" {
+			u.cycleTheme()
+			return keyThemeChanged, nil
+		}
+		return key, nil
 	default:
 		return keyTick, nil
 	}
@@ -261,7 +294,7 @@ func (u *UI) primaryNavigationLine(active primaryTabID, width int) navigationLin
 		reserve = min(visibleWidth(status)+1, max(width/3, 12))
 	}
 	rail := layoutTabRail(u.primarySpecs(active), max(width-reserve, 1))
-	left := u.style.renderTabRail(rail)
+	left := u.style.renderTabRail(rail, u.hoveredControl)
 	right := truncateVisible(u.style.Text(status, roleListMeta), max(width-rail.width-1, 0))
 	line := headerLine(left, right, width)
 	return navigationLine{content: line, tabs: rail.tabs}
@@ -325,11 +358,15 @@ func (u *UI) contextNavigationLine(kind, selected, period string, width int) nav
 		}
 	}
 	rail := layoutTabRail(specs, max(width-reserve, 1))
-	left := u.style.renderTabRail(rail)
+	left := u.style.renderTabRail(rail, u.hoveredControl)
 	renderedRight := ""
 	rightX, rightW := 0, 0
 	if reserve > 0 {
-		renderedRight = u.style.label.Render(truncateVisible(right, reserve-1))
+		rightStyle := u.style.label
+		if rightID == u.hoveredControl {
+			rightStyle = u.style.controlHot
+		}
+		renderedRight = rightStyle.Render(truncateVisible(right, reserve-1))
 		rightW = visibleWidth(renderedRight)
 		rightX = width - rightW
 	}
@@ -355,7 +392,9 @@ func (u *UI) navigationHeader(section string, active primaryTabID, context, sele
 	header := append([]string{}, title...)
 	header = append(header, strings.Repeat(" ", max(width, 0)))
 	header = append(header, content...)
-	header = append(header, u.style.HeaderBox(section, extra, width)...)
+	if strings.TrimSpace(section) != "" {
+		header = append(header, u.style.HeaderBox(section, extra, width)...)
+	}
 	tabStartY := len(title) + 1
 	for lineIndex, line := range lines {
 		y := tabStartY + lineIndex

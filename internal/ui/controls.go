@@ -98,21 +98,37 @@ func layoutControls(value string, width int) []laidOutControl {
 	return controls
 }
 
-func (u *UI) controlsFooter(value string, width, y int) string {
-	controls := layoutControls(value, width)
-	parts := make([]string, 0, len(controls))
+func (s *Style) renderControls(controls []laidOutControl, hovered string) string {
+	parts := make([]string, 0, len(controls)*2)
 	previousEnd := 0
 	for _, control := range controls {
 		if gap := control.x - previousEnd; gap > 0 {
 			parts = append(parts, strings.Repeat(" ", gap))
 		}
-		parts = append(parts, u.style.control.Render(control.label))
-		if control.key != "" {
-			u.addMouseRegion(control.x, y, control.width, 1, control.key)
+		controlStyle := s.control
+		if control.key != "" && control.key == hovered {
+			controlStyle = s.controlHot
 		}
+		parts = append(parts, controlStyle.Render(control.label))
 		previousEnd = control.x + control.width
 	}
 	return strings.Join(parts, "")
+}
+
+func (u *UI) controlsFooter(value string, width, y int) string {
+	themeControl := u.t("ui.controls.theme")
+	if strings.TrimSpace(value) == "" {
+		value = themeControl
+	} else {
+		value = themeControl + " | " + value
+	}
+	controls := layoutControls(value, width)
+	for _, control := range controls {
+		if control.key != "" {
+			u.addMouseRegion(control.x, y, control.width, 1, control.key)
+		}
+	}
+	return u.style.renderControls(controls, u.hoveredControl)
 }
 
 func (u *UI) placeControlsFooter(screen []string, value string, width int) {

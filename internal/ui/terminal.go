@@ -15,7 +15,9 @@ import (
 )
 
 const (
-	keyTick = "__tick__"
+	keyTick         = "__tick__"
+	keyThemeChanged = "__theme_changed__"
+	keyHoverChanged = "__hover_changed__"
 )
 
 type terminalState struct {
