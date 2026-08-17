@@ -24,8 +24,16 @@ const userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/5
 type JSON = map[string]any
 
 type HTTPError struct {
-	Status int
-	Body   []byte
+	Status     int
+	Body       []byte
+	Header     http.Header
+	ReceivedAt time.Time
+}
+
+type RateLimitInfo struct {
+	Wait    time.Duration
+	RetryAt time.Time
+	Code    string
 }
 
 func (e *HTTPError) Error() string {
@@ -33,6 +41,67 @@ func (e *HTTPError) Error() string {
 		return fmt.Sprintf("HTTP %d: %s", e.Status, msg)
 	}
 	return fmt.Sprintf("HTTP %d", e.Status)
+}
+
+func (e *HTTPError) RateLimit() (RateLimitInfo, bool) {
+	var payload struct {
+		ErrorType string `json:"error_type"`
+		Extras    struct {
+			WaitSeconds float64 `json:"wait_seconds"`
+			TimeLeft    float64 `json:"time_left"`
+		} `json:"extras"`
+	}
+	_ = json.Unmarshal(e.Body, &payload)
+	if e.Status != http.StatusTooManyRequests && payload.ErrorType != "rate_limit" {
+		return RateLimitInfo{}, false
+	}
+
+	receivedAt := e.ReceivedAt
+	if receivedAt.IsZero() {
+		receivedAt = time.Now()
+	}
+	wait, ok := retryAfter(e.Header.Get("Retry-After"), receivedAt)
+	if !ok || wait <= 0 {
+		seconds := payload.Extras.WaitSeconds
+		if seconds <= 0 {
+			seconds = payload.Extras.TimeLeft
+		}
+		if seconds > 0 {
+			wait = time.Duration(seconds * float64(time.Second))
+		}
+	}
+	if wait < 0 {
+		wait = 0
+	}
+	return RateLimitInfo{
+		Wait:    wait,
+		RetryAt: receivedAt.Add(wait),
+		Code:    e.Header.Get("Discourse-Rate-Limit-Error-Code"),
+	}, true
+}
+
+func retryAfter(value string, receivedAt time.Time) (time.Duration, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, false
+	}
+	if seconds, err := strconv.ParseFloat(value, 64); err == nil {
+		return time.Duration(seconds * float64(time.Second)), true
+	}
+	when, err := http.ParseTime(value)
+	if err != nil {
+		return 0, false
+	}
+	return when.Sub(receivedAt), true
+}
+
+func newHTTPError(response *http.Response, body []byte) *HTTPError {
+	return &HTTPError{
+		Status:     response.StatusCode,
+		Body:       body,
+		Header:     response.Header.Clone(),
+		ReceivedAt: time.Now(),
+	}
 }
 
 type Client struct {
@@ -317,7 +386,7 @@ func (c *Client) getBytes(pathOrURL string, maxBytes, redirects int) ([]byte, er
 	}
 	if response.StatusCode >= 400 {
 		body, _ := io.ReadAll(io.LimitReader(response.Body, 1<<20))
-		return nil, &HTTPError{Status: response.StatusCode, Body: body}
+		return nil, newHTTPError(response, body)
 	}
 	limit := int64(maxBytes)
 	if limit <= 0 {
@@ -358,7 +427,7 @@ func (c *Client) requestJSON(method, path string, payload JSON) (JSON, error) {
 		return nil, err
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return nil, &HTTPError{Status: response.StatusCode, Body: body}
+		return nil, newHTTPError(response, body)
 	}
 	if len(bytes.TrimSpace(body)) == 0 {
 		return JSON{}, nil

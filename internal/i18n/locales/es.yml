@@ -124,6 +124,8 @@ es:
     errors:
       title: "Error"
       continue: "Pulse cualquier tecla para continuar..."
+      rate_limit_retry: "Nuevo intento disponible en %{duration} (a las %{time})."
+      rate_limit_code: "Código del límite: %{code}"
     time:
       seconds: "%{count}s"
       minutes: "%{count}m"

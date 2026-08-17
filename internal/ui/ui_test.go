@@ -4,15 +4,48 @@ import (
 	"bytes"
 	"image"
 	"image/color"
+	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	ultraviolet "github.com/charmbracelet/ultraviolet"
+	"github.com/merefield/termcourse/internal/discourse"
 	"github.com/merefield/termcourse/internal/theme"
 )
+
+func TestRateLimitErrorShowsRetryDurationDeadlineAndDebugCode(t *testing.T) {
+	receivedAt := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
+	u := &UI{locale: "en", debug: true}
+	err := &discourse.HTTPError{
+		Status: http.StatusTooManyRequests,
+		Body:   []byte(`{"errors":["You’ve performed this action too many times."],"error_type":"rate_limit","extras":{"wait_seconds":45}}`),
+		Header: http.Header{
+			"Retry-After":                     []string{"90"},
+			"Discourse-Rate-Limit-Error-Code": []string{"topic_view"},
+		},
+		ReceivedAt: receivedAt,
+	}
+	message := u.errorMessage(err, receivedAt.Add(1500*time.Millisecond))
+	retryAt := receivedAt.Add(90 * time.Second).Local().Format("15:04:05")
+	for _, expected := range []string{
+		"You’ve performed this action too many times.",
+		"Retry available in 1m 29s (at " + retryAt + ").",
+		"Rate-limit code: topic_view",
+	} {
+		if !strings.Contains(message, expected) {
+			t.Fatalf("message missing %q: %q", expected, message)
+		}
+	}
+
+	u.debug = false
+	if message := u.errorMessage(err, receivedAt); strings.Contains(message, "topic_view") {
+		t.Fatalf("non-debug message exposed limiter code: %q", message)
+	}
+}
 
 func TestScreenRendererBuildsCompleteCharmFrame(t *testing.T) {
 	content := normalizeScreen([]string{"one", "two"}, 5, 3)

@@ -124,6 +124,8 @@ en:
     errors:
       title: "Error"
       continue: "Press any key to continue..."
+      rate_limit_retry: "Retry available in %{duration} (at %{time})."
+      rate_limit_code: "Rate-limit code: %{code}"
     time:
       seconds: "%{count}s"
       minutes: "%{count}m"

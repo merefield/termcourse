@@ -124,6 +124,8 @@ de:
     errors:
       title: "Fehler"
       continue: "Beliebige Taste drücken, um fortzufahren..."
+      rate_limit_retry: "Erneuter Versuch in %{duration} möglich (um %{time})."
+      rate_limit_code: "Ratenbegrenzungscode: %{code}"
     time:
       seconds: "%{count}s"
       minutes: "%{count}m"

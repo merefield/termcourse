@@ -124,6 +124,8 @@ fr:
     errors:
       title: "Erreur"
       continue: "Appuyez sur une touche pour continuer..."
+      rate_limit_retry: "Nouvelle tentative possible dans %{duration} (à %{time})."
+      rate_limit_code: "Code de limitation : %{code}"
     time:
       seconds: "%{count}s"
       minutes: "%{count}m"

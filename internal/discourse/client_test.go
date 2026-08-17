@@ -2,11 +2,13 @@ package discourse
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestClientListEndpointsAndHeaders(t *testing.T) {
@@ -57,5 +59,50 @@ func TestGetBytesLimit(t *testing.T) {
 	client, _ := NewClient(server.URL, "", "")
 	if _, err := client.GetBytes("/", 4); err == nil {
 		t.Fatal("expected size limit error")
+	}
+}
+
+func TestClientPreservesRateLimitMetadata(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Retry-After", "90")
+		w.Header().Set("Discourse-Rate-Limit-Error-Code", "topic_view")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = io.WriteString(w, `{"errors":["Too many requests"],"error_type":"rate_limit","extras":{"wait_seconds":45}}`)
+	}))
+	defer server.Close()
+	client, _ := NewClient(server.URL, "", "")
+
+	_, err := client.Topic(42, 0)
+	var httpErr *HTTPError
+	if !errors.As(err, &httpErr) {
+		t.Fatalf("error = %T %v", err, err)
+	}
+	limit, ok := httpErr.RateLimit()
+	if !ok || limit.Wait != 90*time.Second || limit.Code != "topic_view" {
+		t.Fatalf("rate limit = %#v, present=%v", limit, ok)
+	}
+}
+
+func TestRateLimitFallsBackToDiscourseJSON(t *testing.T) {
+	receivedAt := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
+	httpErr := &HTTPError{
+		Status:     http.StatusTooManyRequests,
+		Body:       []byte(`{"error_type":"rate_limit","extras":{"wait_seconds":45}}`),
+		ReceivedAt: receivedAt,
+	}
+	limit, ok := httpErr.RateLimit()
+	if !ok || limit.Wait != 45*time.Second || !limit.RetryAt.Equal(receivedAt.Add(45*time.Second)) {
+		t.Fatalf("rate limit = %#v, present=%v", limit, ok)
+	}
+}
+
+func TestRetryAfterAcceptsSecondsAndHTTPDate(t *testing.T) {
+	receivedAt := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
+	if wait, ok := retryAfter("12.5", receivedAt); !ok || wait != 12*time.Second+500*time.Millisecond {
+		t.Fatalf("numeric retry-after = %v, present=%v", wait, ok)
+	}
+	date := receivedAt.Add(2 * time.Minute).Format(http.TimeFormat)
+	if wait, ok := retryAfter(date, receivedAt); !ok || wait != 2*time.Minute {
+		t.Fatalf("date retry-after = %v, present=%v", wait, ok)
 	}
 }
