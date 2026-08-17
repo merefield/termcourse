@@ -167,22 +167,45 @@ func (s *Style) BarBox(title string, lines []string, width int) []string {
 	})
 }
 
-func (s *Style) ProgressBox(title string, current, total, width int) []string {
+type progressBoxLayout struct {
+	label          string
+	barX, barWidth int
+	gap, filled    int
+}
+
+func layoutProgressBox(current, total, width int) progressBoxLayout {
 	inner, _ := frameInnerWidth(max(width, 1))
 	label := fmt.Sprintf("%d/%d", current, total)
-	return s.frame(title, []string{strings.Repeat(" ", inner)}, width, s.bar, func(_ int, _ string) string {
-		label = truncateVisible(label, inner)
-		available := max(inner-displayWidth(label), 0)
-		gap := min(2, available)
-		barWidth := max(available-gap, 0)
-		filled := 0
-		if total > 0 {
-			filled = int(float64(current)/float64(total)*float64(barWidth) + 0.5)
+	label = truncateVisible(label, inner)
+	available := max(inner-displayWidth(label), 0)
+	gap := min(2, available)
+	barWidth := max(available-gap, 0)
+	filled := 0
+	if total > 0 {
+		filled = int(float64(current)/float64(total)*float64(barWidth) + 0.5)
+	}
+	filled = min(max(filled, 0), barWidth)
+	_, sidePadding := frameInnerWidth(max(width, 1))
+	barX := 1
+	if sidePadding {
+		barX++
+	}
+	return progressBoxLayout{
+		label: label, barX: barX, barWidth: barWidth, gap: gap, filled: filled,
+	}
+}
+
+func (s *Style) ProgressBox(title string, current, total, width int, hovered ...bool) []string {
+	layout := layoutProgressBox(current, total, width)
+	hot := len(hovered) > 0 && hovered[0]
+	return s.frame(title, []string{""}, width, s.bar, func(_ int, _ string) string {
+		fillStyle, trackStyle := s.barFill, s.barTrack
+		if hot {
+			fillStyle, trackStyle = s.controlHot, s.controlHot
 		}
-		filled = min(max(filled, 0), barWidth)
-		return s.barFill.Render(strings.Repeat("█", filled)) +
-			s.barTrack.Render(strings.Repeat("░", barWidth-filled)) +
-			s.bar.Render(strings.Repeat(" ", gap)+label)
+		return fillStyle.Render(strings.Repeat("█", layout.filled)) +
+			trackStyle.Render(strings.Repeat("░", layout.barWidth-layout.filled)) +
+			s.bar.Render(strings.Repeat(" ", layout.gap)+layout.label)
 	})
 }
 

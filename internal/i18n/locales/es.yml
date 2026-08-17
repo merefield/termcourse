@@ -29,6 +29,8 @@ es:
       missing_url: "Falta discourse_url."
       login_failed: "Error de inicio de sesión."
   ui:
+    headers:
+      topic: "Tema"
     tabs:
       topics: "Temas"
       search: "Buscar"

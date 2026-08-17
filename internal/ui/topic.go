@@ -3,11 +3,81 @@ package ui
 import (
 	"fmt"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/merefield/termcourse/internal/discourse"
 )
+
+const progressKeyPrefix = "__progress:"
+
+func progressKey(index int) string { return progressKeyPrefix + strconv.Itoa(index) }
+
+func parseProgressKey(key string) (int, bool) {
+	value, found := strings.CutPrefix(key, progressKeyPrefix)
+	if !found {
+		return 0, false
+	}
+	index, err := strconv.Atoi(value)
+	return index, err == nil && index >= 0
+}
+
+func topicProgressPosition(topic discourse.JSON, all []discourse.JSON, selected int) (current, total int) {
+	stream := discourse.Slice(discourse.Map(topic["post_stream"])["stream"])
+	if len(stream) == 0 || selected < 0 || selected >= len(all) {
+		return min(selected+1, len(all)), len(all)
+	}
+	selectedID := discourse.Int(all[selected]["id"])
+	for index, rawID := range stream {
+		if discourse.Int(rawID) == selectedID {
+			return index + 1, len(stream)
+		}
+	}
+	return min(selected+1, len(all)), len(stream)
+}
+
+func (u *UI) seekTopicProgress(topicID int, topic discourse.JSON, target int) (int, error) {
+	streamData := discourse.Map(topic["post_stream"])
+	stream := discourse.Slice(streamData["stream"])
+	if len(stream) == 0 {
+		return 0, fmt.Errorf("topic has no post stream")
+	}
+	target = min(max(target, 0), len(stream)-1)
+	targetID := discourse.Int(stream[target])
+	for index, post := range posts(topic) {
+		if discourse.Int(post["id"]) == targetID {
+			return index, nil
+		}
+	}
+	start, end := max(target-10, 0), min(target+11, len(stream))
+	ids := make([]int, 0, end-start)
+	for _, rawID := range stream[start:end] {
+		ids = append(ids, discourse.Int(rawID))
+	}
+	data, err := u.client.TopicPosts(topicID, ids, true)
+	if err != nil {
+		return 0, err
+	}
+	incoming := posts(data)
+	if len(incoming) == 0 {
+		return 0, fmt.Errorf("post stream returned no posts near position %d", target+1)
+	}
+	sort.Slice(incoming, func(i, j int) bool {
+		return discourse.Int(incoming[i]["post_number"]) < discourse.Int(incoming[j]["post_number"])
+	})
+	values := make([]any, len(incoming))
+	for index := range incoming {
+		values[index] = incoming[index]
+	}
+	streamData["posts"] = values
+	for index, post := range incoming {
+		if discourse.Int(post["id"]) == targetID {
+			return index, nil
+		}
+	}
+	return 0, fmt.Errorf("post at position %d was not returned", target+1)
+}
 
 func (u *UI) topicLoop(topicID, selectedPostNumber int, back string) (quit bool, result string) {
 	origin := u.activePrimary
@@ -68,6 +138,16 @@ func (u *UI) topicLoop(topicID, selectedPostNumber int, back string) (quit bool,
 			if row >= 0 && row < len(all) {
 				selected = row
 			}
+			continue
+		}
+		if target, ok := parseProgressKey(key); ok {
+			position, seekErr := u.seekTopicProgress(topicID, topic, target)
+			if seekErr != nil {
+				u.showError(seekErr)
+				continue
+			}
+			selected = position
+			scroll = map[int]int{}
 			continue
 		}
 		switch key {
@@ -144,16 +224,18 @@ func (u *UI) renderTopic(topic discourse.JSON, all []discourse.JSON, selected, s
 	if imagesEnabled && (u.kittyAvailable() || imageBackend() != "") && len(imageURLs) > 0 {
 		controls = u.t("ui.controls.topic_with_image")
 	}
-	title := truncate(discourse.String(topic["title"]), max(width-18, 1))
 	innerWidth, _ := frameInnerWidth(width)
-	meta := fmt.Sprintf("%d/%d", min(selected+1, len(all)), len(all))
+	current, total := topicProgressPosition(topic, all, selected)
+	meta := fmt.Sprintf("%d/%d", current, total)
 	if category := u.categoryLabel(topic); category != "" {
 		meta += " · " + category
 	}
-	header := u.navigationHeader(title, origin, "", "", "", []string{
-		headerLine("", meta, innerWidth),
+	titleWidth := max(innerWidth-visibleWidth(meta)-1, 1)
+	title := truncate(discourse.String(topic["title"]), titleWidth)
+	header := u.navigationHeader(u.t("ui.headers.topic"), origin, "", "", "", []string{
+		headerLine(title, meta, innerWidth),
 	}, width, height)
-	progress := u.progressFooter(len(all), selected, width)
+	progress := u.progressFooter(current, total, width)
 	footerRows := len(progress) + 1
 	available := max(height-len(header)-footerRows, 1)
 	body, postIndexes := u.postListLines(all, selected, scroll, available, width)
@@ -169,9 +251,11 @@ func (u *UI) renderTopic(topic discourse.JSON, all []discourse.JSON, selected, s
 			u.addMouseRegion(0, y, width, 1, rowKey(postIndexes[index]))
 		}
 	}
-	copy(screen[max(height-footerRows, 0):], progress)
+	progressStart := max(height-footerRows, 0)
+	copy(screen[progressStart:], progress)
+	u.addProgressRegions(progressStart+1, current, total, width, height)
 	u.placeControlsFooter(screen, controls, width)
-	u.renderer.SetProgress(min(selected+1, len(all)), len(all))
+	u.renderer.SetProgress(current, total)
 	u.renderer.Render(screen, width, height, "topic-"+formatCount(topic["id"]), -1, -1, force)
 }
 
@@ -258,12 +342,34 @@ func (u *UI) postBlock(post discourse.JSON, expanded bool, width int) []string {
 	return append([]string{header}, body...)
 }
 
-func (u *UI) progressFooter(total, selected, width int) []string {
-	current := 0
-	if total > 0 {
-		current = selected + 1
+func (u *UI) progressFooter(current, total, width int) []string {
+	hovered := strings.HasPrefix(u.hoveredControl, progressKeyPrefix)
+	return u.style.ProgressBox(u.t("ui.status.read_progress"), current, total, width, hovered)
+}
+
+func (u *UI) addProgressRegions(y, current, total, width, height int) {
+	layout := layoutProgressBox(current, total, width)
+	if !u.mouseEnabled || total <= 0 || layout.barWidth <= 0 || y < 0 || y >= height-1 {
+		return
 	}
-	return u.style.ProgressBox(u.t("ui.status.read_progress"), current, total, width)
+	positionAt := func(offset int) int {
+		if total <= 1 || layout.barWidth <= 1 {
+			return 0
+		}
+		return (offset*(total-1) + (layout.barWidth-1)/2) / (layout.barWidth - 1)
+	}
+	start, target := 0, positionAt(0)
+	for offset := 1; offset <= layout.barWidth; offset++ {
+		next := -1
+		if offset < layout.barWidth {
+			next = positionAt(offset)
+		}
+		if next == target {
+			continue
+		}
+		u.addMouseRegion(layout.barX+start, y, offset-start, 1, progressKey(target))
+		start, target = offset, next
+	}
 }
 
 func (u *UI) toggleLike(post discourse.JSON) {

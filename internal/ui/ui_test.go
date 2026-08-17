@@ -698,6 +698,105 @@ func TestProgressPanelUsesBlockGaugeAndThemeRoles(t *testing.T) {
 	}
 }
 
+func TestTopicProgressClickMapsTrackEndpointsAndHover(t *testing.T) {
+	t.Setenv("TERMCOURSE_COLOR_MODE", "truecolor")
+	u := &UI{style: NewStyle(testTheme(), &bytes.Buffer{}), locale: "en", mouseEnabled: true}
+	u.addProgressRegions(10, 37, 100, 80, 24)
+	var first, last mouseRegion
+	for _, region := range u.mouseRegions {
+		if region.key == progressKey(0) {
+			first = region
+		}
+		if region.key == progressKey(99) {
+			last = region
+		}
+	}
+	if first.x1 <= first.x0 || last.x1 <= last.x0 {
+		t.Fatalf("progress endpoints are missing: %#v", u.mouseRegions)
+	}
+	if key := u.mouseKey(tea.MouseClickMsg{X: first.x0, Y: first.y0, Button: tea.MouseLeft}); key != progressKey(0) {
+		t.Fatalf("first progress cell produced %q", key)
+	}
+	if key := u.mouseKey(tea.MouseClickMsg{X: last.x1 - 1, Y: last.y0, Button: tea.MouseLeft}); key != progressKey(99) {
+		t.Fatalf("last progress cell produced %q", key)
+	}
+	u.hoveredControl = ""
+	normal := strings.Join(u.progressFooter(37, 100, 80), "\n")
+	if key := u.mouseKey(tea.MouseMotionMsg{X: first.x0, Y: first.y0}); key != keyHoverChanged {
+		t.Fatalf("progress hover produced %q", key)
+	}
+	hovered := strings.Join(u.progressFooter(37, 100, 80), "\n")
+	if normal == hovered {
+		t.Fatal("progress hover did not change the track appearance")
+	}
+}
+
+func TestTopicProgressUsesCompletePostStream(t *testing.T) {
+	stream := make([]any, 100)
+	for index := range stream {
+		stream[index] = index + 1
+	}
+	topic := discourse.JSON{"post_stream": discourse.JSON{"stream": stream}}
+	loaded := []discourse.JSON{
+		{"id": 1, "post_number": 1},
+		{"id": 51, "post_number": 51},
+	}
+	current, total := topicProgressPosition(topic, loaded, 1)
+	if current != 51 || total != 100 {
+		t.Fatalf("progress = %d/%d, want 51/100", current, total)
+	}
+}
+
+type topicProgressClient struct {
+	Client
+	topicID    int
+	postIDs    []int
+	includeRaw bool
+	response   discourse.JSON
+}
+
+func (c *topicProgressClient) TopicPosts(topicID int, postIDs []int, includeRaw bool) (discourse.JSON, error) {
+	c.topicID = topicID
+	c.postIDs = append([]int(nil), postIDs...)
+	c.includeRaw = includeRaw
+	return c.response, nil
+}
+
+func TestTopicProgressFetchesChunkAroundUnloadedPosition(t *testing.T) {
+	stream := make([]any, 100)
+	for index := range stream {
+		stream[index] = index + 1
+	}
+	incoming := make([]any, 21)
+	for index := range incoming {
+		id := index + 41
+		incoming[index] = discourse.JSON{"id": id, "post_number": id}
+	}
+	topic := discourse.JSON{"post_stream": discourse.JSON{
+		"stream": stream,
+		"posts":  []any{discourse.JSON{"id": 1, "post_number": 1}},
+	}}
+	client := &topicProgressClient{response: discourse.JSON{
+		"post_stream": discourse.JSON{"posts": incoming},
+	}}
+	u := &UI{client: client}
+
+	selected, err := u.seekTopicProgress(314, topic, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if client.topicID != 314 || !client.includeRaw {
+		t.Fatalf("request = topic %d, include raw %t", client.topicID, client.includeRaw)
+	}
+	if len(client.postIDs) != 21 || client.postIDs[0] != 41 || client.postIDs[20] != 61 {
+		t.Fatalf("requested post IDs = %#v", client.postIDs)
+	}
+	loaded := posts(topic)
+	if selected != 10 || discourse.Int(loaded[selected]["id"]) != 51 {
+		t.Fatalf("selected loaded post = %d/%v", selected, loaded)
+	}
+}
+
 func TestTopicRowsKeepThemeColorsAcrossResponsiveBreakpoints(t *testing.T) {
 	t.Setenv("TERMCOURSE_COLOR_MODE", "truecolor")
 	var output bytes.Buffer

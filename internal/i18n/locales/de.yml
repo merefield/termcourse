@@ -29,6 +29,8 @@ de:
       missing_url: "discourse_url fehlt."
       login_failed: "Anmeldung fehlgeschlagen."
   ui:
+    headers:
+      topic: "Thema"
     tabs:
       topics: "Themen"
       search: "Suche"

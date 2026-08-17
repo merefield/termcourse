@@ -29,6 +29,8 @@ fr:
       missing_url: "discourse_url manquant."
       login_failed: "Échec de la connexion."
   ui:
+    headers:
+      topic: "Sujet"
     tabs:
       topics: "Sujets"
       search: "Recherche"

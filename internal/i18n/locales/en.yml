@@ -29,6 +29,8 @@ en:
       missing_url: "Missing discourse_url."
       login_failed: "Login failed."
   ui:
+    headers:
+      topic: "Topic"
     tabs:
       topics: "Topics"
       search: "Search"

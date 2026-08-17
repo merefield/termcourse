@@ -161,6 +161,7 @@ Topic list:
 Topic view:
 
 - Up/Down selects posts; Left/Right scrolls the expanded post.
+- Click the read-progress track to jump to the corresponding position in the complete topic.
 - `l` toggles like; `r` replies to the topic; `p` replies to the post.
 - `s` searches; `n` opens notifications; `x` opens an image.
 - Escape/Backspace goes back; `q` quits.
