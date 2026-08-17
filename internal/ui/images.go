@@ -567,7 +567,10 @@ renderLoop:
 			}
 		}
 		u.placeControlsFooter(screen, u.t("ui.controls.fullscreen_image"), width)
-		u.renderer.Render(screen, width, height, "fullscreen-image", -1, -1, true)
+		// Let Bubble Tea diff managed image screens. An explicit clear erases
+		// terminal graphics and, with all-motion mouse events, can race the
+		// replacement frame on every hover change.
+		u.renderer.Render(screen, width, height, "fullscreen-image", -1, -1, false)
 		for {
 			key, err := u.readKey(u.tick)
 			if err != nil || u.leaveImageForKey(key) {
@@ -602,7 +605,10 @@ func (u *UI) fullscreenKittyImage(imageURL string) bool {
 			}
 		}
 		u.placeControlsFooter(screen, u.t("ui.controls.fullscreen_image"), width)
-		u.renderer.Render(screen, width, height, "fullscreen-image-kitty", -1, -1, true)
+		// Kitty's Unicode placeholders are ordinary managed cells. Keeping this
+		// as a normal diff render preserves their visible image across hover and
+		// resize redraws instead of clearing it immediately before repainting.
+		u.renderer.Render(screen, width, height, "fullscreen-image-kitty", -1, -1, false)
 		for {
 			key, readErr := u.readKey(u.tick)
 			if readErr != nil || u.leaveImageForKey(key) {
