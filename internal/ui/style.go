@@ -292,7 +292,8 @@ func WriteThemePreviews(output io.Writer, themes []theme.Theme) {
 		}, 52) {
 			fmt.Fprintln(output, line)
 		}
-		controls := layoutControls("t: theme | f: filter | g: refresh | q: quit", 52)
-		fmt.Fprintln(output, style.renderControls(controls, ""))
+		themeStatus := "THEME // " + strings.ToUpper(value.Name)
+		controls := layoutControls("t: theme | f: filter | g: refresh | q: quit", max(52-visibleWidth(themeStatus)-1, 0))
+		fmt.Fprintln(output, headerLine(style.renderControls(controls, ""), style.Text(themeStatus, roleListMeta), 52))
 	}
 }

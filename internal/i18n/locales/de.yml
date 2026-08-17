@@ -48,6 +48,7 @@ de:
       continue: "Enter: weiter"
       single_line: "Enter: weiter | Esc: abbrechen"
     status:
+      theme: "Thema // %{name}"
       topic_list: "Themenliste: %{filter}"
       topic_list_with_period: "Themenliste: %{filter} (%{period})"
       loading_more: "Lädt mehr..."

@@ -13,7 +13,7 @@ Termcourse is a Go 1.26.6 terminal UI for browsing and posting to Discourse foru
 - Browse/filter notifications and jump to their topic/post.
 - Persistent folder tabs above each screen panel: Topics, Search, Notifications, and Compose. Open topics and images remain within the destination that led to them.
 - A contextual second rail for topic/notification filters plus search and composition stages, with one spacer row below the masthead.
-- Theme-colored folder rails and responsive, clickable footer controls for screen-specific hotkeys, with pointer-hover highlighting.
+- Theme-colored folder rails and responsive, clickable footer controls for screen-specific hotkeys, with pointer-hover highlighting and the active theme anchored at bottom right.
 - Mouse-clickable tabs, footer controls, and rows plus wheel scrolling, with keyboard navigation retained throughout.
 - Cookie login with username/password, TOTP, or backup codes.
 - API-key fallback for sites where browser login is unsuitable.

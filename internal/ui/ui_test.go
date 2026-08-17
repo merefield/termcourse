@@ -202,10 +202,13 @@ func TestControlsFooterIsResponsiveAndMouseClickable(t *testing.T) {
 
 	u := &UI{style: NewStyle(testTheme(), &bytes.Buffer{}), locale: "en", mouseEnabled: true}
 	screen := make([]string, 8)
-	u.placeControlsFooter(screen, value, 100)
+	u.placeControlsFooter(screen, value, 140)
 	normal := screen[7]
 	if !strings.Contains(stripANSI(screen[7]), "(F) FILTER") {
 		t.Fatalf("full footer did not render button labels: %q", stripANSI(screen[7]))
+	}
+	if !strings.HasSuffix(stripANSI(screen[7]), "THEME // TEST") {
+		t.Fatalf("theme status is not anchored at bottom right: %q", stripANSI(screen[7]))
 	}
 	wanted := map[string]bool{"t": false, "enter": false, "f": false, "g": false, "q": false}
 	for _, region := range u.mouseRegions {
@@ -233,7 +236,7 @@ func TestControlsFooterIsResponsiveAndMouseClickable(t *testing.T) {
 		t.Fatalf("filter hover = %q, %q", key, u.hoveredControl)
 	}
 	u.resetMouseLayout()
-	u.placeControlsFooter(screen, value, 100)
+	u.placeControlsFooter(screen, value, 140)
 	if screen[7] == normal {
 		t.Fatalf("hover did not change footer appearance: %q", screen[7])
 	}

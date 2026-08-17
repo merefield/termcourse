@@ -48,6 +48,7 @@ fr:
       continue: "entrée: continuer"
       single_line: "entrée: valider | esc: annuler"
     status:
+      theme: "Thème // %{name}"
       topic_list: "Liste des sujets : %{filter}"
       topic_list_with_period: "Liste des sujets : %{filter} (%{period})"
       loading_more: "Chargement..."

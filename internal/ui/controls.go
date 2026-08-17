@@ -122,13 +122,17 @@ func (u *UI) controlsFooter(value string, width, y int) string {
 	} else {
 		value = themeControl + " | " + value
 	}
-	controls := layoutControls(value, width)
+	themeStatus := strings.ToUpper(u.t("ui.status.theme", "name", u.style.Theme.Name))
+	themeStatus = truncateVisible(themeStatus, max(width, 0))
+	renderedStatus := u.style.Text(themeStatus, roleListMeta)
+	controlsWidth := max(width-visibleWidth(themeStatus)-1, 0)
+	controls := layoutControls(value, controlsWidth)
 	for _, control := range controls {
 		if control.key != "" {
 			u.addMouseRegion(control.x, y, control.width, 1, control.key)
 		}
 	}
-	return u.style.renderControls(controls, u.hoveredControl)
+	return headerLine(u.style.renderControls(controls, u.hoveredControl), renderedStatus, width)
 }
 
 func (u *UI) placeControlsFooter(screen []string, value string, width int) {

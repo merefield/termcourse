@@ -48,6 +48,7 @@ es:
       continue: "enter: continuar"
       single_line: "enter: continuar | esc: cancelar"
     status:
+      theme: "Tema // %{name}"
       topic_list: "Lista de temas: %{filter}"
       topic_list_with_period: "Lista de temas: %{filter} (%{period})"
       loading_more: "Cargando más..."
