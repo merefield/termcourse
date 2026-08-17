@@ -218,11 +218,13 @@ func parseArgs(argv []string) (cliOptions, error) {
 		}
 		name, value, hasValue := strings.Cut(arg, "=")
 		if !hasValue {
-			if index+1 >= len(argv) {
+			if index+1 >= len(argv) || strings.HasPrefix(argv[index+1], "-") {
 				return result, fmt.Errorf("%s requires a value", name)
 			}
 			index++
 			value = argv[index]
+		} else if value == "" {
+			return result, fmt.Errorf("%s requires a value", name)
 		}
 		switch name {
 		case "--api-key":

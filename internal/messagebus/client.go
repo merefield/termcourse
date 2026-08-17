@@ -161,8 +161,18 @@ func (c *Client) poll(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	pollContext := ctx
+	if c.ReadTimeout > 0 {
+		timeout := c.ReadTimeout
+		if c.OpenTimeout > 0 {
+			timeout += c.OpenTimeout
+		}
+		var cancel context.CancelFunc
+		pollContext, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
 	target := c.baseURL + "/message-bus/" + c.id + "/poll"
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(payload))
+	request, err := http.NewRequestWithContext(pollContext, http.MethodPost, target, bytes.NewReader(payload))
 	if err != nil {
 		return err
 	}

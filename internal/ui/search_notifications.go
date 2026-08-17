@@ -3,6 +3,7 @@ package ui
 import (
 	"strings"
 	"time"
+	"unicode"
 
 	"charm.land/lipgloss/v2"
 	"github.com/merefield/termcourse/internal/discourse"
@@ -423,17 +424,30 @@ func highlightTerm(value, query string) string {
 	if strings.TrimSpace(query) == "" {
 		return value
 	}
-	lower, needle := strings.ToLower(value), strings.ToLower(query)
+	valueRunes, queryRunes := []rune(value), []rune(query)
 	var out strings.Builder
-	for {
-		index := strings.Index(lower, needle)
-		if index < 0 {
-			out.WriteString(value)
-			break
+	for index := 0; index < len(valueRunes); {
+		if index+len(queryRunes) <= len(valueRunes) && equalFoldRunes(valueRunes[index:index+len(queryRunes)], queryRunes) {
+			out.WriteString(lipgloss.NewStyle().Bold(true).Render(string(valueRunes[index : index+len(queryRunes)])))
+			index += len(queryRunes)
+			continue
 		}
-		out.WriteString(value[:index])
-		out.WriteString(lipgloss.NewStyle().Bold(true).Render(value[index : index+len(needle)]))
-		value, lower = value[index+len(needle):], lower[index+len(needle):]
+		out.WriteRune(valueRunes[index])
+		index++
 	}
 	return out.String()
+}
+
+func equalFoldRunes(value, query []rune) bool {
+	if len(value) != len(query) {
+		return false
+	}
+	for index := range value {
+		if value[index] != query[index] &&
+			unicode.ToLower(value[index]) != unicode.ToLower(query[index]) &&
+			unicode.ToUpper(value[index]) != unicode.ToUpper(query[index]) {
+			return false
+		}
+	}
+	return true
 }

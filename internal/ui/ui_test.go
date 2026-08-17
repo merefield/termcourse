@@ -1057,3 +1057,14 @@ func TestMergeTopicLists(t *testing.T) {
 		t.Fatalf("topics = %#v", topics)
 	}
 }
+
+func TestHighlightTermPreservesUnicodeBoundaries(t *testing.T) {
+	value := "İİ topic"
+	highlighted := highlightTerm(value, "i")
+	if plain := stripANSI(highlighted); plain != value {
+		t.Fatalf("highlighted text = %q, want %q", plain, value)
+	}
+	if highlighted == value {
+		t.Fatal("Unicode case-insensitive matches were not highlighted")
+	}
+}

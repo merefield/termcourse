@@ -20,6 +20,17 @@ func TestParseArgs(t *testing.T) {
 	}
 }
 
+func TestParseArgsRejectsMissingOptionValues(t *testing.T) {
+	for _, argv := range [][]string{
+		{"--theme", "--lang", "fr", "meta.discourse.org"},
+		{"--theme="},
+	} {
+		if _, err := parseArgs(argv); err == nil || !strings.Contains(err.Error(), "--theme requires a value") {
+			t.Fatalf("parseArgs(%q) error = %v", argv, err)
+		}
+	}
+}
+
 func TestParseThemesCommandWithOptionalName(t *testing.T) {
 	options, err := parseArgs([]string{"themes", "hacker"})
 	if err != nil || options.command != "themes" || options.theme != "hacker" {

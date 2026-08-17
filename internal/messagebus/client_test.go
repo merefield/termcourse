@@ -1,8 +1,13 @@
 package messagebus
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 func TestSplitChunks(t *testing.T) {
@@ -29,5 +34,28 @@ func TestNotifyUpdatesPositionAndCallsCallback(t *testing.T) {
 	}
 	if !called || client.Positions()["/latest"] != 7 {
 		t.Fatalf("called=%v positions=%v", called, client.Positions())
+	}
+}
+
+func TestPollHonorsReadTimeout(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.WriteHeader(http.StatusOK)
+		if flusher, ok := writer.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		<-request.Context().Done()
+	}))
+	defer server.Close()
+
+	client := New(server.URL, nil)
+	client.OpenTimeout = 20 * time.Millisecond
+	client.ReadTimeout = 40 * time.Millisecond
+	started := time.Now()
+	err := client.poll(context.Background())
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("poll error = %v, want context deadline exceeded", err)
+	}
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("poll took %v despite configured timeout", elapsed)
 	}
 }
