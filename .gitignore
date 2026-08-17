@@ -1,4 +1,6 @@
-# Local secrets/config
-.env
-credentials.yml
-theme.yml
+/termcourse
+/.env
+/credentials.yml
+/theme.yml
+*.test
+coverage.out
