@@ -185,6 +185,57 @@ func TestTabRailsStayCompleteAndResponsive(t *testing.T) {
 	}
 }
 
+func TestControlsFooterIsResponsiveAndMouseClickable(t *testing.T) {
+	value := "arrows: move | ↵, 1-0: open | f: filter | g: refresh | q: quit"
+	for _, width := range []int{20, 40, 100} {
+		controls := layoutControls(value, width)
+		if len(controls) != 5 {
+			t.Fatalf("width %d rendered %d controls, want 5: %#v", width, len(controls), controls)
+		}
+		for _, control := range controls {
+			if control.x < 0 || control.x+control.width > width {
+				t.Fatalf("width %d control has invalid geometry: %#v", width, control)
+			}
+		}
+	}
+
+	u := &UI{style: NewStyle(testTheme(), &bytes.Buffer{}), mouseEnabled: true}
+	screen := make([]string, 8)
+	u.placeControlsFooter(screen, value, 100)
+	if !strings.Contains(stripANSI(screen[7]), "(F) FILTER") {
+		t.Fatalf("full footer did not render button labels: %q", stripANSI(screen[7]))
+	}
+	wanted := map[string]bool{"enter": false, "f": false, "g": false, "q": false}
+	for _, region := range u.mouseRegions {
+		if _, ok := wanted[region.key]; !ok {
+			continue
+		}
+		if key := u.mouseKey(tea.MouseClickMsg{X: region.x0, Y: region.y0, Button: tea.MouseLeft}); key != region.key {
+			t.Fatalf("footer region %q produced %q", region.key, key)
+		}
+		wanted[region.key] = true
+	}
+	for key, found := range wanted {
+		if !found {
+			t.Fatalf("footer button %q was not clickable: %#v", key, u.mouseRegions)
+		}
+	}
+}
+
+func TestTabsAndControlsUseThemeStructuralColour(t *testing.T) {
+	t.Setenv("TERMCOURSE_COLOR_MODE", "truecolor")
+	style := NewStyle(testTheme(), &bytes.Buffer{})
+	if style.tab.GetForeground() != style.border.GetForeground() {
+		t.Fatalf("tab foreground %v does not use structural theme colour %v", style.tab.GetForeground(), style.border.GetForeground())
+	}
+	if style.tabActive.GetBackground() != style.border.GetForeground() {
+		t.Fatalf("active tab background %v does not use structural theme colour %v", style.tabActive.GetBackground(), style.border.GetForeground())
+	}
+	if style.control.GetForeground() != style.border.GetForeground() {
+		t.Fatalf("control foreground %v does not use structural theme colour %v", style.control.GetForeground(), style.border.GetForeground())
+	}
+}
+
 func TestNavigationTabsRenderAndHitTestFromSameGeometry(t *testing.T) {
 	t.Setenv("TERMCOURSE_COLOR_MODE", "truecolor")
 	style := NewStyle(testTheme(), &bytes.Buffer{})

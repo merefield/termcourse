@@ -145,16 +145,16 @@ func layoutTabRail(specs []tabSpec, width int) tabRail {
 func (s *Style) renderTabRail(rail tabRail) string {
 	parts := make([]string, 0, len(rail.tabs))
 	for _, tab := range rail.tabs {
-		style := s.roles[roleSeparator]
+		style := s.tab
 		if !tab.enabled {
 			style = s.roles[roleListMeta]
 		}
 		if tab.selected {
-			style = s.selected.Bold(true)
+			style = s.tabActive
 		}
 		parts = append(parts, style.Render(tab.label))
 	}
-	return strings.Join(parts, s.roles[roleSeparator].Render(rail.separator))
+	return strings.Join(parts, s.tab.Render(rail.separator))
 }
 
 type mouseRegion struct {

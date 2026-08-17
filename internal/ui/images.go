@@ -522,13 +522,14 @@ func (u *UI) fullscreenImage(imageURL string) {
 	}
 	if backend == "chafa" && u.detectSixel() {
 		header := u.imageScreenHeader(width, height)
-		available := max(height-len(header), 1)
-		if payload, nativeErr := u.renderNativeImage(imageURL, width, available, u.nativePixelViewport(height, len(header))); nativeErr == nil && len(payload) > 0 {
+		available := max(height-len(header)-1, 1)
+		if payload, nativeErr := u.renderNativeImage(imageURL, width, available, u.nativePixelViewport(height, len(header)+1)); nativeErr == nil && len(payload) > 0 {
 			// Keep Bubble Tea's current model intact while the raw Sixel payload
 			// owns the image rows beneath the persistent managed navigation.
 			defer u.renderer.Reset()
 			screen := make([]string, height)
 			copy(screen, header)
+			u.placeControlsFooter(screen, u.t("ui.controls.fullscreen_image"), width)
 			u.renderer.Render(screen, width, height, "fullscreen-image-sixel", -1, -1, true)
 			u.terminal.Raw(xansi.HideCursor + xansi.CursorPosition(len(header)+1, 1) + string(payload) + xansi.HideCursor)
 			for {
@@ -540,7 +541,7 @@ func (u *UI) fullscreenImage(imageURL string) {
 		}
 	}
 	header := u.imageScreenHeader(width, height)
-	available := max(height-len(header), 1)
+	available := max(height-len(header)-1, 1)
 	rendered, err := u.renderImage(imageURL, backend, width, available, false, false)
 	if err != nil {
 		u.showError(err)
@@ -559,6 +560,7 @@ func (u *UI) fullscreenImage(imageURL string) {
 			screen[y] = strings.Repeat(" ", padding) + rendered[index]
 		}
 	}
+	u.placeControlsFooter(screen, u.t("ui.controls.fullscreen_image"), width)
 	u.renderer.Render(screen, width, height, "fullscreen-image", -1, -1, true)
 	for {
 		key, err := u.readKey(u.tick)
@@ -572,7 +574,7 @@ func (u *UI) fullscreenKittyImage(imageURL string) bool {
 	for {
 		width, height := u.terminal.Size()
 		header := u.imageScreenHeader(width, height)
-		available := max(height-len(header), 1)
+		available := max(height-len(header)-1, 1)
 		rendered, err := u.renderKittyImage(imageURL, width, available)
 		if err != nil || len(rendered) == 0 {
 			if err != nil {
@@ -589,6 +591,7 @@ func (u *UI) fullscreenKittyImage(imageURL string) bool {
 				screen[y] = strings.Repeat(" ", padding) + rendered[index]
 			}
 		}
+		u.placeControlsFooter(screen, u.t("ui.controls.fullscreen_image"), width)
 		u.renderer.Render(screen, width, height, "fullscreen-image-kitty", -1, -1, true)
 		for {
 			key, readErr := u.readKey(u.tick)
@@ -604,13 +607,7 @@ func (u *UI) fullscreenKittyImage(imageURL string) bool {
 }
 
 func (u *UI) imageScreenHeader(width, height int) []string {
-	header := u.navigationHeader(u.t("ui.status.image"), u.activePrimary, "", "", "", []string{
-		u.t("ui.controls.fullscreen_image"),
-	}, width, height)
-	if len(header) >= 2 {
-		u.addMouseRegion(0, len(header)-2, width, 1, "x")
-	}
-	return header
+	return u.navigationHeader(u.t("ui.status.image"), u.activePrimary, "", "", "", nil, width, height)
 }
 
 func (u *UI) leaveImageForKey(key string) bool {

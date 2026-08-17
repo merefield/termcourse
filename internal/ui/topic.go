@@ -151,10 +151,11 @@ func (u *UI) renderTopic(topic discourse.JSON, all []discourse.JSON, selected, s
 		meta += " · " + category
 	}
 	header := u.navigationHeader(title, origin, "", "", "", []string{
-		headerLine(controls, meta, innerWidth),
+		headerLine("", meta, innerWidth),
 	}, width, height)
-	footer := u.progressFooter(len(all), selected, width)
-	available := max(height-len(header)-len(footer), 1)
+	progress := u.progressFooter(len(all), selected, width)
+	footerRows := len(progress) + 1
+	available := max(height-len(header)-footerRows, 1)
 	body, postIndexes := u.postListLines(all, selected, scroll, available, width)
 	screen := make([]string, height)
 	copy(screen, header)
@@ -168,7 +169,8 @@ func (u *UI) renderTopic(topic discourse.JSON, all []discourse.JSON, selected, s
 			u.addMouseRegion(0, y, width, 1, rowKey(postIndexes[index]))
 		}
 	}
-	copy(screen[max(height-len(footer), 0):], footer)
+	copy(screen[max(height-footerRows, 0):], progress)
+	u.placeControlsFooter(screen, controls, width)
 	u.renderer.SetProgress(min(selected+1, len(all)), len(all))
 	u.renderer.Render(screen, width, height, "topic-"+formatCount(topic["id"]), -1, -1, force)
 }

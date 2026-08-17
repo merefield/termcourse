@@ -344,7 +344,7 @@ func (u *UI) renderTopicList(topics []discourse.JSON, selected int, filter, peri
 	if loading {
 		status += " · " + u.t("ui.status.loading_more")
 	}
-	header := u.navigationHeader(status, primaryTopics, "topics", filter, period, []string{controls}, width, height)
+	header := u.navigationHeader(status, primaryTopics, "topics", filter, period, nil, width, height)
 	screen := make([]string, height)
 	copy(screen, header)
 	startRow := len(header) + 1
@@ -352,6 +352,7 @@ func (u *UI) renderTopicList(topics []discourse.JSON, selected int, filter, peri
 		if startRow >= 0 && startRow < height-1 {
 			screen[startRow] = u.t("ui.empty.topics")
 		}
+		u.placeControlsFooter(screen, controls, width)
 		u.renderer.Render(screen, width, height, "topic-list-"+filter+"-"+period, -1, -1, false)
 		return
 	}
@@ -367,6 +368,7 @@ func (u *UI) renderTopicList(topics []discourse.JSON, selected int, filter, peri
 	}
 	rows := max(height-startRow-1, 0)
 	if rows == 0 {
+		u.placeControlsFooter(screen, controls, width)
 		u.renderer.Render(screen, width, height, "topic-list-"+filter+"-"+period+"-"+mode, -1, -1, false)
 		return
 	}
@@ -380,6 +382,7 @@ func (u *UI) renderTopicList(topics []discourse.JSON, selected int, filter, peri
 		screen[startRow+index-start] = line
 		u.addMouseRegion(0, startRow+index-start, width, 1, rowKey(index))
 	}
+	u.placeControlsFooter(screen, controls, width)
 	u.renderer.Render(screen, width, height, "topic-list-"+filter+"-"+period+"-"+mode, -1, -1, false)
 }
 

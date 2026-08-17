@@ -43,8 +43,10 @@ es:
       fullscreen_image: "x/esc: volver"
       search_results: "flechas: mover | ↵: abrir | esc: volver | q: salir"
       notifications: "flechas: mover | ↵: abrir | f: filtro | esc: volver | q: salir"
-      category_picker: "Use las flechas, Enter para seleccionar, Esc para cancelar"
-      composer: "Caracteres: %{status} | Flechas: mover | Finalizar: Ctrl+D | Nueva línea: Enter | Cancelar: Esc"
+      category_picker: "flechas: mover | enter: seleccionar | esc: cancelar"
+      composer: "caracteres: %{status} | flechas: mover | ctrl+d: finalizar | enter: nueva línea | esc: cancelar"
+      continue: "enter: continuar"
+      single_line: "enter: continuar | esc: cancelar"
     status:
       topic_list: "Lista de temas: %{filter}"
       topic_list_with_period: "Lista de temas: %{filter} (%{period})"
@@ -80,7 +82,7 @@ es:
       new_topic_title: "Tema nuevo"
       new_topic_body: "Tema nuevo: %{title}"
       select_category: "Seleccionar categoría"
-      enter_title: "Introduzca el título y pulse Enter"
+      enter_title: "Introduzca un título"
       title_prompt: "Título: %{buffer}"
       search_prompt: "Buscar: %{buffer}"
       no_category_option: "Sin categoría"
@@ -96,7 +98,7 @@ es:
         query: "Consulta"
         results: "Resultados"
       title: "Buscar"
-      prompt: "Escriba la consulta y pulse Enter"
+      prompt: "Escriba una consulta"
       topic_fallback: "Tema %{id}"
     notifications:
       columns:
@@ -139,7 +141,6 @@ es:
         none: "-"
     errors:
       title: "Error"
-      continue: "Pulse cualquier tecla para continuar..."
       rate_limit_retry: "Nuevo intento disponible en %{duration} (a las %{time})."
       rate_limit_retry_server: "Nuevo intento disponible en %{duration}."
       rate_limit_retry_now: "El servidor indica que puede volver a intentarlo ahora."

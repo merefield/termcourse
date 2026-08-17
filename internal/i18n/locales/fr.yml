@@ -43,8 +43,10 @@ fr:
       fullscreen_image: "x/esc: retour"
       search_results: "flèches: déplacer | ↵: ouvrir | esc: retour | q: quitter"
       notifications: "flèches: déplacer | ↵: ouvrir | f: filtre | esc: retour | q: quitter"
-      category_picker: "Utilisez les flèches, Entrée pour choisir, Esc pour annuler"
-      composer: "Caract.: %{status} | Flèches: déplacer | Terminer: Ctrl+D | Nouvelle ligne: Entrée | Annuler: Esc"
+      category_picker: "flèches: déplacer | entrée: choisir | esc: annuler"
+      composer: "caract.: %{status} | flèches: déplacer | ctrl+d: terminer | entrée: nouvelle ligne | esc: annuler"
+      continue: "entrée: continuer"
+      single_line: "entrée: valider | esc: annuler"
     status:
       topic_list: "Liste des sujets : %{filter}"
       topic_list_with_period: "Liste des sujets : %{filter} (%{period})"
@@ -80,7 +82,7 @@ fr:
       new_topic_title: "Nouveau sujet"
       new_topic_body: "Nouveau sujet : %{title}"
       select_category: "Choisir une catégorie"
-      enter_title: "Entrez un titre puis appuyez sur Entrée"
+      enter_title: "Saisissez un titre"
       title_prompt: "Titre : %{buffer}"
       search_prompt: "Recherche : %{buffer}"
       no_category_option: "Aucune catégorie"
@@ -96,7 +98,7 @@ fr:
         query: "Requête"
         results: "Résultats"
       title: "Recherche"
-      prompt: "Saisissez une requête puis appuyez sur Entrée"
+      prompt: "Saisissez une requête"
       topic_fallback: "Sujet %{id}"
     notifications:
       columns:
@@ -139,7 +141,6 @@ fr:
         none: "-"
     errors:
       title: "Erreur"
-      continue: "Appuyez sur une touche pour continuer..."
       rate_limit_retry: "Nouvelle tentative possible dans %{duration} (à %{time})."
       rate_limit_retry_server: "Nouvelle tentative possible dans %{duration}."
       rate_limit_retry_now: "Le serveur indique que vous pouvez réessayer maintenant."

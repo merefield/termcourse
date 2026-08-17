@@ -33,6 +33,7 @@ func (u *UI) promptSingleLine(titleKey, promptKey, prefix string, active primary
 		copy(screen, header)
 		row := min(len(header)+1, height-1)
 		screen[row] = input.View()
+		u.placeControlsFooter(screen, u.t("ui.controls.single_line"), width)
 		u.renderer.Render(screen, width, height, "single-line-"+titleKey, -1, -1, false)
 		msg, err := u.terminal.ReadMsg(u.tick)
 		if err != nil {
@@ -56,12 +57,19 @@ func (u *UI) promptSingleLine(titleKey, promptKey, prefix string, active primary
 			}
 		}
 		if mouse, ok := msg.(tea.MouseMsg); ok {
-			if tab, found := parsePrimaryTabKey(u.mouseKey(mouse)); found {
+			mouseKey := u.mouseKey(mouse)
+			if tab, found := parsePrimaryTabKey(mouseKey); found {
 				if tab != active {
 					u.requestPrimary(tab)
 					return ""
 				}
 				continue
+			}
+			switch mouseKey {
+			case "enter":
+				return strings.TrimSpace(input.Value())
+			case "esc":
+				return ""
 			}
 		}
 		var cmd tea.Cmd
@@ -86,20 +94,27 @@ func (u *UI) compose(title string, context []string, category, variant string) s
 		if err != nil {
 			return ""
 		}
+		keyName := ""
 		if key, ok := msg.(tea.KeyPressMsg); ok {
-			switch key.String() {
-			case "ctrl+d":
-				value := strings.TrimSpace(area.Value())
-				if len([]rune(value)) >= minLength {
-					return area.Value()
-				}
-				u.renderComposer(title, &area, minLength, context, category, variant, u.t("ui.composer.retry"))
-				_, _ = u.terminal.ReadMsg(24 * time.Hour)
-				area.SetValue("")
-				continue
-			case "esc":
-				return ""
+			keyName = key.String()
+		} else if mouse, ok := msg.(tea.MouseMsg); ok {
+			keyName = u.mouseKey(mouse)
+			if keyName == "enter" {
+				msg = tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter})
 			}
+		}
+		switch keyName {
+		case "ctrl+d":
+			value := strings.TrimSpace(area.Value())
+			if len([]rune(value)) >= minLength {
+				return area.Value()
+			}
+			u.renderComposer(title, &area, minLength, context, category, variant, u.t("ui.composer.retry"))
+			_, _ = u.terminal.ReadMsg(24 * time.Hour)
+			area.SetValue("")
+			continue
+		case "esc":
+			return ""
 		}
 		var cmd tea.Cmd
 		area, cmd = area.Update(msg)
@@ -117,7 +132,9 @@ func (u *UI) renderComposer(title string, area *textarea.Model, minLength int, c
 		lines = append(lines, context...)
 		lines = append(lines, strings.Repeat("-", inner))
 	}
-	lines = append(lines, headerLine(status, category, inner))
+	if category != "" {
+		lines = append(lines, headerLine("", category, inner))
+	}
 	header := u.navigationHeader(u.t("ui.composer.compose")+" "+title, primaryCompose, "compose", variant, "", lines, width, height)
 	screen := make([]string, height)
 	copy(screen, header)
@@ -131,9 +148,10 @@ func (u *UI) renderComposer(title string, area *textarea.Model, minLength int, c
 		}
 	}
 	if notice != "" {
-		row := min(start+len(inputLines)+1, height-1)
+		row := min(start+len(inputLines)+1, max(height-2, 0))
 		screen[row] = u.style.Text(notice, roleAccent)
 	}
+	u.placeControlsFooter(screen, status, width)
 	u.renderer.Render(screen, width, height, "composer-"+title, -1, -1, false)
 }
 
@@ -205,7 +223,8 @@ func (u *UI) pickCategory() (*int, string) {
 	selected := defaultIndex
 	for {
 		width, height := u.terminal.Size()
-		header := u.navigationHeader(u.t("ui.composer.select_category"), primaryCompose, "compose", "category", "", []string{u.t("ui.controls.category_picker")}, width, height)
+		controls := u.t("ui.controls.category_picker")
+		header := u.navigationHeader(u.t("ui.composer.select_category"), primaryCompose, "compose", "category", "", nil, width, height)
 		screen := make([]string, height)
 		copy(screen, header)
 		rows := max(height-len(header)-1, 0)
@@ -222,6 +241,7 @@ func (u *UI) pickCategory() (*int, string) {
 			screen[y] = line
 			u.addMouseRegion(0, y, width, 1, rowKey(index))
 		}
+		u.placeControlsFooter(screen, controls, width)
 		u.renderer.Render(screen, width, height, "category-picker", -1, -1, false)
 		key, err := u.readKey(u.tick)
 		if err != nil {

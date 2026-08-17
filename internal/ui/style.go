@@ -39,6 +39,9 @@ type Style struct {
 	brand     lipgloss.Style
 	label     lipgloss.Style
 	liked     lipgloss.Style
+	tab       lipgloss.Style
+	tabActive lipgloss.Style
+	control   lipgloss.Style
 }
 
 func NewStyle(value theme.Theme, output io.Writer) *Style {
@@ -61,6 +64,9 @@ func NewStyle(value theme.Theme, output io.Writer) *Style {
 	result.brand = result.makeStyle(value.Primary, "").Bold(true)
 	result.label = result.makeStyle(value.Accent, "").Bold(true)
 	result.liked = result.makeStyle(theme.Color("red"), "").Bold(true)
+	result.tab = result.makeStyle(value.Border, "")
+	result.tabActive = result.makeStyle(value.Primary, value.Border).Bold(true)
+	result.control = result.makeStyle(value.Border, "").Bold(true)
 	return result
 }
 
@@ -269,7 +275,7 @@ func WriteThemePreviews(output io.Writer, themes []theme.Theme) {
 			headerLine(style.renderTabRail(primary), "member", 52),
 			style.renderTabRail(filters),
 		)
-		header = append(header, style.HeaderBox("Latest", []string{"arrows: move · enter: open · q: quit"}, 52)...)
+		header = append(header, style.HeaderBox("Latest", nil, 52)...)
 		for _, line := range header {
 			fmt.Fprintln(output, line)
 		}
@@ -279,5 +285,6 @@ func WriteThemePreviews(output io.Writer, themes []theme.Theme) {
 		for _, line := range style.ProgressBox("Read Progress", 3, 5, 52) {
 			fmt.Fprintln(output, line)
 		}
+		fmt.Fprintln(output, style.control.Render("[ (F) FILTER ]  [ (G) REFRESH ]  [ (Q) QUIT ]"))
 	}
 }

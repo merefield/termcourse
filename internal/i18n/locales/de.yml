@@ -43,8 +43,10 @@ de:
       fullscreen_image: "x/esc: zurück"
       search_results: "Pfeile: bewegen | ↵: öffnen | esc: zurück | q: beenden"
       notifications: "Pfeile: bewegen | ↵: öffnen | f: filter | esc: zurück | q: beenden"
-      category_picker: "Pfeile verwenden, Enter zum Auswählen, Esc zum Abbrechen"
-      composer: "Zeichen: %{status} | Pfeile: bewegen | Fertig: Ctrl+D | Neue Zeile: Enter | Abbrechen: Esc"
+      category_picker: "Pfeile: bewegen | Enter: auswählen | Esc: abbrechen"
+      composer: "Zeichen: %{status} | Pfeile: bewegen | Ctrl+D: fertig | Enter: neue Zeile | Esc: abbrechen"
+      continue: "Enter: weiter"
+      single_line: "Enter: weiter | Esc: abbrechen"
     status:
       topic_list: "Themenliste: %{filter}"
       topic_list_with_period: "Themenliste: %{filter} (%{period})"
@@ -80,7 +82,7 @@ de:
       new_topic_title: "Neues Thema"
       new_topic_body: "Neues Thema: %{title}"
       select_category: "Kategorie auswählen"
-      enter_title: "Titel eingeben und Enter drücken"
+      enter_title: "Titel eingeben"
       title_prompt: "Titel: %{buffer}"
       search_prompt: "Suche: %{buffer}"
       no_category_option: "Keine Kategorie"
@@ -96,7 +98,7 @@ de:
         query: "Abfrage"
         results: "Ergebnisse"
       title: "Suche"
-      prompt: "Suchbegriff eingeben und Enter drücken"
+      prompt: "Suchbegriff eingeben"
       topic_fallback: "Thema %{id}"
     notifications:
       columns:
@@ -139,7 +141,6 @@ de:
         none: "-"
     errors:
       title: "Fehler"
-      continue: "Beliebige Taste drücken, um fortzufahren..."
       rate_limit_retry: "Erneuter Versuch in %{duration} möglich (um %{time})."
       rate_limit_retry_server: "Erneuter Versuch in %{duration} möglich."
       rate_limit_retry_now: "Der Server meldet, dass Sie es jetzt erneut versuchen können."

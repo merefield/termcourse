@@ -103,7 +103,7 @@ func (u *UI) renderSearch(query string, results []discourse.JSON, topics map[int
 	controls := u.t("ui.controls.search_results")
 	header := u.navigationHeader(
 		u.t("ui.status.search", "query", truncate(query, max(width-4, 1))),
-		primarySearch, "search", "results", "", []string{controls}, width, height,
+		primarySearch, "search", "results", "", nil, width, height,
 	)
 	screen := make([]string, height)
 	copy(screen, header)
@@ -112,11 +112,13 @@ func (u *UI) renderSearch(query string, results []discourse.JSON, topics map[int
 		if height > 1 {
 			screen[min(startRow, height-2)] = u.t("ui.empty.results")
 		}
+		u.placeControlsFooter(screen, controls, width)
 		u.renderer.Render(screen, width, height, "search-"+query, -1, -1, false)
 		return
 	}
 	rows := max(height-startRow-1, 0)
 	if rows == 0 {
+		u.placeControlsFooter(screen, controls, width)
 		u.renderer.Render(screen, width, height, "search-"+query, -1, -1, false)
 		return
 	}
@@ -135,6 +137,7 @@ func (u *UI) renderSearch(query string, results []discourse.JSON, topics map[int
 		screen[startRow+index-start] = line
 		u.addMouseRegion(0, startRow+index-start, width, 1, rowKey(index))
 	}
+	u.placeControlsFooter(screen, controls, width)
 	u.renderer.Render(screen, width, height, "search-"+query, -1, -1, false)
 }
 
@@ -247,7 +250,7 @@ func (u *UI) renderNotifications(notifications []discourse.JSON, selected int, f
 		status += " · " + u.t("ui.status.loading_more")
 	}
 	controls := u.t("ui.controls.notifications")
-	header := u.navigationHeader(status, primaryNotifications, "notifications", filter, "", []string{controls}, width, height)
+	header := u.navigationHeader(status, primaryNotifications, "notifications", filter, "", nil, width, height)
 	screen := make([]string, height)
 	copy(screen, header)
 	startRow := len(header) + 1
@@ -255,12 +258,14 @@ func (u *UI) renderNotifications(notifications []discourse.JSON, selected int, f
 		if height > 1 {
 			screen[min(startRow, height-2)] = u.t("ui.empty.notifications")
 		}
+		u.placeControlsFooter(screen, controls, width)
 		u.renderer.Render(screen, width, height, "notifications-"+filter, -1, -1, false)
 		return
 	}
 	userWidth, typeWidth, timeWidth := min(max(width*18/100, 12), 20), min(max(width*14/100, 10), 14), 6
 	titleWidth := max(width-userWidth-typeWidth-timeWidth-7, 12)
 	if startRow >= height-1 {
+		u.placeControlsFooter(screen, controls, width)
 		u.renderer.Render(screen, width, height, "notifications-"+filter, -1, -1, false)
 		return
 	}
@@ -273,6 +278,7 @@ func (u *UI) renderNotifications(notifications []discourse.JSON, selected int, f
 	startRow++
 	rows := max(height-startRow-1, 0)
 	if rows == 0 {
+		u.placeControlsFooter(screen, controls, width)
 		u.renderer.Render(screen, width, height, "notifications-"+filter, -1, -1, false)
 		return
 	}
@@ -295,6 +301,7 @@ func (u *UI) renderNotifications(notifications []discourse.JSON, selected int, f
 		screen[startRow+index-start] = line
 		u.addMouseRegion(0, startRow+index-start, width, 1, rowKey(index))
 	}
+	u.placeControlsFooter(screen, controls, width)
 	u.renderer.Render(screen, width, height, "notifications-"+filter, -1, -1, false)
 }
 

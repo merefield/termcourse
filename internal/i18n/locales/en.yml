@@ -43,8 +43,10 @@ en:
       fullscreen_image: "x/esc: back"
       search_results: "arrows: move | ↵: open | esc: back | q: quit"
       notifications: "arrows: move | ↵: open | f: filter | esc: back | q: quit"
-      category_picker: "Use arrows, Enter to select, Esc to cancel"
-      composer: "Chars: %{status} | Arrows: move | Finish: Ctrl+D | New line: Enter | Cancel: Esc"
+      category_picker: "arrows: move | enter: select | esc: cancel"
+      composer: "count: %{status} | arrows: move | ctrl+d: finish | enter: new line | esc: cancel"
+      continue: "enter: continue"
+      single_line: "enter: continue | esc: cancel"
     status:
       topic_list: "Topic List: %{filter}"
       topic_list_with_period: "Topic List: %{filter} (%{period})"
@@ -80,7 +82,7 @@ en:
       new_topic_title: "New Topic"
       new_topic_body: "New Topic: %{title}"
       select_category: "Select Category"
-      enter_title: "Enter title and press Enter"
+      enter_title: "Enter a title"
       title_prompt: "Title: %{buffer}"
       search_prompt: "Search: %{buffer}"
       no_category_option: "No category"
@@ -96,7 +98,7 @@ en:
         query: "Query"
         results: "Results"
       title: "Search"
-      prompt: "Type query and press Enter"
+      prompt: "Type a query"
       topic_fallback: "Topic %{id}"
     notifications:
       columns:
@@ -139,7 +141,6 @@ en:
         none: "-"
     errors:
       title: "Error"
-      continue: "Press any key to continue..."
       rate_limit_retry: "Retry available in %{duration} (at %{time})."
       rate_limit_retry_server: "Retry available in %{duration}."
       rate_limit_retry_now: "The server reports that you can retry now."
