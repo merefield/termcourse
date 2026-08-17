@@ -231,7 +231,7 @@ func (u *UI) primarySpecs(active primaryTabID) []tabSpec {
 		incoming = u.live.IncomingCount()
 	}
 	enabled := func(tab primaryTabID, available bool) bool {
-		return available && (!u.navigationLocked || tab == active)
+		return available && (!u.navigationLocked || u.primaryNavAllowed || tab == active)
 	}
 	return []tabSpec{
 		{id: primaryTabKey(primaryTopics), label: u.t("ui.tabs.topics"), short: "TPS", micro: "T", badge: incoming, selected: active == primaryTopics, enabled: enabled(primaryTopics, true)},

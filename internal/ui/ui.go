@@ -95,6 +95,7 @@ type UI struct {
 	activeContextValue string
 	activePeriod       string
 	navigationLocked   bool
+	primaryNavAllowed  bool
 }
 
 func New(client Client, options Options) *UI {

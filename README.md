@@ -146,7 +146,7 @@ Global navigation:
 - Click a post or row to select it; click a selected list row again to open it.
 - The mouse wheel moves through lists and scrolls the expanded post body.
 - Hold the terminal's mouse-bypass modifier (commonly Shift) for text selection, or set `TERMCOURSE_MOUSE=0`.
-- Navigation is visibly locked while editing text so an accidental click cannot discard a draft or query.
+- Navigation is visibly locked while editing topic titles and post bodies so an accidental click cannot discard a draft; the transient search query remains navigable.
 
 Topic list:
 

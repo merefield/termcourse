@@ -325,6 +325,58 @@ func TestTabKeyboardAndMouseWheelUseUnifiedInput(t *testing.T) {
 	}
 }
 
+func TestSearchPromptAllowsPrimaryTabNavigation(t *testing.T) {
+	terminal := NewTerminal(nil, &bytes.Buffer{})
+	terminal.state.width.Store(88)
+	terminal.state.height.Store(24)
+	u := &UI{
+		terminal: terminal, renderer: NewScreenRenderer(terminal), style: NewStyle(testTheme(), &bytes.Buffer{}),
+		locale: "en", activePrimary: primarySearch, mouseEnabled: true,
+	}
+	terminal.state.inputs <- terminalInput{msg: tea.KeyPressMsg(tea.Key{Code: tea.KeyTab})}
+	if query := u.promptSingleLine("ui.search.title", "ui.search.prompt", "Search: ", primarySearch, "search", "query"); query != "" {
+		t.Fatalf("search query = %q, want navigation", query)
+	}
+	if u.requestedPrimary == nil || *u.requestedPrimary != primaryNotifications {
+		t.Fatalf("requested primary = %v, want Notifications", u.requestedPrimary)
+	}
+	if u.navigationLocked || u.primaryNavAllowed {
+		t.Fatalf("prompt navigation state was not restored: locked=%v allowed=%v", u.navigationLocked, u.primaryNavAllowed)
+	}
+}
+
+func TestBlankDraftTitlePromptAllowsPrimaryTabNavigation(t *testing.T) {
+	terminal := NewTerminal(nil, &bytes.Buffer{})
+	terminal.state.width.Store(88)
+	terminal.state.height.Store(24)
+	u := &UI{
+		terminal: terminal, renderer: NewScreenRenderer(terminal), style: NewStyle(testTheme(), &bytes.Buffer{}),
+		locale: "en", activePrimary: primaryCompose, mouseEnabled: true,
+	}
+	terminal.state.inputs <- terminalInput{msg: tea.KeyPressMsg(tea.Key{Code: tea.KeyTab})}
+	u.promptSingleLine("ui.composer.new_topic_title", "ui.composer.enter_title", "Title: ", primaryCompose, "compose", "title")
+	if u.requestedPrimary == nil || *u.requestedPrimary != primaryTopics {
+		t.Fatalf("blank Compose prompt did not wrap navigation to Topics: %v", u.requestedPrimary)
+	}
+}
+
+func TestEnteredDraftTitlePromptKeepsPrimaryNavigationLocked(t *testing.T) {
+	terminal := NewTerminal(nil, &bytes.Buffer{})
+	terminal.state.width.Store(88)
+	terminal.state.height.Store(24)
+	u := &UI{
+		terminal: terminal, renderer: NewScreenRenderer(terminal), style: NewStyle(testTheme(), &bytes.Buffer{}),
+		locale: "en", activePrimary: primaryCompose, mouseEnabled: true,
+	}
+	terminal.state.inputs <- terminalInput{msg: tea.KeyPressMsg(tea.Key{Code: 'D', Text: "D"})}
+	terminal.state.inputs <- terminalInput{msg: tea.KeyPressMsg(tea.Key{Code: tea.KeyTab})}
+	terminal.state.inputs <- terminalInput{msg: tea.KeyPressMsg(tea.Key{Code: tea.KeyEscape})}
+	u.promptSingleLine("ui.composer.new_topic_title", "ui.composer.enter_title", "Title: ", primaryCompose, "compose", "title")
+	if u.requestedPrimary != nil {
+		t.Fatalf("entered draft title allowed primary navigation to %v", *u.requestedPrimary)
+	}
+}
+
 func TestPostRenderingRetainsMouseSelectionGeometry(t *testing.T) {
 	u := &UI{style: NewStyle(testTheme(), &bytes.Buffer{}), locale: "en"}
 	posts := []discourse.JSON{

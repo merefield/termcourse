@@ -13,13 +13,19 @@ import (
 )
 
 func (u *UI) promptSingleLine(titleKey, promptKey, prefix string, active primaryTabID, context, selected string) string {
+	previousLock, previousPrimaryNav := u.navigationLocked, u.primaryNavAllowed
 	u.navigationLocked = true
-	defer func() { u.navigationLocked = false }()
+	u.primaryNavAllowed = active == primarySearch || active == primaryCompose
+	defer func() {
+		u.navigationLocked = previousLock
+		u.primaryNavAllowed = previousPrimaryNav
+	}()
 	input := textinput.New()
 	input.Prompt = prefix
 	u.styleTextInput(&input)
 	u.terminal.Run(input.Focus())
 	for {
+		u.primaryNavAllowed = active == primarySearch || (active == primaryCompose && strings.TrimSpace(input.Value()) == "")
 		width, height := u.terminal.Size()
 		input.SetWidth(max(width, 1))
 		header := u.navigationHeader(u.t(titleKey), active, context, selected, "", []string{u.t(promptKey)}, width, height)
@@ -33,11 +39,29 @@ func (u *UI) promptSingleLine(titleKey, promptKey, prefix string, active primary
 			return ""
 		}
 		if key, ok := msg.(tea.KeyPressMsg); ok {
-			switch key.String() {
+			keyName := key.String()
+			if u.primaryNavAllowed && keyName == "tab" {
+				u.requestPrimary(u.nextEnabledPrimary(false))
+				return ""
+			}
+			if u.primaryNavAllowed && keyName == "shift+tab" {
+				u.requestPrimary(u.nextEnabledPrimary(true))
+				return ""
+			}
+			switch keyName {
 			case "enter":
 				return strings.TrimSpace(input.Value())
 			case "ctrl+d", "esc":
 				return ""
+			}
+		}
+		if mouse, ok := msg.(tea.MouseMsg); ok {
+			if tab, found := parsePrimaryTabKey(u.mouseKey(mouse)); found {
+				if tab != active {
+					u.requestPrimary(tab)
+					return ""
+				}
+				continue
 			}
 		}
 		var cmd tea.Cmd
