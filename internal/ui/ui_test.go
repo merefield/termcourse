@@ -770,6 +770,22 @@ func TestTopicProgressUsesCompletePostStream(t *testing.T) {
 	}
 }
 
+func TestTopicListResultPreservesUnreadResumePositionWithChunkedLoading(t *testing.T) {
+	result := topicListResult(discourse.JSON{
+		"id": 42, "last_read_post_number": 60, "highest_post_number": 100,
+	})
+	if result.id != 42 || result.post != 61 {
+		t.Fatalf("topic result = %#v, want topic 42 near post 61", result)
+	}
+
+	result = topicListResult(discourse.JSON{
+		"id": 42, "last_read_post_number": 100, "highest_post_number": 100,
+	})
+	if result.post != 100 {
+		t.Fatalf("fully-read topic resumes at %d, want 100", result.post)
+	}
+}
+
 type topicProgressClient struct {
 	Client
 	topicID    int

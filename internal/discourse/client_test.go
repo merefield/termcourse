@@ -27,6 +27,32 @@ func TestClientListEndpointsAndHeaders(t *testing.T) {
 	}
 }
 
+func TestTopicUsesStandardChunkedJSONRequest(t *testing.T) {
+	var requests []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, r.URL.RequestURI())
+		_, _ = io.WriteString(w, `{"post_stream":{"posts":[],"stream":[]}}`)
+	}))
+	defer server.Close()
+	client, _ := NewClient(server.URL, "", "")
+
+	if _, err := client.Topic(42, 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Topic(42, 73); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"/t/42.json?include_raw=true", "/t/42/73.json?include_raw=true"}
+	if len(requests) != len(want) {
+		t.Fatalf("requests = %#v, want %#v", requests, want)
+	}
+	for index := range want {
+		if requests[index] != want[index] || strings.Contains(requests[index], "print=") {
+			t.Fatalf("request %d = %q, want %q without print mode", index, requests[index], want[index])
+		}
+	}
+}
+
 func TestLoginCSRFAndCookieHeaders(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {

@@ -231,7 +231,7 @@ func (c *Client) Topic(id int, nearPost int) (JSON, error) {
 	if nearPost > 0 {
 		path = fmt.Sprintf("/t/%d/%d.json", id, nearPost)
 	}
-	return c.getJSON(path, url.Values{"print": {"true"}, "include_raw": {"true"}})
+	return c.getJSON(path, url.Values{"include_raw": {"true"}})
 }
 
 func (c *Client) TopicPosts(topicID int, postIDs []int, includeRaw bool) (JSON, error) {

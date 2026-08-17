@@ -224,7 +224,7 @@ func (u *UI) Run() error {
 		case "reload":
 			delete(u.listCache, cacheKey(filter, period))
 		case "topic":
-			if quit, _ := u.topicLoop(result.id, 0, ""); quit {
+			if quit, _ := u.topicLoop(result.id, result.post, ""); quit {
 				return nil
 			}
 		case "navigate":
@@ -248,7 +248,17 @@ func (u *UI) createNewTopic(data discourse.JSON) {
 type loopResult struct {
 	kind string
 	id   int
+	post int
 	text string
+}
+
+func topicListResult(topic discourse.JSON) loopResult {
+	lastRead := discourse.Int(topic["last_read_post_number"])
+	target := lastRead
+	if lastRead > 0 && discourse.Int(topic["highest_post_number"]) > lastRead {
+		target++
+	}
+	return loopResult{kind: "topic", id: discourse.Int(topic["id"]), post: target}
 }
 
 func (u *UI) topicListLoop(data discourse.JSON, filter, period string) loopResult {
@@ -289,7 +299,7 @@ func (u *UI) topicListLoop(data discourse.JSON, filter, period string) loopResul
 		if row, ok := parseRowKey(key); ok {
 			if row >= 0 && row < len(topics) {
 				if row == selected {
-					return loopResult{kind: "topic", id: discourse.Int(topics[row]["id"])}
+					return topicListResult(topics[row])
 				}
 				selected = row
 			}
@@ -321,7 +331,7 @@ func (u *UI) topicListLoop(data discourse.JSON, filter, period string) loopResul
 			}
 		case "enter":
 			if selected < len(topics) {
-				return loopResult{kind: "topic", id: discourse.Int(topics[selected]["id"])}
+				return topicListResult(topics[selected])
 			}
 		case "f":
 			return loopResult{kind: "filter", text: filters[(indexOf(filters, filter)+1)%len(filters)]}
@@ -349,7 +359,7 @@ func (u *UI) topicListLoop(data discourse.JSON, filter, period string) loopResul
 					index = 9
 				}
 				if index >= 0 && index < len(topics) {
-					return loopResult{kind: "topic", id: discourse.Int(topics[index]["id"])}
+					return topicListResult(topics[index])
 				}
 			}
 		}
