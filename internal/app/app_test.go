@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/merefield/termcourse"
 	"github.com/merefield/termcourse/internal/theme"
 )
 
@@ -36,8 +37,9 @@ func TestVersionFlagNeedsNoURLOrAuthentication(t *testing.T) {
 	if status := Run([]string{"--version"}, os.Stdin, &stdout, &stderr); status != 0 {
 		t.Fatalf("status = %d, stderr = %q", status, stderr.String())
 	}
-	if stdout.String() != "termcourse 0.2.0\n" {
-		t.Fatalf("version output = %q", stdout.String())
+	expected := "termcourse " + termcourse.CurrentVersion() + "\n"
+	if stdout.String() != expected {
+		t.Fatalf("version output = %q, want %q", stdout.String(), expected)
 	}
 }
 
