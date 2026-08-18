@@ -24,7 +24,7 @@ Termcourse is a Go 1.26.6 terminal UI for browsing and posting to Discourse foru
 - Truecolor, 256-color, and 16-color output.
 - GFM Markdown rendering (including lists, quotes, code, tasks, and tables), OSC8 links, emoji substitution, and ANSI/grapheme-aware sizing.
 - High-quality inline/fullscreen images through Kitty Unicode placements, with colored `chafa` symbols (or `viu`) as the portable fallback and explicit size/quality limits.
-- Incremental screen repainting and resize-responsive layouts, with a compact branded masthead, wide-terminal logo, rounded titled panels, and themed block gauges.
+- Incremental screen repainting and resize-responsive layouts, with a versioned branded masthead, wide-terminal logo, rounded titled panels, and themed block gauges.
 - Rate-limit errors show the server-provided retry duration and local deadline when available, and explicitly identify untimed responses.
 
 ## Install and run
@@ -37,6 +37,12 @@ termcourse meta.discourse.org
 ```
 
 Replace `meta.discourse.org` with the hostname or URL of any Discourse site. If no credentials are configured, Termcourse prompts for the missing username and password. Password input is hidden.
+
+Confirm the installed release at any time with:
+
+```sh
+termcourse --version
+```
 
 If the shell cannot find `termcourse`, add the Go binary directory to `PATH`. `go install` uses `GOBIN` when configured and otherwise uses `$(go env GOPATH)/bin`:
 
@@ -85,6 +91,10 @@ termcourse themes hacker
 A local `.env` is loaded automatically. CLI credentials override host credentials from YAML, which override generic environment variables. If both login and API pairs exist, login is tried first unless the host entry selects `auth: api`.
 
 For contributors, run the local checks with `make test` and `make vet`.
+
+## Versioning
+
+Termcourse uses semantic Git tags such as `v0.2.0` as the release-version source of truth. Go embeds that module version in binaries installed with `go install`, while `make build` injects the current `git describe` value. `termcourse --version` and the wide masthead subtitle both use the same resolved build version. Untagged direct development builds append their embedded commit and dirty state to the development version declared in [termcourse.go](termcourse.go).
 
 ## Migrating from the Ruby version
 

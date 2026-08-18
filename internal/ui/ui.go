@@ -46,6 +46,7 @@ type Options struct {
 	Theme                       theme.Theme
 	Themes                      []theme.Theme
 	Locale                      string
+	Version                     string
 	EnableLiveUpdates           bool
 	Input                       *os.File
 	Output                      io.Writer

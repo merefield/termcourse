@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/merefield/termcourse"
 	"github.com/merefield/termcourse/internal/theme"
 )
 
@@ -28,6 +29,17 @@ func TestParseArgsRejectsMissingOptionValues(t *testing.T) {
 		if _, err := parseArgs(argv); err == nil || !strings.Contains(err.Error(), "--theme requires a value") {
 			t.Fatalf("parseArgs(%q) error = %v", argv, err)
 		}
+	}
+}
+
+func TestVersionFlagNeedsNoURLOrAuthentication(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if status := Run([]string{"--version"}, os.Stdin, &stdout, &stderr); status != 0 {
+		t.Fatalf("status = %d, stderr = %q", status, stderr.String())
+	}
+	expected := "termcourse " + termcourse.CurrentVersion() + "\n"
+	if stdout.String() != expected {
+		t.Fatalf("version output = %q, want %q", stdout.String(), expected)
 	}
 }
 

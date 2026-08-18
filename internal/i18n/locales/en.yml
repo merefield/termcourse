@@ -10,6 +10,7 @@ en:
       theme: "Theme name (overrides TERMCOURSE_THEME for this run)"
       theme_file: "Theme YAML override file"
       lang: "UI language (en, fr, de or es; default: env/system locale)"
+      version: "Show version"
       show: "Show help"
       core_env: "Core environment variables:"
     env:

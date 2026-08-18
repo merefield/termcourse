@@ -10,6 +10,7 @@ de:
       theme: "Theme-Name (überschreibt TERMCOURSE_THEME für diesen Lauf)"
       theme_file: "YAML-Datei mit Theme-Anpassungen"
       lang: "Sprache der Oberfläche (en, fr, de oder es; Standard: System-/Umgebungs-Locale)"
+      version: "Version anzeigen"
       show: "Hilfe anzeigen"
       core_env: "Zentrale Umgebungsvariablen:"
     env:

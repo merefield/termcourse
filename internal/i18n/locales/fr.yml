@@ -10,6 +10,7 @@ fr:
       theme: "Nom du thème (remplace TERMCOURSE_THEME pour cette exécution)"
       theme_file: "Fichier YAML de personnalisation du thème"
       lang: "Langue de l’interface (en, fr, de ou es ; par défaut : locale système/env)"
+      version: "Afficher la version"
       show: "Afficher l’aide"
       core_env: "Variables d’environnement principales :"
     env:
