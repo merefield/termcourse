@@ -388,7 +388,7 @@ func (u *UI) navigationHeader(section string, active primaryTabID, context, sele
 	for _, line := range lines {
 		content = append(content, line.content)
 	}
-	title := u.style.AppTitle(u.displayURL, width, height)
+	title := u.style.AppTitle(u.displayURL, u.options.Version, width, height)
 	header := append([]string{}, title...)
 	header = append(header, strings.Repeat(" ", max(width, 0)))
 	header = append(header, content...)

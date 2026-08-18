@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/x/term"
+	"github.com/merefield/termcourse"
 	"github.com/merefield/termcourse/internal/config"
 	"github.com/merefield/termcourse/internal/discourse"
 	"github.com/merefield/termcourse/internal/i18n"
@@ -22,7 +23,7 @@ type cliOptions struct {
 	theme, themeFile    string
 	lang, command       string
 	baseURL             string
-	help                bool
+	help, version       bool
 }
 
 func Run(argv []string, stdin *os.File, stdout, stderr io.Writer) int {
@@ -38,6 +39,10 @@ func Run(argv []string, stdin *os.File, stdout, stderr io.Writer) int {
 		printHelp(stdout, locale)
 		return 0
 	}
+	if options.version {
+		fmt.Fprintf(stdout, "termcourse %s\n", termcourse.CurrentVersion())
+		return 0
+	}
 	themeFile := first(options.themeFile, os.Getenv("TERMCOURSE_THEME_FILE"))
 	catalog, err := theme.Load(themeFile)
 	if err != nil {
@@ -51,9 +56,9 @@ func Run(argv []string, stdin *os.File, stdout, stderr io.Writer) int {
 				fmt.Fprintln(stderr, resolveErr)
 				return 1
 			}
-			ui.WriteThemePreviews(stdout, []theme.Theme{selected})
+			ui.WriteThemePreviews(stdout, []theme.Theme{selected}, termcourse.CurrentVersion())
 		} else {
-			ui.WriteThemePreviews(stdout, catalog.All())
+			ui.WriteThemePreviews(stdout, catalog.All(), termcourse.CurrentVersion())
 		}
 		return 0
 	}
@@ -177,7 +182,7 @@ func Run(argv []string, stdin *os.File, stdout, stderr io.Writer) int {
 	application := ui.New(client, ui.Options{
 		BaseURL: baseURL, Username: loggedInUsername, CurrentUserID: discourse.Int(user["id"]),
 		NotificationChannelPosition: notificationPosition, Theme: selectedTheme, Themes: catalog.All(), Locale: locale,
-		EnableLiveUpdates: enableLive, Input: stdin, Output: stdout,
+		Version: termcourse.CurrentVersion(), EnableLiveUpdates: enableLive, Input: stdin, Output: stdout,
 	})
 	if runErr := application.Run(); runErr != nil {
 		fmt.Fprintln(stderr, runErr)
@@ -196,6 +201,10 @@ func parseArgs(argv []string) (cliOptions, error) {
 		arg := argv[index]
 		if arg == "-h" || arg == "--help" {
 			result.help = true
+			continue
+		}
+		if arg == "--version" {
+			result.version = true
 			continue
 		}
 		if !strings.HasPrefix(arg, "-") {
@@ -255,7 +264,7 @@ func printHelp(out io.Writer, locale string) {
 		{"--api-key KEY", "cli.help.api_key"}, {"--api-username USER", "cli.help.api_username"},
 		{"--username USER", "cli.help.username"}, {"--password PASS", "cli.help.password"},
 		{"--theme NAME", "cli.help.theme"}, {"--theme-file PATH", "cli.help.theme_file"},
-		{"--lang LANG", "cli.help.lang"}, {"-h, --help", "cli.help.show"},
+		{"--lang LANG", "cli.help.lang"}, {"--version", "cli.help.version"}, {"-h, --help", "cli.help.show"},
 	}
 	for _, option := range options {
 		fmt.Fprintf(out, "  %-24s %s\n", option[0], i18n.Tr(locale, option[1]))

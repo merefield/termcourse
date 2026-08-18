@@ -50,6 +50,8 @@ termcourse your.discourse.host
 
 Termcourse prompts for a username and password when credentials have not already been configured. Password input is hidden.
 
+Use `termcourse --version` to show the installed semantic version; the same version appears in the wide terminal masthead.
+
 To build a local executable from a checkout instead:
 
 ```sh

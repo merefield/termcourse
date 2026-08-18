@@ -25,7 +25,7 @@ func (u *UI) showError(err error) bool {
 	if u.activeContext != "" {
 		contextRows = 1
 	}
-	chromeRows := len(u.style.AppTitle(u.displayURL, width, height)) + 1 + 1 + contextRows + 2
+	chromeRows := len(u.style.AppTitle(u.displayURL, u.options.Version, width, height)) + 1 + 1 + contextRows + 2
 	maxMessageLines := max(height-chromeRows-1, 1)
 	if len(lines) > maxMessageLines {
 		lines = append(lines[:maxMessageLines-1], truncate(u.t("ui.scroll.more_below"), inner))

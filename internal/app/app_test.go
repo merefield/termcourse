@@ -31,6 +31,16 @@ func TestParseArgsRejectsMissingOptionValues(t *testing.T) {
 	}
 }
 
+func TestVersionFlagNeedsNoURLOrAuthentication(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if status := Run([]string{"--version"}, os.Stdin, &stdout, &stderr); status != 0 {
+		t.Fatalf("status = %d, stderr = %q", status, stderr.String())
+	}
+	if stdout.String() != "termcourse 0.2.0\n" {
+		t.Fatalf("version output = %q", stdout.String())
+	}
+}
+
 func TestParseThemesCommandWithOptionalName(t *testing.T) {
 	options, err := parseArgs([]string{"themes", "hacker"})
 	if err != nil || options.command != "themes" || options.theme != "hacker" {

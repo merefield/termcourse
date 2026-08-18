@@ -117,11 +117,11 @@ func (s *Style) Box(lines []string, width int) []string {
 	})
 }
 
-func (s *Style) AppHeader(section, host string, lines []string, width, height int) []string {
-	return append(s.AppTitle(host, width, height), s.HeaderBox(section, lines, width)...)
+func (s *Style) AppHeader(section, host, version string, lines []string, width, height int) []string {
+	return append(s.AppTitle(host, version, width, height), s.HeaderBox(section, lines, width)...)
 }
 
-func (s *Style) AppTitle(host string, width, height int) []string {
+func (s *Style) AppTitle(host, version string, width, height int) []string {
 	var output []string
 	if width >= 64 && height >= 30 {
 		logo := []string{
@@ -130,8 +130,12 @@ func (s *Style) AppTitle(host string, width, height int) []string {
 		}
 		output = append(output, headerLine(s.brand.Render(logo[0]), s.label.Render("● ONLINE"), width))
 		output = append(output, s.brand.Render(logo[1]))
+		version = strings.TrimSpace(strings.TrimPrefix(version, "v"))
+		if version == "" {
+			version = "development"
+		}
 		subtitle := s.label.Render("◉ DISCOURSE TERMINAL") + " " +
-			s.Text("·", roleSeparator) + " " + s.label.Render(strings.ToUpper(s.Theme.Name))
+			s.Text("·", roleSeparator) + " " + s.label.Render("VERSION "+strings.ToUpper(version))
 		output = append(output, headerLine(subtitle, s.Text(host, roleListMeta), width))
 	} else {
 		output = append(output, headerLine(s.brand.Render("▰ TERMCOURSE ▰"), s.Text(host, roleListMeta), width))
@@ -277,7 +281,7 @@ func isHorizontalRule(value string) bool {
 	return strings.Trim(value, "-─") == ""
 }
 
-func WriteThemePreviews(output io.Writer, themes []theme.Theme) {
+func WriteThemePreviews(output io.Writer, themes []theme.Theme, version string) {
 	for index, value := range themes {
 		style := NewStyle(value, output)
 		if index > 0 {
@@ -298,7 +302,7 @@ func WriteThemePreviews(output io.Writer, themes []theme.Theme) {
 			{id: "new", label: "New", short: "NEW", micro: "N", enabled: true},
 			{id: "top", label: "Top", short: "TOP", micro: "T", enabled: true},
 		}, 48)
-		header := style.AppTitle("community.example", 52, 24)
+		header := style.AppTitle("community.example", version, 52, 24)
 		header = append(header, strings.Repeat(" ", 52))
 		header = append(header,
 			headerLine(style.renderTabRail(primary), "member", 52),
