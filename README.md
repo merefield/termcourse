@@ -1,5 +1,9 @@
 # termcourse
 
+[![Version](https://img.shields.io/github/v/tag/merefield/termcourse?sort=semver&label=version)](https://github.com/merefield/termcourse/tags)
+[![CI](https://github.com/merefield/termcourse/actions/workflows/ci.yml/badge.svg)](https://github.com/merefield/termcourse/actions/workflows/ci.yml)
+[![Go version](https://img.shields.io/github/go-mod/go-version/merefield/termcourse)](go.mod)
+
 Termcourse is a Go 1.26.6 terminal UI for browsing and posting to Discourse forums. It replaces the original Ruby implementation while retaining its browsing, posting, realtime, rendering, localization, theming, and image features.
 
 ## Features
