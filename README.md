@@ -49,11 +49,12 @@ curl -fsSL https://raw.githubusercontent.com/merefield/termcourse/master/install
   TERMCOURSE_BIN_DIR="$HOME/.local/bin" sh
 ```
 
-Ensure `$HOME/.local/bin` is on `PATH` when using that location. To install a particular release reproducibly:
+Ensure `$HOME/.local/bin` is on `PATH` when using that location. To install a particular release reproducibly, replace `vX.Y.Z` with a tag from [Releases](https://github.com/merefield/termcourse/releases):
 
 ```sh
+release_tag=vX.Y.Z
 curl -fsSL https://raw.githubusercontent.com/merefield/termcourse/master/install-release.sh |
-  sh -s -- --version v1.2.3
+  sh -s -- --version "$release_tag"
 ```
 
 On Windows, download and inspect the PowerShell installer, then run it for the current process without changing the machine-wide execution policy:

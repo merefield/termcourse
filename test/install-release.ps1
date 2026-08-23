@@ -61,9 +61,11 @@ server.serve_forever()
     $port = (Get-Content -LiteralPath $portFile -Raw).Trim()
     if ($port -notmatch '^\d+$') { throw "fixture HTTP server reported an invalid port: $port" }
     $baseUrl = "http://127.0.0.1:$port"
+    $webRequestArgs = @{}
+    if ($PSVersionTable.PSVersion.Major -lt 6) { $webRequestArgs.UseBasicParsing = $true }
     $ready = $false
     for ($attempt = 0; $attempt -lt 50; $attempt++) {
-        try { Invoke-WebRequest -Uri "$baseUrl/repos/merefield/termcourse/releases/latest" -UseBasicParsing | Out-Null; $ready = $true; break }
+        try { Invoke-WebRequest -Uri "$baseUrl/repos/merefield/termcourse/releases/latest" @webRequestArgs | Out-Null; $ready = $true; break }
         catch { Start-Sleep -Milliseconds 100 }
     }
     if (-not $ready) { throw "fixture HTTP server did not start" }
