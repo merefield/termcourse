@@ -81,9 +81,13 @@ jobs:
           cache: true
       - name: Setup Bats
         if: runner.os == 'Linux'
-        uses: bats-core/bats-action@3.0.1
+        uses: bats-core/bats-action@4.0.0
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
+          support-install: false
+          assert-install: false
+          detik-install: false
+          file-install: false
       - name: Check formatting
         if: runner.os != 'Windows'
         shell: bash
