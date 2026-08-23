@@ -23,10 +23,10 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Setup Bats
-        uses: bats-core/bats-action@3.0.1
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install Bats
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends bats
 
       - name: Validate release configuration
         uses: goreleaser/goreleaser-action@v7
