@@ -62,7 +62,7 @@ case "$repository" in
 esac
 repository_owner=${repository%%/*}
 repository_name=${repository#*/}
-if [ -z "$repository_owner" ] || [ -z "$repository_name" ] || [ "$repository_name" != "${repository_name#*/}" ]; then
+if [ -z "$repository_owner" ] || [ -z "$repository_name" ] || [ "$repository_name" = "$repository" ] || [ "$repository_name" != "${repository_name#*/}" ]; then
   fail "TERMCOURSE_REPOSITORY must have the form owner/repository"
 fi
 
@@ -114,7 +114,7 @@ if [ "$release_tag" = latest ]; then
 fi
 
 case "$release_tag" in
-  ''|*[!A-Za-z0-9._-]*) fail "invalid release tag: $release_tag" ;;
+  ''|*[!A-Za-z0-9._+-]*) fail "invalid release tag: $release_tag" ;;
 esac
 
 release_version=${release_tag#v}

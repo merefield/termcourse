@@ -99,17 +99,19 @@ teardown() {
 @test "release installer supports an explicit version and Darwin ARM64" {
   export FAKE_UNAME_S=Darwin
   export FAKE_UNAME_M=arm64
-  export FIXTURE_ASSET=termcourse_0.2.1_darwin_arm64.tar.gz
+  export FIXTURE_TAG=v0.2.1+build.1
+  export FIXTURE_ASSET=termcourse_0.2.1+build.1_darwin_arm64.tar.gz
+  export FIXTURE_VERSION_OUTPUT="termcourse 0.2.1+build.1"
 
   run env \
     PATH="$TEST_ROOT/fakebin:$PATH" \
     TERMCOURSE_BIN_DIR="$TEST_ROOT/bin" \
-    sh ./install-release.sh --version v0.2.1
+    sh ./install-release.sh --version v0.2.1+build.1
 
   [ "$status" -eq 0 ]
   [ -x "$TEST_ROOT/bin/termcourse" ]
   ! grep -q '/releases/latest$' "$CURL_LOG"
-  grep -q '/releases/download/v0.2.1/termcourse_0.2.1_darwin_arm64.tar.gz$' "$CURL_LOG"
+  grep -Fq '/releases/download/v0.2.1+build.1/termcourse_0.2.1+build.1_darwin_arm64.tar.gz' "$CURL_LOG"
 }
 
 @test "release installer refuses a checksum mismatch" {
@@ -174,5 +176,17 @@ teardown() {
 
   [ "$status" -eq 1 ]
   [[ "$output" == *"TERMCOURSE_BIN_DIR exists and is not a directory: $symlink_path"* ]]
+  [ ! -e "$CURL_LOG" ]
+}
+
+@test "release installer requires an owner and repository" {
+  run env \
+    PATH="$TEST_ROOT/fakebin:$PATH" \
+    TERMCOURSE_REPOSITORY=termcourse \
+    TERMCOURSE_BIN_DIR="$TEST_ROOT/bin" \
+    sh ./install-release.sh
+
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"TERMCOURSE_REPOSITORY must have the form owner/repository"* ]]
   [ ! -e "$CURL_LOG" ]
 }
