@@ -61,7 +61,14 @@ curl -fsSL https://raw.githubusercontent.com/merefield/termcourse/master/install
 
 Each [GitHub Release](https://github.com/merefield/termcourse/releases) provides SHA-256 checksums and prebuilt archives for Linux, macOS and Windows on AMD64 and ARM64. Linux/macOS use `.tar.gz`; Windows uses `.zip`. Prebuilt releases do not require Go.
 
-The installer can also pin a release, for example `sh -s -- --version v0.2.1`, after the download pipe. Go 1.26.6 or newer is only required when installing from source.
+On Windows, download and inspect the installer, then run it without changing the machine-wide execution policy:
+
+```powershell
+Invoke-WebRequest https://raw.githubusercontent.com/merefield/termcourse/master/install-release.ps1 -OutFile install-release.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\install-release.ps1
+```
+
+It installs to `%LOCALAPPDATA%\Programs\termcourse\bin` by default and performs the same checksum and version verification. The installers can also pin a release with `--version` or `-Version`. Go 1.26.6 or newer is only required when installing from source.
 
 To build a local executable from a checkout instead:
 

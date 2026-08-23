@@ -4,9 +4,9 @@ setup() {
   export TEST_ROOT
   TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/termcourse-release-install-test.XXXXXX")"
   export FIXTURE_DIR="$TEST_ROOT/fixture"
-  export FIXTURE_TAG=v0.2.1
-  export FIXTURE_ASSET=termcourse_0.2.1_linux_amd64.tar.gz
-  export FIXTURE_VERSION_OUTPUT="termcourse 0.2.1"
+  export FIXTURE_TAG=v1.2.3
+  export FIXTURE_ASSET=termcourse_1.2.3_linux_amd64.tar.gz
+  export FIXTURE_VERSION_OUTPUT="termcourse 1.2.3"
   export CURL_LOG="$TEST_ROOT/curl.log"
   export FAKE_UNAME_S=Linux
   export FAKE_UNAME_M=x86_64
@@ -87,31 +87,47 @@ teardown() {
   [ "$status" -eq 0 ]
   [ -x "$TEST_ROOT/bin/termcourse" ]
   [[ "$output" == *"Verified the release checksum."* ]]
-  [[ "$output" == *"Installed termcourse to $TEST_ROOT/bin/termcourse (termcourse 0.2.1)."* ]]
+  [[ "$output" == *"Installed termcourse to $TEST_ROOT/bin/termcourse (termcourse 1.2.3)."* ]]
   grep -q '/repos/merefield/termcourse/releases/latest$' "$CURL_LOG"
-  grep -q '/releases/download/v0.2.1/termcourse_0.2.1_linux_amd64.tar.gz$' "$CURL_LOG"
+  grep -q '/releases/download/v1.2.3/termcourse_1.2.3_linux_amd64.tar.gz$' "$CURL_LOG"
 
   run "$TEST_ROOT/bin/termcourse" --version
   [ "$status" -eq 0 ]
-  [ "$output" = "termcourse 0.2.1" ]
+  [ "$output" = "termcourse 1.2.3" ]
 }
 
 @test "release installer supports an explicit version and Darwin ARM64" {
   export FAKE_UNAME_S=Darwin
   export FAKE_UNAME_M=arm64
-  export FIXTURE_TAG=v0.2.1+build.1
-  export FIXTURE_ASSET=termcourse_0.2.1+build.1_darwin_arm64.tar.gz
-  export FIXTURE_VERSION_OUTPUT="termcourse 0.2.1+build.1"
+  export FIXTURE_TAG=v1.2.3+build.1
+  export FIXTURE_ASSET=termcourse_1.2.3+build.1_darwin_arm64.tar.gz
+  export FIXTURE_VERSION_OUTPUT="termcourse 1.2.3+build.1"
 
   run env \
     PATH="$TEST_ROOT/fakebin:$PATH" \
     TERMCOURSE_BIN_DIR="$TEST_ROOT/bin" \
-    sh ./install-release.sh --version v0.2.1+build.1
+    sh ./install-release.sh --version v1.2.3+build.1
 
   [ "$status" -eq 0 ]
   [ -x "$TEST_ROOT/bin/termcourse" ]
   ! grep -q '/releases/latest$' "$CURL_LOG"
-  grep -Fq '/releases/download/v0.2.1+build.1/termcourse_0.2.1+build.1_darwin_arm64.tar.gz' "$CURL_LOG"
+  grep -Fq '/releases/download/v1.2.3+build.1/termcourse_1.2.3+build.1_darwin_arm64.tar.gz' "$CURL_LOG"
+}
+
+@test "release installer rejects invalid semantic versions" {
+  run env PATH="$TEST_ROOT/fakebin:$PATH" TERMCOURSE_BIN_DIR="$TEST_ROOT/bin" \
+    sh ./install-release.sh --version v1.2.3-01
+
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"invalid semantic release tag"* ]]
+  [ ! -e "$CURL_LOG" ]
+}
+
+@test "release installer creates a nested user bin directory" {
+  run env PATH="$TEST_ROOT/fakebin:$PATH" TERMCOURSE_BIN_DIR="$TEST_ROOT/nested/user/bin" sh ./install-release.sh
+
+  [ "$status" -eq 0 ]
+  [ -x "$TEST_ROOT/nested/user/bin/termcourse" ]
 }
 
 @test "release installer refuses a checksum mismatch" {
@@ -189,4 +205,12 @@ teardown() {
   [ "$status" -eq 1 ]
   [[ "$output" == *"TERMCOURSE_REPOSITORY must have the form owner/repository"* ]]
   [ ! -e "$CURL_LOG" ]
+}
+
+@test "release installer rejects a directory at the final target" {
+  mkdir "$TEST_ROOT/bin/termcourse"
+  run env PATH="$TEST_ROOT/fakebin:$PATH" TERMCOURSE_BIN_DIR="$TEST_ROOT/bin" sh ./install-release.sh
+
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"installation target exists and is a directory"* ]]
 }

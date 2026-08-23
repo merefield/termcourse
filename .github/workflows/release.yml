@@ -19,13 +19,14 @@ concurrency:
 
 jobs:
   validate:
-    name: Validate and test
+    name: Validate release tag
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
     permissions:
       contents: read
     outputs:
       commit: ${{ steps.release_commit.outputs.sha }}
+      tag: ${{ steps.release_commit.outputs.tag }}
 
     steps:
       - name: Checkout release tag
@@ -33,14 +34,20 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ inputs.tag || github.ref }}
-
       - name: Validate release tag
         id: release_commit
+        shell: bash
         env:
           RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
-          if [[ ! "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
+          SEMVER_TAG_PATTERN='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-((0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(\.(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*))?(\+([0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*))?$'
+          if [[ ! "$RELEASE_TAG" =~ $SEMVER_TAG_PATTERN ]]; then
             echo "Release tag must be semantic and start with v: $RELEASE_TAG" >&2
+            exit 1
+          fi
+          source_version=$(tr -d '\r\n' < VERSION)
+          if [[ "$RELEASE_TAG" != "v$source_version" ]]; then
+            echo "Release tag $RELEASE_TAG does not match source version v$source_version" >&2
             exit 1
           fi
           git show-ref --verify --quiet "refs/tags/$RELEASE_TAG"
@@ -50,54 +57,82 @@ jobs:
             exit 1
           fi
           printf 'sha=%s\n' "$(git rev-parse "$RELEASE_TAG^{commit}")" >> "$GITHUB_OUTPUT"
+          printf 'tag=%s\n' "$RELEASE_TAG" >> "$GITHUB_OUTPUT"
 
-      - name: Setup Go
-        uses: actions/setup-go@v7
+  test:
+    name: Test ${{ matrix.os }}
+    needs: validate
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.validate.outputs.tag }}
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: true
-
-      - name: Install Bats
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends bats
-
-      - name: Run checks
-        run: make check
+      - name: Setup Bats
+        if: runner.os == 'Linux'
+        uses: bats-core/bats-action@3.0.1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Check formatting
+        if: runner.os != 'Windows'
+        shell: bash
+        run: test -z "$(gofmt -l .)"
+      - name: Vet
+        run: go vet ./...
+      - name: Test
+        run: go test -race ./...
+      - name: Validate release configuration
+        if: runner.os == 'Linux'
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: check
+      - name: Test Unix release installer
+        if: runner.os == 'Linux'
+        run: bats test
+      - name: Test Windows release installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./test/install-release.ps1
 
   release:
     name: Build and publish
-    needs: validate
+    needs: [validate, test]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
       contents: write
-
     steps:
-      - name: Checkout release tag
-        uses: actions/checkout@v7
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           persist-credentials: false
-          ref: ${{ inputs.tag || github.ref }}
-
+          ref: ${{ needs.validate.outputs.tag }}
       - name: Verify validated commit
+        shell: bash
         env:
           EXPECTED_COMMIT: ${{ needs.validate.outputs.commit }}
-          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
-          actual_commit=$(git rev-parse "$RELEASE_TAG^{commit}")
-          if [[ "$actual_commit" != "$EXPECTED_COMMIT" ]]; then
-            echo "Release tag changed after validation: $RELEASE_TAG" >&2
+          test "$(git rev-parse HEAD)" = "$EXPECTED_COMMIT" || {
+            echo "Release tag changed after validation." >&2
             exit 1
-          fi
-
-      - name: Setup Go
-        uses: actions/setup-go@v7
+          }
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: true
-
       - name: Build and publish GitHub release
         uses: goreleaser/goreleaser-action@v7
         with:

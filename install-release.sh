@@ -35,6 +35,13 @@ fail() {
   exit 1
 }
 
+is_semver_tag() {
+  printf '%s\n' "$1" | awk '
+    /^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-((0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(\.(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*))?(\+([0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*))?$/ { valid = 1 }
+    END { exit valid ? 0 : 1 }
+  '
+}
+
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --version)
@@ -74,7 +81,7 @@ case "$binary_name" in
   ''|*/*) fail "TERMCOURSE_BIN_NAME must be a single file name" ;;
 esac
 
-for command_name in tar awk sed tr install mktemp; do
+for command_name in tar awk sed tr install mktemp mv; do
   command -v "$command_name" >/dev/null 2>&1 || fail "required command not found: $command_name"
 done
 
@@ -113,9 +120,7 @@ if [ "$release_tag" = latest ]; then
   [ -n "$release_tag" ] || fail "could not determine the latest release tag"
 fi
 
-case "$release_tag" in
-  ''|*[!A-Za-z0-9._+-]*) fail "invalid release tag: $release_tag" ;;
-esac
+is_semver_tag "$release_tag" || fail "invalid semantic release tag: $release_tag"
 
 release_version=${release_tag#v}
 [ -n "$release_version" ] || fail "invalid release tag: $release_tag"
@@ -162,13 +167,30 @@ version_output=$("$candidate" --version 2>&1) || fail "the downloaded termcourse
   fail "the downloaded binary reported an unexpected version: $version_output"
 
 target=${bin_dir}/${binary_name}
-if [ -w "$bin_dir" ] || { [ ! -e "$bin_dir" ] && [ -w "$(dirname "$bin_dir")" ]; }; then
-  mkdir -p "$bin_dir"
-  install -m 0755 "$candidate" "$target"
+[ ! -d "$target" ] || fail "installation target exists and is a directory: $target"
+if mkdir -p "$bin_dir" 2>/dev/null && [ -w "$bin_dir" ]; then
+  staged_target=$(mktemp "${bin_dir}/.${binary_name}.XXXXXX") || fail "could not create a staged executable in $bin_dir"
+  if ! install -m 0755 "$candidate" "$staged_target"; then
+    rm -f "$staged_target"
+    fail "could not stage the executable in $bin_dir"
+  fi
+  if ! mv -f "$staged_target" "$target"; then
+    rm -f "$staged_target"
+    fail "could not replace $target"
+  fi
 else
   command -v sudo >/dev/null 2>&1 || fail "$bin_dir is not writable and sudo is unavailable; set TERMCOURSE_BIN_DIR to a writable directory"
   sudo mkdir -p "$bin_dir"
-  sudo install -m 0755 "$candidate" "$target"
+  [ ! -d "$target" ] || fail "installation target exists and is a directory: $target"
+  staged_target=$(sudo mktemp "${bin_dir}/.${binary_name}.XXXXXX") || fail "could not create a staged executable in $bin_dir"
+  if ! sudo install -m 0755 "$candidate" "$staged_target"; then
+    sudo rm -f "$staged_target"
+    fail "could not stage the executable in $bin_dir"
+  fi
+  if ! sudo mv -f "$staged_target" "$target"; then
+    sudo rm -f "$staged_target"
+    fail "could not replace $target"
+  fi
 fi
 
 printf 'Installed %s to %s (%s).\n' "$binary_name" "$target" "$version_output"

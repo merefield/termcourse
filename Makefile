@@ -3,8 +3,8 @@ BINARY := termcourse
 OUTPUT ?= $(BINARY)
 PACKAGE := ./cmd/termcourse
 
-VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo v0.2.1)
-LDFLAGS := -X github.com/merefield/termcourse.buildVersion=$(VERSION)
+VERSION ?= $(shell git describe --tags --dirty 2>/dev/null)
+LDFLAGS := $(if $(VERSION),-X github.com/merefield/termcourse.buildVersion=$(VERSION),)
 
 .PHONY: build test race-test fmt fmt-check vet integration-test check install clean
 
