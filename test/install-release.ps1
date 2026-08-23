@@ -53,12 +53,15 @@ with open(sys.argv[2], "w", encoding="ascii") as port_file:
 server.serve_forever()
 '@
     $serverProcess = Start-Process -FilePath $python.Source -ArgumentList @($serverScript, $serverRoot, $portFile) -PassThru
-    for ($attempt = 0; $attempt -lt 50 -and -not (Test-Path -LiteralPath $portFile); $attempt++) {
+    $port = ""
+    for ($attempt = 0; $attempt -lt 50; $attempt++) {
         if ($serverProcess.HasExited) { throw "fixture HTTP server exited before reporting its port" }
+        if (Test-Path -LiteralPath $portFile) {
+            $port = ([string](Get-Content -LiteralPath $portFile -Raw)).Trim()
+            if ($port -match '^\d+$') { break }
+        }
         Start-Sleep -Milliseconds 100
     }
-    if (-not (Test-Path -LiteralPath $portFile)) { throw "fixture HTTP server did not report its port" }
-    $port = (Get-Content -LiteralPath $portFile -Raw).Trim()
     if ($port -notmatch '^\d+$') { throw "fixture HTTP server reported an invalid port: $port" }
     $baseUrl = "http://127.0.0.1:$port"
     $webRequestArgs = @{}
