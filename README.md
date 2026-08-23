@@ -49,14 +49,24 @@ curl -fsSL https://raw.githubusercontent.com/merefield/termcourse/master/install
   TERMCOURSE_BIN_DIR="$HOME/.local/bin" sh
 ```
 
-Ensure `$HOME/.local/bin` is on `PATH` when using that location. To install a particular release reproducibly:
+Ensure `$HOME/.local/bin` is on `PATH` when using that location. To install a particular release reproducibly, replace `vX.Y.Z` with a tag from [Releases](https://github.com/merefield/termcourse/releases):
 
 ```sh
+release_tag=vX.Y.Z
 curl -fsSL https://raw.githubusercontent.com/merefield/termcourse/master/install-release.sh |
-  sh -s -- --version v0.2.1
+  sh -s -- --version "$release_tag"
 ```
 
-You can download and inspect [install-release.sh](install-release.sh) before running it. The installer supports `--help`, `--version TAG`, and `--bin-dir DIR`; the equivalent environment variables are `TERMCOURSE_VERSION` and `TERMCOURSE_BIN_DIR`.
+On Windows, download and inspect the PowerShell installer, then run it for the current process without changing the machine-wide execution policy:
+
+```powershell
+Invoke-WebRequest https://raw.githubusercontent.com/merefield/termcourse/master/install-release.ps1 -OutFile install-release.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\install-release.ps1
+```
+
+The Unix installer supports `--help`, `--version TAG`, and `--bin-dir DIR`; the PowerShell installer accepts `-Version`, `-BinDir`, and `-Repository`. Both also support the corresponding `TERMCOURSE_*` environment variables.
+
+The Windows installer defaults to `%LOCALAPPDATA%\Programs\termcourse\bin` and reports when that directory must be added to `PATH`.
 
 Prebuilt releases do not require Go. Each [GitHub Release](https://github.com/merefield/termcourse/releases) contains these assets:
 
@@ -64,7 +74,7 @@ Prebuilt releases do not require Go. Each [GitHub Release](https://github.com/me
 | --- | --- | --- | --- |
 | Linux | AMD64, ARM64 | `.tar.gz` | Installer or manual |
 | macOS | Intel (AMD64), Apple Silicon (ARM64) | `.tar.gz` | Installer or manual |
-| Windows | AMD64, ARM64 | `.zip` | Manual |
+| Windows | AMD64, ARM64 | `.zip` | Installer or manual |
 
 For a manual installation, verify the selected archive against the release's `checksums.txt`, extract `termcourse` (or `termcourse.exe` on Windows), and place it on `PATH`.
 
@@ -141,7 +151,7 @@ For contributors, `make check` runs formatting validation, vet, race-enabled Go 
 
 ## Releases and versioning
 
-Termcourse uses semantic Git tags such as `v0.2.1` as the release-version source of truth. Go embeds that module version in binaries installed with `go install`; GoReleaser injects it into release binaries; and `make build` injects the current `git describe` value. `termcourse --version` and the wide masthead subtitle use the same resolved build version. Untagged direct development builds append their embedded commit and dirty state to the development version declared in [termcourse.go](termcourse.go).
+[`VERSION`](VERSION) is the maintained release-version source of truth. Go embeds it for local builds, tagged module installs can report their module version, and GoReleaser injects the validated tag into release binaries. `termcourse --version` and the wide masthead subtitle use the same resolved build version. Untagged development builds append their embedded commit and dirty state to the maintained version.
 
 [GoReleaser](.goreleaser.yaml) builds static Linux, macOS, and Windows archives for AMD64 and ARM64, plus `checksums.txt`. Test the configuration locally without publishing:
 
@@ -149,14 +159,9 @@ Termcourse uses semantic Git tags such as `v0.2.1` as the release-version source
 goreleaser release --snapshot --clean --skip=publish
 ```
 
-Pushing a semantic-version tag runs [the release workflow](.github/workflows/release.yml). It validates the tag syntax and confirms the tagged commit is reachable from `master`, runs the complete check suite, verifies that the tag did not move between validation and publication, and then creates the GitHub Release. No package manager, container registry, or announcement publisher is configured.
+Pushing a semantic-version tag that matches [`VERSION`](VERSION) runs [the release workflow](.github/workflows/release.yml). It validates the tag syntax and source version, confirms the tagged commit is reachable from `master`, runs the complete cross-platform check suite, verifies that the tag did not move between validation and publication, and then creates the GitHub Release. No package manager, container registry, or announcement publisher is configured.
 
-After this release workflow reaches `master`, create `v0.2.1` from the intended release commit. The existing `v0.2.0` tag remains immutable and has no generated binary release:
-
-```sh
-git tag -a v0.2.1 -m "termcourse v0.2.1"
-git push origin v0.2.1
-```
+For a new release, update `VERSION` in the release PR, merge it, then create and push the matching `vX.Y.Z` tag from that merge commit. Do not maintain the release number in any other source or workflow file.
 
 An existing unpublished tag containing the release configuration can also be published explicitly with `gh workflow run release.yml --ref master -f tag=TAG`.
 

@@ -3,6 +3,7 @@ package theme
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -61,8 +62,17 @@ func TestDefaultThemeFileUsesUserConfigNotWorkingDirectory(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(workingDirectory, "theme.yml"), []byte("theme: hacker\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	configDirectory := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", configDirectory)
+	configRoot := t.TempDir()
+	configDirectory := configRoot
+	switch runtime.GOOS {
+	case "darwin":
+		t.Setenv("HOME", configRoot)
+		configDirectory = filepath.Join(configRoot, "Library", "Application Support")
+	case "windows":
+		t.Setenv("AppData", configRoot)
+	default:
+		t.Setenv("XDG_CONFIG_HOME", configRoot)
+	}
 	termcourseDirectory := filepath.Join(configDirectory, "termcourse")
 	if err := os.MkdirAll(termcourseDirectory, 0o700); err != nil {
 		t.Fatal(err)

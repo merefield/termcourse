@@ -2,13 +2,13 @@
 package termcourse
 
 import (
+	_ "embed"
 	"runtime/debug"
 	"strings"
 )
 
-// Version is the development fallback. Tagged module installs and builds made
-// through the Makefile use their embedded semantic version instead.
-const Version = "0.2.1"
+//go:embed VERSION
+var sourceVersion string
 
 // buildVersion is populated by the Makefile from the nearest Git tag.
 var buildVersion string
@@ -27,7 +27,7 @@ func CurrentVersion() string {
 			return value
 		}
 	}
-	return Version
+	return maintainedVersion()
 }
 
 func developmentVersion(settings []debug.BuildSetting) string {
@@ -47,11 +47,15 @@ func developmentVersion(settings []debug.BuildSetting) string {
 	if len(revision) > 12 {
 		revision = revision[:12]
 	}
-	value := Version + "-dev+" + revision
+	value := maintainedVersion() + "-dev+" + revision
 	if modified {
 		value += ".dirty"
 	}
 	return value
+}
+
+func maintainedVersion() string {
+	return strings.TrimSpace(sourceVersion)
 }
 
 func normalizeVersion(value string) string {

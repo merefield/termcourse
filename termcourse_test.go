@@ -7,11 +7,11 @@ import (
 
 func TestCurrentVersionUsesBuildOverride(t *testing.T) {
 	previous := buildVersion
-	buildVersion = "v0.2.1"
+	buildVersion = "v9.8.7"
 	t.Cleanup(func() { buildVersion = previous })
 
-	if actual := CurrentVersion(); actual != "0.2.1" {
-		t.Fatalf("CurrentVersion() = %q, want 0.2.1", actual)
+	if actual := CurrentVersion(); actual != "9.8.7" {
+		t.Fatalf("CurrentVersion() = %q, want 9.8.7", actual)
 	}
 }
 
@@ -26,7 +26,7 @@ func TestDevelopmentVersionIncludesRevisionAndDirtyState(t *testing.T) {
 		{Key: "vcs.revision", Value: "0123456789abcdef"},
 		{Key: "vcs.modified", Value: "true"},
 	})
-	if actual != "0.2.1-dev+0123456789ab.dirty" {
+	if actual != maintainedVersion()+"-dev+0123456789ab.dirty" {
 		t.Fatalf("developmentVersion() = %q", actual)
 	}
 }
