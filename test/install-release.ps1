@@ -37,11 +37,29 @@ try {
     Write-Utf8File (Join-Path $releaseDirectory "checksums.txt") "$archiveHash  $assetName`n"
     Write-Utf8File (Join-Path $latestDirectory "latest") '{"tag_name":"v1.2.3+build.5"}'
 
-    $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
-    $listener.Start(); $port = ([Net.IPEndPoint]$listener.LocalEndpoint).Port; $listener.Stop()
     $python = Get-Command python -ErrorAction SilentlyContinue
     if ($null -eq $python) { $python = Get-Command python3 -ErrorAction Stop }
-    $serverProcess = Start-Process -FilePath $python.Source -ArgumentList @("-m", "http.server", "$port", "--bind", "127.0.0.1") -WorkingDirectory $serverRoot -PassThru
+    $serverScript = Join-Path $testRoot "fixture-server.py"
+    $portFile = Join-Path $testRoot "fixture-server.port"
+    Write-Utf8File $serverScript @'
+import http.server
+import os
+import sys
+
+os.chdir(sys.argv[1])
+server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), http.server.SimpleHTTPRequestHandler)
+with open(sys.argv[2], "w", encoding="ascii") as port_file:
+    port_file.write(str(server.server_port))
+server.serve_forever()
+'@
+    $serverProcess = Start-Process -FilePath $python.Source -ArgumentList @($serverScript, $serverRoot, $portFile) -PassThru
+    for ($attempt = 0; $attempt -lt 50 -and -not (Test-Path -LiteralPath $portFile); $attempt++) {
+        if ($serverProcess.HasExited) { throw "fixture HTTP server exited before reporting its port" }
+        Start-Sleep -Milliseconds 100
+    }
+    if (-not (Test-Path -LiteralPath $portFile)) { throw "fixture HTTP server did not report its port" }
+    $port = (Get-Content -LiteralPath $portFile -Raw).Trim()
+    if ($port -notmatch '^\d+$') { throw "fixture HTTP server reported an invalid port: $port" }
     $baseUrl = "http://127.0.0.1:$port"
     $ready = $false
     for ($attempt = 0; $attempt -lt 50; $attempt++) {
