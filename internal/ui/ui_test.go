@@ -693,7 +693,7 @@ func TestSemanticHeaderStylesUseHeaderBackgroundAndSeparators(t *testing.T) {
 func TestPanelsUseRoundedIntegratedTitlesAndResponsiveBranding(t *testing.T) {
 	t.Setenv("TERMCOURSE_COLOR_MODE", "truecolor")
 	style := NewStyle(testTheme(), &bytes.Buffer{})
-	compact := style.AppHeader("Latest Topics", "community.example", "0.2.0", []string{"arrows: move | q: quit", "Logged in: member"}, 52, 24)
+	compact := style.AppHeader("Latest Topics", "community.example", "0.2.1", []string{"arrows: move | q: quit", "Logged in: member"}, 52, 24)
 	plain := stripANSI(strings.Join(compact, "\n"))
 	if !strings.HasPrefix(plain, "▰ TERMCOURSE ▰") || !strings.Contains(plain, "╭─ LATEST TOPICS ") || !strings.HasSuffix(plain, "╰"+strings.Repeat("─", 50)+"╯") {
 		t.Fatalf("compact app header =\n%s", plain)
@@ -707,8 +707,8 @@ func TestPanelsUseRoundedIntegratedTitlesAndResponsiveBranding(t *testing.T) {
 		}
 	}
 
-	wide := stripANSI(strings.Join(style.AppHeader("Latest", "community.example", "0.2.0", []string{"controls", "status"}, 90, 32), "\n"))
-	if !strings.Contains(wide, "▀█▀ █▀▀ █▀█ █▀▄▀█") || !strings.Contains(wide, "◉ DISCOURSE TERMINAL · VERSION 0.2.0") || strings.Contains(wide, "· TEST") || !strings.Contains(wide, "● ONLINE") {
+	wide := stripANSI(strings.Join(style.AppHeader("Latest", "community.example", "0.2.1", []string{"controls", "status"}, 90, 32), "\n"))
+	if !strings.Contains(wide, "▀█▀ █▀▀ █▀█ █▀▄▀█") || !strings.Contains(wide, "◉ DISCOURSE TERMINAL · VERSION 0.2.1") || strings.Contains(wide, "· TEST") || !strings.Contains(wide, "● ONLINE") {
 		t.Fatalf("wide app header =\n%s", wide)
 	}
 }
