@@ -8,27 +8,32 @@ permissions:
   contents: read
 
 jobs:
-  test:
+  check:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
-      - name: Set up Go
-        uses: actions/setup-go@v6
+      - name: Setup Go
+        uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: true
 
-      - name: Check formatting
-        run: test -z "$(gofmt -l .)"
+      - name: Setup Bats
+        uses: bats-core/bats-action@3.0.1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Vet
-        run: go vet ./...
+      - name: Validate release configuration
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: check
 
-      - name: Test
-        run: go test -race ./...
-
-      - name: Build
-        run: go build ./cmd/termcourse
+      - name: Run checks
+        run: make check

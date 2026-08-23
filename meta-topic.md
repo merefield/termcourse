@@ -41,16 +41,27 @@ The interface uses the current Charm stack and works with both keyboard and mous
 
 ## Install and run
 
-Go 1.26.6 or newer is required when installing from source. The shortest route is:
+On Linux or macOS, the recommended installer downloads the prebuilt release for the current operating system and architecture, verifies its SHA-256 checksum and reported version, then installs it:
 
 ```sh
-go install github.com/merefield/termcourse/cmd/termcourse@latest
+curl -fsSL https://raw.githubusercontent.com/merefield/termcourse/master/install-release.sh | sh
 termcourse your.discourse.host
 ```
 
 Termcourse prompts for a username and password when credentials have not already been configured. Password input is hidden.
 
 Use `termcourse --version` to show the installed semantic version; the same version appears in the wide terminal masthead.
+
+For a user-local installation that does not require `sudo`:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/merefield/termcourse/master/install-release.sh |
+  TERMCOURSE_BIN_DIR="$HOME/.local/bin" sh
+```
+
+Each [GitHub Release](https://github.com/merefield/termcourse/releases) provides SHA-256 checksums and prebuilt archives for Linux, macOS and Windows on AMD64 and ARM64. Linux/macOS use `.tar.gz`; Windows uses `.zip`. Prebuilt releases do not require Go.
+
+The installer can also pin a release, for example `sh -s -- --version v0.2.1`, after the download pipe. Go 1.26.6 or newer is only required when installing from source.
 
 To build a local executable from a checkout instead:
 

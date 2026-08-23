@@ -1,6 +1,6 @@
 # termcourse
 
-[![Version](https://img.shields.io/github/v/tag/merefield/termcourse?sort=semver&label=version)](https://github.com/merefield/termcourse/tags)
+[![Latest release](https://img.shields.io/github/v/release/merefield/termcourse?display_name=tag&sort=semver&label=release)](https://github.com/merefield/termcourse/releases/latest)
 [![CI](https://github.com/merefield/termcourse/actions/workflows/ci.yml/badge.svg)](https://github.com/merefield/termcourse/actions/workflows/ci.yml)
 [![Go version](https://img.shields.io/github/go-mod/go-version/merefield/termcourse)](go.mod)
 [![License](https://img.shields.io/github/license/merefield/termcourse)](LICENSE)
@@ -34,19 +34,55 @@ Termcourse is a Go 1.26.6 terminal UI for browsing and posting to Discourse foru
 
 ## Install and run
 
-Go 1.26.6 or newer is required when installing from source. The shortest installation path is:
+### Prebuilt release (recommended)
+
+On Linux or macOS, the release installer selects the archive for the current operating system and architecture, verifies its SHA-256 checksum, checks the binary's reported version, and installs it as `/usr/local/bin/termcourse`:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/merefield/termcourse/master/install-release.sh | sh
+```
+
+The installer requires `curl` or `wget`, `tar`, and either `sha256sum` (Linux) or `shasum` (macOS). It uses `sudo` only when the destination is not writable. For a user-local installation that does not require `sudo`:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/merefield/termcourse/master/install-release.sh |
+  TERMCOURSE_BIN_DIR="$HOME/.local/bin" sh
+```
+
+Ensure `$HOME/.local/bin` is on `PATH` when using that location. To install a particular release reproducibly:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/merefield/termcourse/master/install-release.sh |
+  sh -s -- --version v0.2.1
+```
+
+You can download and inspect [install-release.sh](install-release.sh) before running it. The installer supports `--help`, `--version TAG`, and `--bin-dir DIR`; the equivalent environment variables are `TERMCOURSE_VERSION` and `TERMCOURSE_BIN_DIR`.
+
+Prebuilt releases do not require Go. Each [GitHub Release](https://github.com/merefield/termcourse/releases) contains these assets:
+
+| Operating system | Architectures | Archive | Installation |
+| --- | --- | --- | --- |
+| Linux | AMD64, ARM64 | `.tar.gz` | Installer or manual |
+| macOS | Intel (AMD64), Apple Silicon (ARM64) | `.tar.gz` | Installer or manual |
+| Windows | AMD64, ARM64 | `.zip` | Manual |
+
+For a manual installation, verify the selected archive against the release's `checksums.txt`, extract `termcourse` (or `termcourse.exe` on Windows), and place it on `PATH`.
+
+Run Termcourse with the hostname or URL of any Discourse site:
+
+```sh
+termcourse meta.discourse.org
+```
+
+If no credentials are configured, Termcourse prompts for the missing username and password. Password input is hidden. Confirm the installed release at any time with `termcourse --version`.
+
+### Install with Go
+
+Go 1.26.6 or newer is required when installing from source. `go install` compiles Termcourse locally:
 
 ```sh
 go install github.com/merefield/termcourse/cmd/termcourse@latest
 termcourse meta.discourse.org
-```
-
-Replace `meta.discourse.org` with the hostname or URL of any Discourse site. If no credentials are configured, Termcourse prompts for the missing username and password. Password input is hidden.
-
-Confirm the installed release at any time with:
-
-```sh
-termcourse --version
 ```
 
 If the shell cannot find `termcourse`, add the Go binary directory to `PATH`. `go install` uses `GOBIN` when configured and otherwise uses `$(go env GOPATH)/bin`:
@@ -55,7 +91,7 @@ If the shell cannot find `termcourse`, add the Go binary directory to `PATH`. `g
 export PATH="$(go env GOPATH)/bin:$PATH"
 ```
 
-To build a local executable instead:
+### Build from a checkout
 
 ```sh
 git clone https://github.com/merefield/termcourse.git
@@ -68,6 +104,12 @@ make build
 
 ```sh
 go run ./cmd/termcourse meta.discourse.org
+```
+
+`make install` is also available and honours `DESTDIR` and `PREFIX`:
+
+```sh
+make install PREFIX="$HOME/.local"
 ```
 
 For repeat use, credentials can be supplied in `.env` or the host-mapped credentials file described under [Configuration](#configuration). The examples below use an installed `termcourse`; replace it with `./termcourse` when running a binary built in the repository. Username/password login enables realtime MessageBus updates:
@@ -95,11 +137,28 @@ termcourse themes hacker
 
 A local `.env` is loaded automatically. CLI credentials override host credentials from YAML, which override generic environment variables. If both login and API pairs exist, login is tried first unless the host entry selects `auth: api`.
 
-For contributors, run the local checks with `make test` and `make vet`.
+For contributors, `make check` runs formatting validation, vet, race-enabled Go tests, installer integration tests, and a local build.
 
-## Versioning
+## Releases and versioning
 
-Termcourse uses semantic Git tags such as `v0.2.0` as the release-version source of truth. Go embeds that module version in binaries installed with `go install`, while `make build` injects the current `git describe` value. `termcourse --version` and the wide masthead subtitle both use the same resolved build version. Untagged direct development builds append their embedded commit and dirty state to the development version declared in [termcourse.go](termcourse.go).
+Termcourse uses semantic Git tags such as `v0.2.1` as the release-version source of truth. Go embeds that module version in binaries installed with `go install`; GoReleaser injects it into release binaries; and `make build` injects the current `git describe` value. `termcourse --version` and the wide masthead subtitle use the same resolved build version. Untagged direct development builds append their embedded commit and dirty state to the development version declared in [termcourse.go](termcourse.go).
+
+[GoReleaser](.goreleaser.yaml) builds static Linux, macOS, and Windows archives for AMD64 and ARM64, plus `checksums.txt`. Test the configuration locally without publishing:
+
+```sh
+goreleaser release --snapshot --clean --skip=publish
+```
+
+Pushing a semantic-version tag runs [the release workflow](.github/workflows/release.yml). It validates the tag syntax and confirms the tagged commit is reachable from `master`, runs the complete check suite, verifies that the tag did not move between validation and publication, and then creates the GitHub Release. No package manager, container registry, or announcement publisher is configured.
+
+After this release workflow reaches `master`, create `v0.2.1` from the intended release commit. The existing `v0.2.0` tag remains immutable and has no generated binary release:
+
+```sh
+git tag -a v0.2.1 -m "termcourse v0.2.1"
+git push origin v0.2.1
+```
+
+An existing unpublished tag containing the release configuration can also be published explicitly with `gh workflow run release.yml --ref master -f tag=TAG`.
 
 ## Migrating from the Ruby version
 

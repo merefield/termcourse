@@ -8,7 +8,7 @@ import (
 
 // Version is the development fallback. Tagged module installs and builds made
 // through the Makefile use their embedded semantic version instead.
-const Version = "0.2.0"
+const Version = "0.2.1"
 
 // buildVersion is populated by the Makefile from the nearest Git tag.
 var buildVersion string
