@@ -59,7 +59,9 @@ curl -fsSL https://raw.githubusercontent.com/merefield/termcourse/master/install
   TERMCOURSE_BIN_DIR="$HOME/.local/bin" sh
 ```
 
-Windows AMD64/ARM64 ZIPs and manual Linux/macOS downloads are available from [GitHub Releases](https://github.com/merefield/termcourse/releases). Go 1.26.6 or newer is only required when installing from source.
+Each [GitHub Release](https://github.com/merefield/termcourse/releases) provides SHA-256 checksums and prebuilt archives for Linux, macOS and Windows on AMD64 and ARM64. Linux/macOS use `.tar.gz`; Windows uses `.zip`. Prebuilt releases do not require Go.
+
+The installer can also pin a release, for example `sh -s -- --version v0.2.1`, after the download pipe. Go 1.26.6 or newer is only required when installing from source.
 
 To build a local executable from a checkout instead:
 

@@ -58,7 +58,15 @@ curl -fsSL https://raw.githubusercontent.com/merefield/termcourse/master/install
 
 You can download and inspect [install-release.sh](install-release.sh) before running it. The installer supports `--help`, `--version TAG`, and `--bin-dir DIR`; the equivalent environment variables are `TERMCOURSE_VERSION` and `TERMCOURSE_BIN_DIR`.
 
-Windows AMD64 and ARM64 ZIP archives are available from [GitHub Releases](https://github.com/merefield/termcourse/releases). Verify the selected archive against `checksums.txt`, extract `termcourse.exe`, and place it on `PATH`.
+Prebuilt releases do not require Go. Each [GitHub Release](https://github.com/merefield/termcourse/releases) contains these assets:
+
+| Operating system | Architectures | Archive | Installation |
+| --- | --- | --- | --- |
+| Linux | AMD64, ARM64 | `.tar.gz` | Installer or manual |
+| macOS | Intel (AMD64), Apple Silicon (ARM64) | `.tar.gz` | Installer or manual |
+| Windows | AMD64, ARM64 | `.zip` | Manual |
+
+For a manual installation, verify the selected archive against the release's `checksums.txt`, extract `termcourse` (or `termcourse.exe` on Windows), and place it on `PATH`.
 
 Run Termcourse with the hostname or URL of any Discourse site:
 
