@@ -75,6 +75,17 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ needs.validate.outputs.tag }}
+      - name: Verify validated commit
+        shell: bash
+        env:
+          EXPECTED_COMMIT: ${{ needs.validate.outputs.commit }}
+        run: |
+          actual_commit=$(git rev-parse HEAD)
+          if [[ "$actual_commit" != "$EXPECTED_COMMIT" ]]; then
+            printf 'Release tag changed after validation (expected %s, got %s).\n' \
+              "$EXPECTED_COMMIT" "$actual_commit" >&2
+            exit 1
+          fi
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
@@ -96,6 +107,8 @@ jobs:
         run: go vet ./...
       - name: Test
         run: go test -race ./...
+      - name: Build
+        run: go build -buildvcs=false -trimpath ./cmd/termcourse
       - name: Validate release configuration
         if: runner.os == 'Linux'
         uses: goreleaser/goreleaser-action@v7
