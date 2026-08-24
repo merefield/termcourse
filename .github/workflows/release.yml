@@ -82,7 +82,8 @@ jobs:
         run: |
           actual_commit=$(git rev-parse HEAD)
           if [[ "$actual_commit" != "$EXPECTED_COMMIT" ]]; then
-            echo "Release tag changed after validation."
+            printf 'Release tag changed after validation (expected %s, got %s).\n' \
+              "$EXPECTED_COMMIT" "$actual_commit" >&2
             exit 1
           fi
       - uses: actions/setup-go@v7
