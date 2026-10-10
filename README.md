@@ -5,7 +5,7 @@
 [![Go version](https://img.shields.io/github/go-mod/go-version/merefield/termcourse)](go.mod)
 [![License](https://img.shields.io/github/license/merefield/termcourse)](LICENSE)
 
-Termcourse is a Go 1.26.6 terminal UI for browsing and posting to Discourse forums. It replaces the original Ruby implementation while retaining its browsing, posting, realtime, rendering, localization, theming, and image features.
+Termcourse is a Go 1.27.2 terminal UI for browsing and posting to Discourse forums. It replaces the original Ruby implementation while retaining its browsing, posting, realtime, rendering, localization, theming, and image features.
 
 ## Features
 
@@ -68,7 +68,7 @@ The Unix installer supports `--help`, `--version TAG`, and `--bin-dir DIR`; the 
 
 The Windows installer defaults to `%LOCALAPPDATA%\Programs\termcourse\bin` and reports when that directory must be added to `PATH`.
 
-Prebuilt releases do not require Go. Each [GitHub Release](https://github.com/merefield/termcourse/releases) contains these assets:
+Prebuilt releases do not require Go. Go 1.27 builds require macOS 13 (Ventura) or newer on macOS. Each [GitHub Release](https://github.com/merefield/termcourse/releases) contains these assets:
 
 | Operating system | Architectures | Archive | Installation |
 | --- | --- | --- | --- |
@@ -88,7 +88,7 @@ If no credentials are configured, Termcourse prompts for the missing username an
 
 ### Install with Go
 
-Go 1.26.6 or newer is required when installing from source. `go install` compiles Termcourse locally:
+Go 1.27.2 or newer is required when installing from source. `go install` compiles Termcourse locally:
 
 ```sh
 go install github.com/merefield/termcourse/cmd/termcourse@latest
@@ -177,7 +177,7 @@ Be mindful of these differences:
 - Theme files are now checked strictly. Unknown fields, invalid colors, unreadable explicitly selected files, and unknown themes stop startup with an explanatory error instead of being silently ignored or replaced with the default theme.
 - If an old `.env` contains `TERMCOURSE_IMAGE_MODE=stable`, replace it with `balanced`. The supported values are `compat`, `balanced`, and `high`.
 - The default symbol-thumbnail size changed from 14 lines to 48 columns by 6 lines. Existing explicit `TERMCOURSE_IMAGE_LINES` values still work; use `TERMCOURSE_IMAGE_COLUMNS` to set the width.
-- Automatic color handling now detects terminal capabilities instead of using the Ruby version's platform heuristic. `TERMCOURSE_COLOR_MODE=truecolor`, `256`, or `16` still forces a specific mode.
+- Automatic color handling detects terminal capabilities. On macOS 26 or newer, local Apple Terminal profiles advertising `xterm-256color` use true colour unless explicit colour preferences, SSH, or a terminal multiplexer prevent the override. `TERMCOURSE_COLOR_MODE=truecolor`, `256`, or `16` still forces a specific mode. Panel backgrounds survive nested text styles; a custom theme's `background` fills the complete screen while preserving highlights and header colours. `background: none` retains the terminal profile background.
 - New optional controls include `TERMCOURSE_MOUSE`, `TERMCOURSE_IMAGE_PROTOCOL`, and `TERMCOURSE_IMAGE_COLUMNS`. They require no migration because their defaults preserve automatic behaviour.
 
 There is no new monolithic Go configuration file. Configuration remains split between environment variables, credentials YAML, and theme YAML, and no effective Ruby theme color or authentication option has been removed.
@@ -294,6 +294,12 @@ Set `TERMCOURSE_DEBUG=1` to include the server's `Discourse-Rate-Limit-Error-Cod
 On Linux the system temporary directory is normally `/tmp`, unless `TMPDIR` selects another location. HTTP diagnostics include response status, request duration, `Retry-After`, and the Discourse limiter code; credentials and response bodies are not logged.
 
 ## Implementation
+
+The Security workflow scans reachable Go standard-library and dependency vulnerabilities on PRs, pushes to master, weekly, and manual dispatch. It pins `govulncheck` to v1.8.0 and disables automatic toolchain switching to scan the Go version in `go.mod`. Advisory-service failures fail the check. The scan currently covers the Linux build; it adds no application startup work or runtime dependency. Repeat locally with:
+
+```sh
+GOTOOLCHAIN=go1.27.2 go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
+```
 
 The interface runs on the current Charm v2 stack. Bubble Tea owns raw mode, the alternate screen, synchronized incremental rendering, resize events, cursor state, terminal queries, color downsampling, window metadata, and supported native progress metadata. Bubbles supplies the themed single-line editor and multiline composer, including bracketed paste, word navigation, soft wrapping, cursor behavior, and viewport scrolling. Lip Gloss v2 provides pure theme/layout styles, while Glamour v2/Goldmark renders GFM and `x/ansi` provides ANSI-safe grapheme measurement, truncation, Kitty graphics encoding, capability responses, and virtual image placement. `x/term` remains limited to pre-TUI password input, terminal detection, and sizing fallback.
 

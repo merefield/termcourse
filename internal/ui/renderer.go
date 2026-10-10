@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"image/color"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -9,12 +10,19 @@ import (
 // ScreenRenderer prepares complete terminal frames. Bubble Tea v2 owns the
 // actual diffing, synchronized output, cursor lifecycle, and resize repaint.
 type ScreenRenderer struct {
-	terminal *Terminal
-	progress *tea.ProgressBar
+	terminal   *Terminal
+	progress   *tea.ProgressBar
+	background color.Color
 }
 
 func NewScreenRenderer(terminal *Terminal) *ScreenRenderer {
 	return &ScreenRenderer{terminal: terminal}
+}
+
+func (r *ScreenRenderer) SetBackground(background color.Color) { r.background = background }
+
+func (r *ScreenRenderer) frame(lines []string, width, height int) string {
+	return withDefaultBackground(normalizeScreen(lines, width, height), r.background)
 }
 
 func (r *ScreenRenderer) Reset() {
@@ -24,7 +32,7 @@ func (r *ScreenRenderer) Reset() {
 }
 
 func (r *ScreenRenderer) Render(lines []string, width, height int, viewKey string, cursorX, cursorY int, force bool) {
-	content := normalizeScreen(lines, width, height)
+	content := r.frame(lines, width, height)
 	if !strings.HasPrefix(viewKey, "topic-") {
 		r.progress = nil
 	}
