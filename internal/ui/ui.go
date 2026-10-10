@@ -129,6 +129,7 @@ func New(client Client, options Options) *UI {
 		debug:        os.Getenv("TERMCOURSE_DEBUG") == "1",
 		mouseEnabled: os.Getenv("TERMCOURSE_MOUSE") != "0",
 	}
+	result.renderer.SetBackground(result.style.body.GetBackground())
 	terminal.SetMouseEnabled(result.mouseEnabled)
 	if options.EnableLiveUpdates {
 		result.live = liveupdates.New(options.BaseURL, client.MessageBusHeaders(), liveupdates.Options{
@@ -155,6 +156,7 @@ func (u *UI) cycleTheme() {
 	u.options.Theme = next
 	u.style = NewStyle(next, u.options.Output)
 	if u.renderer != nil {
+		u.renderer.SetBackground(u.style.body.GetBackground())
 		u.renderer.Reset()
 	}
 }

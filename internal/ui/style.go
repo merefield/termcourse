@@ -78,7 +78,11 @@ func NewStyle(value theme.Theme, output io.Writer) *Style {
 
 func resolveColorProfile(output io.Writer) (colorprofile.Profile, string) {
 	mode := strings.ToLower(os.Getenv("TERMCOURSE_COLOR_MODE"))
-	profile := colorprofile.Detect(output, os.Environ())
+	environ := os.Environ()
+	profile := colorprofile.Detect(output, environ)
+	if profile == colorprofile.ANSI256 && appleTerminalTrueColor(environ, appleTerminalSupportsTrueColor()) {
+		profile = colorprofile.TrueColor
+	}
 	switch mode {
 	case "truecolor":
 		profile = colorprofile.TrueColor
@@ -230,7 +234,11 @@ func (s *Style) frame(title string, lines []string, width int, padding lipgloss.
 			out = append(out, s.border.Render("│")+content+s.border.Render("│"))
 		}
 	}
-	return append(out, s.frameEdge("", width, false))
+	out = append(out, s.frameEdge("", width, false))
+	for index := range out {
+		out[index] = withDefaultBackground(out[index], padding.GetBackground())
+	}
+	return out
 }
 
 func (s *Style) frameEdge(title string, width int, top bool) string {
