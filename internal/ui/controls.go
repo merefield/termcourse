@@ -142,13 +142,14 @@ func (u *UI) controlsFooter(value string, width, y int, guidance ...string) stri
 	} else {
 		value = themeControl + " | " + value
 	}
-	themeStatus := strings.ToUpper(u.t("ui.status.theme", "name", u.style.Theme.Name))
+	value = u.upper(value)
+	themeStatus := u.upper(u.t("ui.status.theme", "name", strings.ToUpper(u.style.Theme.Name)))
 	themeStatus = truncateVisible(themeStatus, max(width, 0))
 	renderedStatus := u.style.Text(themeStatus, roleListMeta)
 	controlsWidth := max(width-visibleWidth(themeStatus)-1, 0)
 	guidanceText := ""
 	if len(guidance) > 0 {
-		guidanceText = fitFooterGuidance(guidance[0], max(controlsWidth-minimumControlsWidth(value)-1, 0))
+		guidanceText = fitFooterGuidance(u.upper(guidance[0]), max(controlsWidth-minimumControlsWidth(value)-1, 0))
 	}
 	guidanceWidth := visibleWidth(guidanceText)
 	gap := 0

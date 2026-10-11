@@ -203,6 +203,39 @@ The five built-in themes are `default`, `slate`, `fairground`, `rust`, and `hack
 
 See [theme.example.yml](theme.example.yml) for partial built-in overrides and custom themes. Supported keys are `primary`, `background`, `highlighted`, `highlighted_text`, `borders`, `bar_backgrounds`, `separators`, `list_numbers`, `list_text`, `post_username`, `list_meta`, and `accent`. Colors accept `#rrggbb`, indexes `0`–`255`, `black`, `white`, `red`, `green`, `blue`, `yellow`, `cyan`, `magenta`, `gray`/`grey`, or `none`. Invalid fields, colors, files, and theme names produce actionable errors.
 
+### Language
+
+Termcourse includes 16 languages with 17 locale options:
+
+| Language | Code |
+| --- | --- |
+| English | `en` (`en-GB` and other English variants also work) |
+| French | `fr` |
+| German | `de` |
+| Spanish | `es` |
+| Dutch | `nl` |
+| Italian | `it` |
+| Russian | `ru` |
+| Japanese | `ja` |
+| Chinese (Simplified) | `zh-Hans` |
+| Swedish | `sv` |
+| Norwegian (Bokmål) | `nb` |
+| Turkish | `tr` |
+| Estonian | `et` |
+| Finnish | `fi` |
+| Portuguese (Brazil) | `pt-BR` |
+| Portuguese (Portugal) | `pt-PT` |
+| Danish | `da` |
+
+Select the interface language with `--lang`, then `TERMCOURSE_LANG`, then the system locale (`LC_ALL`, `LC_MESSAGES`, `LANG`, in that order). Unsupported values fall back to English. BCP 47 regional tags and POSIX locale names such as `ja-JP`, `fr_CA.UTF-8`, and `pt_PT.UTF-8` match the appropriate catalogue. `no` and `no-NO` select Norwegian Bokmål; `zh-CN` selects Simplified Chinese. Bare `pt` selects Brazilian Portuguese, while `pt-PT`, `pt-AO`, and `pt-MZ` select European Portuguese.
+
+```sh
+termcourse --lang ja https://your.discourse.host
+TERMCOURSE_LANG=pt-PT termcourse https://your.discourse.host
+```
+
+Translations are embedded in the binary, so no language pack or download is needed. Locale selection covers the existing CLI prompts and interface catalogue; forum posts, usernames, theme names, protocol identifiers, and server-provided errors stay in their original form. Keyboard shortcuts remain the same. Maintain translations in `internal/i18n/locales/<code>.yml`, preserving `%{name}` placeholders and shortcut keys.
+
 ### Image rendering
 
 With `TERMCOURSE_IMAGE_PROTOCOL=auto`, Termcourse probes for Kitty graphics support and uses Unicode virtual placements when available in truecolor mode. This gives inline thumbnails that remain part of the terminal cell layout, plus resize-responsive fullscreen images. Kitty commands are passed through tmux and GNU Screen automatically.
@@ -219,7 +252,7 @@ Use `TERMCOURSE_IMAGE_PROTOCOL=kitty` to force Kitty or `TERMCOURSE_IMAGE_PROTOC
 | `DISCOURSE_API_KEY`, `DISCOURSE_API_USERNAME` | API authentication fallback. |
 | `TERMCOURSE_CREDENTIALS_FILE` | Credentials YAML override. |
 | `TERMCOURSE_THEME`, `TERMCOURSE_THEME_FILE` | Theme name/file; overridden by `--theme` and `--theme-file`. |
-| `TERMCOURSE_LANG` | `en`, `fr`, `de`, or `es`; then `LC_ALL`, `LC_MESSAGES`, `LANG`. |
+| `TERMCOURSE_LANG` | Interface language from [Language](#language); then `LC_ALL`, `LC_MESSAGES`, `LANG`. |
 | `TERMCOURSE_COLOR_MODE` | `auto`, `truecolor`, `256`, or `16`; auto detects output capabilities. |
 | `TERMCOURSE_LINKS`, `TERMCOURSE_EMOJI` | Set to `0` to disable. |
 | `TERMCOURSE_MOUSE` | Set to `0` to disable click/wheel capture and retain ordinary terminal text selection. |

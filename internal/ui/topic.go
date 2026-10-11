@@ -344,7 +344,7 @@ func (u *UI) postBlock(post discourse.JSON, expanded bool, width int) []string {
 
 func (u *UI) progressFooter(current, total, width int) []string {
 	hovered := strings.HasPrefix(u.hoveredControl, progressKeyPrefix)
-	return u.style.ProgressBox(u.t("ui.status.read_progress"), current, total, width, hovered)
+	return u.style.ProgressBox(u.upper(u.t("ui.status.read_progress")), current, total, width, hovered)
 }
 
 func (u *UI) addProgressRegions(y, current, total, width, height int) {

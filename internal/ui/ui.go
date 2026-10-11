@@ -164,6 +164,8 @@ func (u *UI) cycleTheme() {
 
 func (u *UI) t(key string, pairs ...any) string { return i18n.Tr(u.locale, key, pairs...) }
 
+func (u *UI) upper(value string) string { return i18n.Upper(u.locale, value) }
+
 func (u *UI) Run() error {
 	if err := u.terminal.EnterRaw(); err != nil {
 		return fmt.Errorf("raw terminal mode: %w", err)

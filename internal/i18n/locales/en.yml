@@ -9,12 +9,12 @@ en:
       password: "Discourse password (or DISCOURSE_PASSWORD)"
       theme: "Theme name (overrides TERMCOURSE_THEME for this run)"
       theme_file: "Theme YAML override file"
-      lang: "UI language (en, fr, de or es; default: env/system locale)"
+      lang: "UI language (%{locales}; default: env/system locale)"
       version: "Show version"
       show: "Show help"
       core_env: "Core environment variables:"
     env:
-      lang: "UI language: en|fr|de|es (default: TERMCOURSE_LANG, then system locale, then en)."
+      lang: "UI language: %{locales} (default: TERMCOURSE_LANG, then system locale, then en)."
     auth:
       missing: "Missing auth. Provide API key or username/password."
       api: "API key: DISCOURSE_API_KEY + DISCOURSE_API_USERNAME"
