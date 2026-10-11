@@ -57,7 +57,7 @@ func (u *UI) promptSingleLine(titleKey, promptKey, prefix string, active primary
 			}
 		}
 		if mouse, ok := msg.(tea.MouseMsg); ok {
-			mouseKey := u.mouseKey(mouse)
+			mouseKey := u.mouseInputKey(mouse)
 			if mouseKey == "t" {
 				u.cycleTheme()
 				continue
@@ -102,7 +102,7 @@ func (u *UI) compose(title string, context []string, category, variant string) s
 		if key, ok := msg.(tea.KeyPressMsg); ok {
 			keyName = key.String()
 		} else if mouse, ok := msg.(tea.MouseMsg); ok {
-			keyName = u.mouseKey(mouse)
+			keyName = u.mouseInputKey(mouse)
 			if keyName == "t" {
 				u.cycleTheme()
 				continue

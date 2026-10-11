@@ -9,12 +9,12 @@ fr:
       password: "Mot de passe Discourse (ou DISCOURSE_PASSWORD)"
       theme: "Nom du thème (remplace TERMCOURSE_THEME pour cette exécution)"
       theme_file: "Fichier YAML de personnalisation du thème"
-      lang: "Langue de l’interface (en, fr, de ou es ; par défaut : locale système/env)"
+      lang: "Langue de l’interface (%{locales} ; par défaut : locale système/env)"
       version: "Afficher la version"
       show: "Afficher l’aide"
       core_env: "Variables d’environnement principales :"
     env:
-      lang: "Langue de l’interface : en|fr|de|es (défaut : TERMCOURSE_LANG, puis locale système, puis en)."
+      lang: "Langue de l’interface : %{locales} (défaut : TERMCOURSE_LANG, puis locale système, puis en)."
     auth:
       missing: "Authentification manquante. Fournissez une clé API ou un identifiant/mot de passe."
       api: "Clé API : DISCOURSE_API_KEY + DISCOURSE_API_USERNAME"

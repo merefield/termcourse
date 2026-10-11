@@ -93,6 +93,7 @@ type UI struct {
 	hoveredControl     string
 	activePrimary      primaryTabID
 	requestedPrimary   *primaryTabID
+	latestRequested    bool
 	quitRequested      bool
 	activeContext      string
 	activeContextValue string
@@ -164,6 +165,8 @@ func (u *UI) cycleTheme() {
 
 func (u *UI) t(key string, pairs ...any) string { return i18n.Tr(u.locale, key, pairs...) }
 
+func (u *UI) upper(value string) string { return i18n.Upper(u.locale, value) }
+
 func (u *UI) Run() error {
 	if err := u.terminal.EnterRaw(); err != nil {
 		return fmt.Errorf("raw terminal mode: %w", err)
@@ -193,7 +196,7 @@ func (u *UI) Run() error {
 	filter, period := "latest", "monthly"
 	active := primaryTopics
 	for {
-		active = u.takeRequestedPrimary(active)
+		active, filter, period = u.takeRequestedNavigation(active, filter, period)
 		if u.quitRequested {
 			return nil
 		}

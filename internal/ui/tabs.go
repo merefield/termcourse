@@ -244,7 +244,7 @@ func (u *UI) readKey(timeout time.Duration) (string, error) {
 	case tea.PasteMsg:
 		return msg.Content, nil
 	case tea.MouseMsg:
-		key := u.mouseKey(msg)
+		key := u.mouseInputKey(msg)
 		if key == "t" {
 			u.cycleTheme()
 			return keyThemeChanged, nil
@@ -298,7 +298,11 @@ func (u *UI) primaryNavigationLine(active primaryTabID, width int) navigationLin
 	if status != "" && width >= 32 {
 		reserve = min(visibleWidth(status)+1, max(width/3, 12))
 	}
-	rail := layoutTabRail(u.primarySpecs(active), max(width-reserve, 1))
+	specs := u.primarySpecs(active)
+	for i := range specs {
+		specs[i].label = u.upper(specs[i].label)
+	}
+	rail := layoutTabRail(specs, max(width-reserve, 1))
 	left := u.style.renderTabRail(rail, u.hoveredControl)
 	right := truncateVisible(u.style.Text(status, roleListMeta), max(width-rail.width-1, 0))
 	line := headerLine(left, right, width)
@@ -338,7 +342,7 @@ func (u *UI) contextNavigationLine(kind, selected, period string, width int) nav
 		} else if kind == "search" {
 			key = "ui.search.variants." + value
 		}
-		label := u.t(key)
+		label := u.upper(u.t(key))
 		badge := 0
 		if kind == "topics" && value == "private" {
 			badge = u.pmUnread
@@ -394,11 +398,12 @@ func (u *UI) navigationHeader(section string, active primaryTabID, context, sele
 		content = append(content, line.content)
 	}
 	title := u.style.AppTitle(u.displayURL, u.options.Version, width, height)
+	u.addLogoMouseRegions(title, width)
 	header := append([]string{}, title...)
 	header = append(header, strings.Repeat(" ", max(width, 0)))
 	header = append(header, content...)
 	if strings.TrimSpace(section) != "" {
-		header = append(header, u.style.HeaderBox(section, extra, width)...)
+		header = append(header, u.style.HeaderBox(u.upper(section), extra, width)...)
 	}
 	tabStartY := len(title) + 1
 	for lineIndex, line := range lines {

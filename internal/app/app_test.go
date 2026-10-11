@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/merefield/termcourse"
+	"github.com/merefield/termcourse/internal/i18n"
 	"github.com/merefield/termcourse/internal/theme"
 )
 
@@ -109,5 +110,25 @@ func TestMFARequiredDoesNotTreatFalseAsRequired(t *testing.T) {
 	}
 	if !mfaRequired(map[string]any{"requires_second_factor": true}) {
 		t.Fatal("true requires_second_factor should prompt")
+	}
+}
+
+func TestHelpSupportsEveryLocaleWithoutAuthentication(t *testing.T) {
+	for _, locale := range i18n.AvailableLocales {
+		t.Run(locale, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			if status := Run([]string{"--lang", locale, "--help"}, os.Stdin, &stdout, &stderr); status != 0 {
+				t.Fatalf("help failed: %s", stderr.String())
+			}
+			help := stdout.String()
+			if !strings.Contains(help, i18n.Tr(locale, "cli.usage")) || strings.Contains(help, "%{") {
+				t.Fatal("untranslated help or placeholder", help)
+			}
+			for _, code := range i18n.AvailableLocales {
+				if !strings.Contains(help, code) {
+					t.Errorf("locale %q not advertised", code)
+				}
+			}
+		})
 	}
 }
