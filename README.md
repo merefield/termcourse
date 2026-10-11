@@ -293,6 +293,16 @@ Set `TERMCOURSE_DEBUG=1` to include the server's `Discourse-Rate-Limit-Error-Cod
 
 On Linux the system temporary directory is normally `/tmp`, unless `TMPDIR` selects another location. HTTP diagnostics include response status, request duration, `Retry-After`, and the Discourse limiter code; credentials and response bodies are not logged.
 
+## Startup animation
+
+The full-screen terminal randomly chooses one of three TERMCOURSE entrances:
+
+- The block logo slides in from the right.
+- A dot blinks three times, then advances as the name is typed letter by letter.
+- Ten random characters shuffle and resolve into the name in a random order.
+
+Each uses the same full-width block lettering at the vertical centre, then shrinks into the masthead before the interface appears. Initial forum data loads during the roughly two-to-three-second animation. Press any key, paste, or left-click to skip; `q` or Ctrl+C quits. Terminals smaller than 68 columns or eight rows open directly. Help, version output, and theme previews do not animate.
+
 ## Implementation
 
 The Security workflow scans reachable Go standard-library and dependency vulnerabilities on PRs, pushes to master, weekly, and manual dispatch. It pins `govulncheck` to v1.8.0 and disables automatic toolchain switching to scan the Go version in `go.mod`. Advisory-service failures fail the check. The scan currently covers the Linux build; it adds no application startup work or runtime dependency. Repeat locally with:

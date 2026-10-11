@@ -57,6 +57,7 @@ es:
       theme: "Tema // %{name}"
       topic_list: "Lista de temas: %{filter}"
       topic_list_with_period: "Lista de temas: %{filter} (%{period})"
+      loading: "Cargando..."
       loading_more: "Cargando más..."
       topic: "Tema: %{title}"
       image: "Imagen"

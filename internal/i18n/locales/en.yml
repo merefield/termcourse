@@ -57,6 +57,7 @@ en:
       theme: "Theme // %{name}"
       topic_list: "Topic List: %{filter}"
       topic_list_with_period: "Topic List: %{filter} (%{period})"
+      loading: "Loading..."
       loading_more: "Loading more..."
       topic: "Topic: %{title}"
       image: "Image"

@@ -129,6 +129,7 @@ func New(client Client, options Options) *UI {
 		debug:        os.Getenv("TERMCOURSE_DEBUG") == "1",
 		mouseEnabled: os.Getenv("TERMCOURSE_MOUSE") != "0",
 	}
+	terminal.style = result.style
 	result.renderer.SetBackground(result.style.body.GetBackground())
 	terminal.SetMouseEnabled(result.mouseEnabled)
 	if options.EnableLiveUpdates {
@@ -178,7 +179,16 @@ func (u *UI) Run() error {
 	if u.live != nil {
 		_ = u.live.Start()
 	}
-	u.refreshStatusCounts(true)
+	u.trackLive("latest")
+	initial, loadErr := u.loadInitialData()
+	if isEOF(loadErr) {
+		return nil
+	}
+	if loadErr != nil {
+		return loadErr
+	}
+	initialData, initialErr := initial.topics, initial.topicsErr
+	firstLoad := true
 
 	filter, period := "latest", "monthly"
 	active := primaryTopics
@@ -209,7 +219,12 @@ func (u *UI) Run() error {
 			continue
 		}
 		u.trackLive(filter)
-		data, err := u.loadList(filter, period, false)
+		data, err := initialData, initialErr
+		if firstLoad {
+			firstLoad = false
+		} else {
+			data, err = u.loadList(filter, period, false)
+		}
 		if err != nil {
 			if !u.showError(err) {
 				return nil

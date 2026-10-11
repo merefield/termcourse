@@ -125,13 +125,15 @@ func (s *Style) AppHeader(section, host, version string, lines []string, width, 
 	return append(s.AppTitle(host, version, width, height), s.HeaderBox(section, lines, width)...)
 }
 
+var headerLogo = []string{
+	"▀█▀ █▀▀ █▀█ █▀▄▀█ █▀▀ █▀█ █ █ █▀█ █▀▀ █▀▀",
+	" █  ██▄ █▀▄ █ ▀ █ █▄▄ █▄█ █▄█ █▀▄ ▄▄█ ██▄",
+}
+
 func (s *Style) AppTitle(host, version string, width, height int) []string {
 	var output []string
 	if width >= 64 && height >= 30 {
-		logo := []string{
-			"▀█▀ █▀▀ █▀█ █▀▄▀█ █▀▀ █▀█ █ █ █▀█ █▀▀ █▀▀",
-			" █  ██▄ █▀▄ █ ▀ █ █▄▄ █▄█ █▄█ █▀▄ ▄▄█ ██▄",
-		}
+		logo := headerLogo
 		output = append(output, headerLine(s.brand.Render(logo[0]), s.label.Render("● ONLINE"), width))
 		output = append(output, s.brand.Render(logo[1]))
 		version = strings.TrimSpace(strings.TrimPrefix(version, "v"))

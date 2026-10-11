@@ -36,6 +36,7 @@ type Terminal struct {
 	state   *terminalState
 	program *tea.Program
 	raw     bool
+	style   *Style
 }
 
 func NewTerminal(in *os.File, out io.Writer) *Terminal {
@@ -50,7 +51,7 @@ func (t *Terminal) EnterRaw() error {
 		return nil
 	}
 	profile, _ := resolveColorProfile(t.Out)
-	model := terminalModel{state: t.state}
+	model := terminalModel{state: t.state, style: t.style, startup: startupState{pending: t.style != nil}}
 	t.program = tea.NewProgram(model,
 		tea.WithInput(t.In),
 		tea.WithOutput(t.Out),
@@ -208,22 +209,32 @@ type terminalCancelQueryMsg struct {
 }
 
 type terminalModel struct {
-	state    *terminalState
-	content  string
-	cursor   *tea.Cursor
-	progress *tea.ProgressBar
-	queries  []terminalQueryMsg
-	revision bool
+	startup       startupState
+	style         *Style
+	width, height int
+	state         *terminalState
+	content       string
+	cursor        *tea.Cursor
+	progress      *tea.ProgressBar
+	queries       []terminalQueryMsg
+	revision      bool
 }
 
 func (m terminalModel) Init() tea.Cmd { return tea.RequestWindowSize }
 
 func (m terminalModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if next, cmd, handled := m.updateStartup(msg); handled {
+		return next, cmd
+	} else {
+		m = next
+	}
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
+		m.width, m.height = msg.Width, msg.Height
 		m.state.width.Store(int32(msg.Width))
 		m.state.height.Store(int32(msg.Height))
 		m.state.once.Do(func() { close(m.state.ready) })
+		return m, m.beginStartup(time.Now())
 	case tea.KeyPressMsg:
 		m.enqueue(msg)
 	case tea.PasteMsg:
@@ -264,6 +275,11 @@ func (m terminalModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m terminalModel) View() tea.View {
 	content := m.content
+	if m.startup.active() {
+		content = withDefaultBackground(m.renderStartup(), m.style.body.GetBackground())
+	} else if m.startup.pending {
+		content = ""
+	}
 	if m.revision {
 		// A zero-width style reset makes the view observably different to the
 		// Bubble Tea renderer without changing its cells. This lets an explicit
@@ -275,6 +291,9 @@ func (m terminalModel) View() tea.View {
 	view.WindowTitle = "termcourse"
 	view.Cursor = m.cursor
 	view.ProgressBar = m.progress
+	if m.startup.active() || m.startup.pending {
+		view.Cursor, view.ProgressBar = nil, nil
+	}
 	if m.state.mouse.Load() {
 		view.MouseMode = tea.MouseModeAllMotion
 	}
