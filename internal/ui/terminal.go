@@ -240,7 +240,14 @@ func (m terminalModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.PasteMsg:
 		m.enqueue(msg)
 	case tea.MouseMsg:
+		if cmd, handled := m.webLinkClick(msg); handled {
+			return m, cmd
+		}
 		m.enqueue(msg)
+	case webLinkOpenedMsg:
+		if msg.err != nil {
+			m.enqueue(msg)
+		}
 	case terminalRenderMsg:
 		m.content = msg.content
 		m.progress = msg.progress

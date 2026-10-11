@@ -244,6 +244,7 @@ Global navigation:
 - Click a primary or contextual folder tab to select it.
 - Click a responsive footer button or use its displayed keyboard shortcut.
 - Click a post or row to select it; click a selected list row again to open it.
+- Web links always show their destination address, including named Markdown links and links in tables. On a local Mac, left-click a link to open it in the default browser without selecting its post. Other platforms and SSH sessions use the terminal’s hyperlink gesture (usually Cmd-click or Ctrl-click). `TERMCOURSE_LINKS=0` disables clickable links while keeping addresses visible.
 - The mouse wheel moves through lists and scrolls the expanded post body.
 - Hold the terminal's mouse-bypass modifier (commonly Shift) for text selection, or set `TERMCOURSE_MOUSE=0`.
 - Navigation is visibly locked while editing topic titles and post bodies so an accidental click cannot discard a draft; the transient search query remains navigable.

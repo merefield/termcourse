@@ -236,6 +236,11 @@ func (u *UI) readKey(timeout time.Duration) (string, error) {
 		default:
 			return key, nil
 		}
+	case webLinkOpenedMsg:
+		if !u.showError(msg.err) {
+			return "q", nil
+		}
+		return keyTick, nil
 	case tea.PasteMsg:
 		return msg.Content, nil
 	case tea.MouseMsg:
