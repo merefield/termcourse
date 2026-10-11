@@ -93,6 +93,7 @@ type UI struct {
 	hoveredControl     string
 	activePrimary      primaryTabID
 	requestedPrimary   *primaryTabID
+	latestRequested    bool
 	quitRequested      bool
 	activeContext      string
 	activeContextValue string
@@ -195,7 +196,7 @@ func (u *UI) Run() error {
 	filter, period := "latest", "monthly"
 	active := primaryTopics
 	for {
-		active = u.takeRequestedPrimary(active)
+		active, filter, period = u.takeRequestedNavigation(active, filter, period)
 		if u.quitRequested {
 			return nil
 		}

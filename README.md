@@ -274,6 +274,7 @@ Global navigation:
 
 - `t` cycles through the built-in and configured themes; the footer button is also available while typing.
 - `Tab` and `Shift+Tab` move between the four first-row destinations.
+- Click the Termcourse logo to return to Topics → Latest.
 - Click a primary or contextual folder tab to select it.
 - Click a responsive footer button or use its displayed keyboard shortcut.
 - Click a post or row to select it; click a selected list row again to open it.

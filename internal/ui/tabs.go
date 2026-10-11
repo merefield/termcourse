@@ -244,7 +244,7 @@ func (u *UI) readKey(timeout time.Duration) (string, error) {
 	case tea.PasteMsg:
 		return msg.Content, nil
 	case tea.MouseMsg:
-		key := u.mouseKey(msg)
+		key := u.mouseInputKey(msg)
 		if key == "t" {
 			u.cycleTheme()
 			return keyThemeChanged, nil
@@ -398,6 +398,7 @@ func (u *UI) navigationHeader(section string, active primaryTabID, context, sele
 		content = append(content, line.content)
 	}
 	title := u.style.AppTitle(u.displayURL, u.options.Version, width, height)
+	u.addLogoMouseRegions(title, width)
 	header := append([]string{}, title...)
 	header = append(header, strings.Repeat(" ", max(width, 0)))
 	header = append(header, content...)

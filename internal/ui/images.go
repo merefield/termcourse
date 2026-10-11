@@ -630,6 +630,9 @@ func (u *UI) imageScreenHeader(width, height int) []string {
 }
 
 func (u *UI) leaveImageForKey(key string) bool {
+	if u.latestRequested {
+		return true
+	}
 	if tab, ok := parsePrimaryTabKey(key); ok {
 		if tab == u.activePrimary {
 			return false

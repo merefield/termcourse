@@ -125,6 +125,8 @@ func (s *Style) AppHeader(section, host, version string, lines []string, width, 
 	return append(s.AppTitle(host, version, width, height), s.HeaderBox(section, lines, width)...)
 }
 
+const compactHeaderLogo = "▰ TERMCOURSE ▰"
+
 var headerLogo = []string{
 	"▀█▀ █▀▀ █▀█ █▀▄▀█ █▀▀ █▀█ █ █ █▀█ █▀▀ █▀▀",
 	" █  ██▄ █▀▄ █ ▀ █ █▄▄ █▄█ █▄█ █▀▄ ▄▄█ ██▄",
@@ -144,7 +146,7 @@ func (s *Style) AppTitle(host, version string, width, height int) []string {
 			s.Text("·", roleSeparator) + " " + s.label.Render("VERSION "+strings.ToUpper(version))
 		output = append(output, headerLine(subtitle, s.Text(host, roleListMeta), width))
 	} else {
-		output = append(output, headerLine(s.brand.Render("▰ TERMCOURSE ▰"), s.Text(host, roleListMeta), width))
+		output = append(output, headerLine(s.brand.Render(compactHeaderLogo), s.Text(host, roleListMeta), width))
 	}
 	return output
 }
