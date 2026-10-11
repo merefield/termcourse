@@ -248,27 +248,7 @@ func (u *UI) refreshStatusCounts(force bool) bool {
 	}
 	changed := false
 	if totals, err := u.client.NotificationTotals(); err == nil {
-		notifications := 0
-		if value, present := totals["unread_notifications"]; present {
-			notifications = max(discourse.Int(value), 0)
-		} else {
-			all := discourse.Int(totals["all_unread_notifications_count"])
-			pm := discourse.Int(totals["new_personal_messages_notifications_count"])
-			if _, present := totals["unread_personal_messages"]; present {
-				pm = discourse.Int(totals["unread_personal_messages"])
-			}
-			notifications = max(all-pm, 0)
-		}
-		pm := discourse.Int(totals["unread_personal_messages"])
-		if _, present := totals["unread_personal_messages"]; !present {
-			pm = discourse.Int(totals["new_personal_messages_notifications_count"])
-		}
-		changed = notifications != u.notificationUnread || pm != u.pmUnread
-		u.notificationUnread, u.pmUnread = notifications, pm
-		if u.live != nil {
-			u.live.SetUnreadNotificationCount(notifications)
-			u.live.SetPMUnreadCount(pm)
-		}
+		changed = u.applyNotificationTotals(totals)
 	} else if data, fallbackErr := u.client.GetURL("/topics/private-messages-unread.json"); fallbackErr == nil {
 		pm := unreadPrivateTopics(data)
 		changed = changed || pm != u.pmUnread
@@ -367,4 +347,29 @@ func (u *UI) debugLog(message string) {
 		_, _ = file.WriteString("[" + time.Now().UTC().Format(time.RFC3339) + "] " + strings.TrimSpace(message) + "\n")
 		_ = file.Close()
 	}
+}
+
+func (u *UI) applyNotificationTotals(totals discourse.JSON) bool {
+	notifications := 0
+	if value, present := totals["unread_notifications"]; present {
+		notifications = max(discourse.Int(value), 0)
+	} else {
+		all := discourse.Int(totals["all_unread_notifications_count"])
+		pm := discourse.Int(totals["new_personal_messages_notifications_count"])
+		if _, present := totals["unread_personal_messages"]; present {
+			pm = discourse.Int(totals["unread_personal_messages"])
+		}
+		notifications = max(all-pm, 0)
+	}
+	pm := discourse.Int(totals["unread_personal_messages"])
+	if _, present := totals["unread_personal_messages"]; !present {
+		pm = discourse.Int(totals["new_personal_messages_notifications_count"])
+	}
+	changed := notifications != u.notificationUnread || pm != u.pmUnread
+	u.notificationUnread, u.pmUnread = notifications, pm
+	if u.live != nil {
+		u.live.SetUnreadNotificationCount(notifications)
+		u.live.SetPMUnreadCount(pm)
+	}
+	return changed
 }

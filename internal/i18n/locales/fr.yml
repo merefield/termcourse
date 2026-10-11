@@ -57,6 +57,7 @@ fr:
       theme: "Thème // %{name}"
       topic_list: "Liste des sujets : %{filter}"
       topic_list_with_period: "Liste des sujets : %{filter} (%{period})"
+      loading: "Chargement..."
       loading_more: "Chargement..."
       topic: "Sujet : %{title}"
       image: "Image"

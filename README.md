@@ -244,6 +244,7 @@ Global navigation:
 - Click a primary or contextual folder tab to select it.
 - Click a responsive footer button or use its displayed keyboard shortcut.
 - Click a post or row to select it; click a selected list row again to open it.
+- Web links always show their destination address, including named Markdown links and links in tables. On a local Mac, left-click a link to open it in the default browser without selecting its post. Other platforms and SSH sessions use the terminal’s hyperlink gesture (usually Cmd-click or Ctrl-click). `TERMCOURSE_LINKS=0` disables clickable links while keeping addresses visible.
 - The mouse wheel moves through lists and scrolls the expanded post body.
 - Hold the terminal's mouse-bypass modifier (commonly Shift) for text selection, or set `TERMCOURSE_MOUSE=0`.
 - Navigation is visibly locked while editing topic titles and post bodies so an accidental click cannot discard a draft; the transient search query remains navigable.
@@ -292,6 +293,16 @@ Set `TERMCOURSE_DEBUG=1` to include the server's `Discourse-Rate-Limit-Error-Cod
 | `TERMCOURSE_IMAGE_DEBUG=1` | `termcourse_image_debug.txt` |
 
 On Linux the system temporary directory is normally `/tmp`, unless `TMPDIR` selects another location. HTTP diagnostics include response status, request duration, `Retry-After`, and the Discourse limiter code; credentials and response bodies are not logged.
+
+## Startup animation
+
+The full-screen terminal randomly chooses one of three TERMCOURSE entrances:
+
+- The block logo slides in from the right.
+- A dot blinks three times, then advances as the name is typed letter by letter.
+- Ten random characters shuffle and resolve into the name in a random order.
+
+Each uses the same full-width block lettering at the vertical centre, then shrinks into the masthead before the interface appears. Initial forum data loads during the roughly two-to-three-second animation. Press any key, paste, or left-click to skip; `q` or Ctrl+C quits. Terminals smaller than 68 columns or eight rows open directly. Help, version output, and theme previews do not animate.
 
 ## Implementation
 

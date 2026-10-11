@@ -14,7 +14,6 @@ import (
 
 var (
 	htmlPattern       = regexp.MustCompile(`<[^>]*>`)
-	urlPattern        = regexp.MustCompile(`https?://[^\s\)\]\}>,]+`)
 	markdownRenderers sync.Map
 )
 
@@ -100,40 +99,31 @@ func wrapLines(value string, width int, links bool) []string {
 			glamour.WithStandardStyle(styles.NoTTYStyle),
 			glamour.WithWordWrap(width),
 			glamour.WithPreservedNewLines(),
+			glamour.WithInlineTableLinks(true),
 		)
 		if err != nil {
-			return []string{linkify(stripHTML(value), links)}
+			return webTextLines(linkify(stripHTML(value), links), width, links)
 		}
-		loaded, _ = markdownRenderers.LoadOrStore(width, renderer)
+		loaded, _ = markdownRenderers.LoadOrStore(width, &markdownRenderer{renderer: renderer})
 	}
-	rendered, err := loaded.(*glamour.TermRenderer).Render(value)
+	cached := loaded.(*markdownRenderer)
+	value = expandBareWebURLs(value)
+	cached.mu.Lock()
+	rendered, err := cached.renderer.Render(value)
+	cached.mu.Unlock()
 	if err != nil {
-		return []string{linkify(stripHTML(value), links)}
+		return webTextLines(linkify(stripHTML(value), links), width, links)
 	}
 	rendered = strings.Trim(rendered, "\n")
 	if rendered == "" {
 		return []string{""}
 	}
-	output := strings.Split(rendered, "\n")
-	for index := range output {
-		line := strings.TrimRight(output[index], " \t\r")
-		if !links {
-			line = ansi.Strip(line)
-		} else if !strings.Contains(line, "\x1b]8;") {
-			line = linkify(line, true)
-		}
-		output[index] = line
-	}
-	return output
+	return webTextLines(rendered, width, links)
 }
 
-func linkify(value string, enabled bool) string {
-	if !enabled {
-		return value
-	}
-	return urlPattern.ReplaceAllStringFunc(value, func(found string) string {
-		return "\x1b]8;;" + found + "\a" + html.UnescapeString(found) + "\x1b]8;;\a"
-	})
+type markdownRenderer struct {
+	mu       sync.Mutex
+	renderer *glamour.TermRenderer
 }
 
 func emojify(value string, enabled bool) string {
