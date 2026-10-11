@@ -1023,7 +1023,7 @@ func TestKittyPlacementUsesChunkedPNGVirtualCells(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"<passthrough>", "\x1b_G", "f=100", "i=1193046", "U=1", "c=4", "r=3", "a=T"} {
+	for _, expected := range []string{"<passthrough>", "\x1b_G", "f=100", "i=1193046", "p=1", "U=1", "c=4", "r=3", "a=T"} {
 		if !strings.Contains(encoded, expected) {
 			t.Fatalf("Kitty transmission %q missing %q", encoded, expected)
 		}

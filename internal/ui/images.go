@@ -27,7 +27,12 @@ import (
 	_ "golang.org/x/image/webp"
 )
 
-const kittyProbeID = 0x5443
+const (
+	kittyProbeID = 0x5443
+	// Keep one virtual placement per image so thumbnail and expanded geometry
+	// replace each other instead of leaving ambiguous implicit placements.
+	kittyPlacementID = 1
+)
 
 type kittyInlineImage struct {
 	id, columns, rows int
@@ -366,7 +371,7 @@ func (u *UI) renderKittyImage(imageURL string, maxColumns, maxRows int) ([]strin
 	}
 	response, err := u.terminal.Query(encoded, func(msg any) bool {
 		event, ok := msg.(ultraviolet.KittyGraphicsEvent)
-		return ok && event.Options.ID == entry.id
+		return ok && event.Options.ID == entry.id && event.Options.PlacementID == kittyPlacementID
 	}, 750*time.Millisecond)
 	if err != nil {
 		entry.failure = fmt.Errorf("Kitty placement acknowledgement: %w", err)
@@ -385,7 +390,7 @@ func (u *UI) renderKittyImage(imageURL string, maxColumns, maxRows int) ([]strin
 func encodeKittyPlacement(source image.Image, imageID, columns, rows int, passthrough func(string) string) (string, error) {
 	var encoded bytes.Buffer
 	options := &kitty.Options{
-		Action: kitty.TransmitAndPut, ID: imageID, Format: kitty.PNG,
+		Action: kitty.TransmitAndPut, ID: imageID, PlacementID: kittyPlacementID, Format: kitty.PNG,
 		Transmission: kitty.Direct, Chunk: true,
 		Columns: columns, Rows: rows, VirtualPlacement: true,
 		ChunkFormatter: passthrough,
@@ -447,7 +452,10 @@ func kittyPlaceholderLines(imageID, columns, rows int) []string {
 		return nil
 	}
 	red, green, blue := byte(imageID>>16), byte(imageID>>8), byte(imageID)
-	prefix := fmt.Sprintf("\x1b[38;2;%d;%d;%dm", red, green, blue)
+	// Unicode placeholders select the image via foreground color and the
+	// placement via underline color, without enabling visible underlining.
+	prefix := fmt.Sprintf("\x1b[38;2;%d;%d;%dm\x1b[58;2;%d;%d;%dm",
+		red, green, blue, byte(kittyPlacementID>>16), byte(kittyPlacementID>>8), byte(kittyPlacementID))
 	lines := make([]string, rows)
 	for row := range rows {
 		var line strings.Builder
