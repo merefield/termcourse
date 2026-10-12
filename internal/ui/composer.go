@@ -26,15 +26,7 @@ func (u *UI) promptSingleLine(titleKey, promptKey, prefix string, active primary
 	u.terminal.Run(input.Focus())
 	for {
 		u.primaryNavAllowed = active == primarySearch || (active == primaryCompose && strings.TrimSpace(input.Value()) == "")
-		width, height := u.terminal.Size()
-		input.SetWidth(max(width, 1))
-		header := u.navigationHeader(u.t(titleKey), active, context, selected, "", []string{u.t(promptKey)}, width, height)
-		screen := make([]string, height)
-		copy(screen, header)
-		row := min(len(header)+1, height-1)
-		screen[row] = input.View()
-		u.placeControlsFooter(screen, u.t("ui.controls.single_line"), width)
-		u.renderer.Render(screen, width, height, "single-line-"+titleKey, -1, -1, false)
+		u.renderSingleLine(titleKey, promptKey, &input, active, context, selected)
 		msg, err := u.terminal.ReadMsg(u.tick)
 		if err != nil {
 			return ""
@@ -80,6 +72,30 @@ func (u *UI) promptSingleLine(titleKey, promptKey, prefix string, active primary
 		input, cmd = input.Update(msg)
 		u.terminal.Run(cmd)
 	}
+}
+
+func (u *UI) renderSingleLine(titleKey, promptKey string, input *textinput.Model, active primaryTabID, context, selected string) {
+	width, height := u.terminal.Size()
+	innerWidth, _ := frameInnerWidth(width)
+	u.styleTextInput(input)
+	input.SetWidth(max(innerWidth-visibleWidth(input.Prompt), 1))
+	extra := []string{u.t(promptKey)}
+	var literalRows []int
+	if active == primarySearch {
+		// Keep the query field in the same header area as the submitted query;
+		// the main pane remains reserved for search results.
+		extra = append(extra, u.style.InputField(input.View(), innerWidth))
+		literalRows = append(literalRows, len(extra)-1)
+	}
+	header := u.navigationHeader(u.t(titleKey), active, context, selected, "", extra, width, height, literalRows...)
+	screen, pane := u.mainPane(header, width, height, 1)
+	var lines []string
+	if active != primarySearch {
+		lines = []string{u.style.InputField(input.View(), pane.width)}
+	}
+	u.drawMainPane(screen, pane, lines)
+	u.placeControlsFooter(screen, u.t("ui.controls.single_line"), width)
+	u.renderer.Render(screen, width, height, "single-line-"+titleKey, -1, -1, false)
 }
 
 func (u *UI) compose(title string, context []string, category, variant string) string {
@@ -144,31 +160,37 @@ func (u *UI) renderComposer(title string, area *textarea.Model, minLength int, c
 		lines = append(lines, headerLine("", category, inner))
 	}
 	header := u.navigationHeader(u.t("ui.composer.compose")+" "+title, primaryCompose, "compose", variant, "", lines, width, height)
-	screen := make([]string, height)
-	copy(screen, header)
-	start := len(header) + 1
-	area.SetWidth(max(width-1, 1))
-	area.SetHeight(max(height-start-2, 1))
-	inputLines := strings.Split(strings.TrimSuffix(area.View(), "\n"), "\n")
-	for index, line := range inputLines {
-		if start+index < height {
-			screen[start+index] = " " + line
-		}
-	}
+	screen, pane := u.mainPane(header, width, height, 1)
+	reservedRows := 0
 	if notice != "" {
-		row := min(start+len(inputLines)+1, max(height-2, 0))
-		screen[row] = u.style.Text(notice, roleAccent)
+		reservedRows = 1
 	}
+	u.styleTextArea(area)
+	area.SetWidth(max(pane.width, 1))
+	area.SetHeight(max(pane.height-reservedRows, 1))
+	inputLines := strings.Split(strings.TrimSuffix(area.View(), "\n"), "\n")
+	bodyLines := make([]string, pane.height)
+	for index := 0; index < max(pane.height-reservedRows, 0); index++ {
+		line := ""
+		if index < len(inputLines) {
+			line = inputLines[index]
+		}
+		bodyLines[index] = u.style.InputField(line, pane.width)
+	}
+	if notice != "" && len(bodyLines) > 0 {
+		bodyLines[len(bodyLines)-1] = u.style.Text(notice, roleAccent)
+	}
+	u.drawMainPane(screen, pane, bodyLines)
 	u.placeControlsFooter(screen, status, width)
 	u.renderer.Render(screen, width, height, "composer-"+title, -1, -1, false)
 }
 
 func (u *UI) styleTextInput(input *textinput.Model) {
 	styles := input.Styles()
-	styles.Focused.Text = u.style.roles[roleListText]
-	styles.Focused.Prompt = u.style.roles[roleAccent]
-	styles.Focused.Placeholder = u.style.roles[roleListMeta]
-	styles.Focused.Suggestion = u.style.roles[roleListMeta]
+	styles.Focused.Text = u.style.roles[roleListText].Background(u.style.input.GetBackground())
+	styles.Focused.Prompt = u.style.roles[roleAccent].Background(u.style.input.GetBackground())
+	styles.Focused.Placeholder = u.style.roles[roleListMeta].Background(u.style.input.GetBackground())
+	styles.Focused.Suggestion = u.style.roles[roleListMeta].Background(u.style.input.GetBackground())
 	styles.Blurred = styles.Focused
 	styles.Cursor.Color = u.style.profile.Convert(lipgloss.Color(string(u.style.Theme.Accent)))
 	input.SetStyles(styles)
@@ -176,7 +198,7 @@ func (u *UI) styleTextInput(input *textinput.Model) {
 
 func (u *UI) styleTextArea(area *textarea.Model) {
 	styles := area.Styles()
-	styles.Focused.Base = u.style.roles[roleListText]
+	styles.Focused.Base = u.style.input
 	styles.Focused.Text = u.style.roles[roleListText]
 	styles.Focused.LineNumber = u.style.roles[roleListMeta]
 	styles.Focused.CursorLineNumber = u.style.roles[roleAccent]
@@ -233,22 +255,18 @@ func (u *UI) pickCategory() (*int, string) {
 		width, height := u.terminal.Size()
 		controls := u.t("ui.controls.category_picker")
 		header := u.navigationHeader(u.t("ui.composer.select_category"), primaryCompose, "compose", "category", "", nil, width, height)
-		screen := make([]string, height)
-		copy(screen, header)
-		rows := max(height-len(header)-1, 0)
-		start := max(selected-rows/2, 0)
-		for index := start; index < min(start+rows, len(options)); index++ {
+		screen, pane := u.mainPane(header, width, height, 1)
+		lines := make([]string, pane.height)
+		start := max(selected-pane.height/2, 0)
+		for index := start; index < min(start+pane.height, len(options)); index++ {
 			line := options[index].label
 			if index == selected {
 				line = u.style.Selected(line)
 			}
-			y := len(header) + 1 + index - start
-			if y < 0 || y >= height {
-				continue
-			}
-			screen[y] = line
-			u.addMouseRegion(0, y, width, 1, rowKey(index))
+			lines[index-start] = line
+			u.addMouseRegion(pane.x, pane.y+index-start, pane.width, 1, rowKey(index))
 		}
+		u.drawMainPane(screen, pane, lines)
 		u.placeControlsFooter(screen, controls, width)
 		u.renderer.Render(screen, width, height, "category-picker", -1, -1, false)
 		key, err := u.readKey(u.tick)

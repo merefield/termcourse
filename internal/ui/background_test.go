@@ -34,7 +34,14 @@ func backgroundTestLines(text string) []uv.Line {
 
 func assertBackground(t *testing.T, got, want color.Color) {
 	t.Helper()
-	if got == nil || want == nil {
+	_, defaultBackground := want.(lipgloss.NoColor)
+	if want == nil || defaultBackground {
+		if got != nil {
+			t.Fatalf("background = %v, want terminal default", got)
+		}
+		return
+	}
+	if got == nil {
 		t.Fatalf("missing background: got %v want %v", got, want)
 	}
 	r, g, b, a := got.RGBA()
@@ -83,13 +90,19 @@ func TestPanelBackgroundSurvivesNestedStyles(t *testing.T) {
 				t.Setenv("TERMCOURSE_COLOR_MODE", mode)
 				s := NewStyle(value, &bytes.Buffer{})
 				body := s.Text("label", roleAccent) + "  " + s.Text("value", roleListMeta) + " tail"
-				for _, lines := range [][]string{s.HeaderBox("PANEL", []string{body, ""}, 36), s.BarBox("BAR", []string{body, ""}, 36)} {
-					for _, line := range backgroundTestLines(strings.Join(lines, "\n")) {
+				for _, panel := range []struct {
+					lines      []string
+					background color.Color
+				}{
+					{s.HeaderBox("PANEL", []string{body, ""}, 36), s.body.GetBackground()},
+					{s.BarBox("BAR", []string{body, ""}, 36), s.bar.GetBackground()},
+				} {
+					for _, line := range backgroundTestLines(strings.Join(panel.lines, "\n")) {
 						if len(line) != 36 {
 							t.Fatalf("panel width = %d", len(line))
 						}
 						for _, cell := range line {
-							assertBackground(t, cell.Style.Bg, s.header.GetBackground())
+							assertBackground(t, cell.Style.Bg, panel.background)
 						}
 					}
 				}

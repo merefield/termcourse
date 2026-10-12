@@ -16,6 +16,7 @@ Termcourse is a Go 1.27.2 terminal UI for browsing and posting to Discourse foru
 - Create topics, select categories, reply to topics or posts, and like/unlike posts.
 - Search posts and open the matching post context.
 - Browse/filter notifications and jump to their topic/post.
+- Consistent rounded main panes in every view, with headers sharing the main background and subdued backgrounds for editable fields. Search entry stays in the header above the results pane.
 - Persistent folder tabs above each screen panel: Topics, Search, Notifications, and Compose. Open topics and images remain within the destination that led to them.
 - A contextual second rail for topic/notification filters plus search and composition stages, with one spacer row below the masthead.
 - Theme-colored folder rails and responsive, clickable footer controls for screen-specific hotkeys, with pointer-hover highlighting and the active theme anchored at bottom right.
@@ -202,6 +203,8 @@ Theme selection uses the first available value:
 The five built-in themes are `default`, `slate`, `fairground`, `rust`, and `hacker`; they work without any files. Theme files are loaded from `--theme-file PATH`, then `TERMCOURSE_THEME_FILE`, then the platform user configuration directory (`~/.config/termcourse/theme.yml` on Linux). The launch directory is deliberately not consulted.
 
 See [theme.example.yml](theme.example.yml) for partial built-in overrides and custom themes. Supported keys are `primary`, `background`, `highlighted`, `highlighted_text`, `borders`, `bar_backgrounds`, `separators`, `list_numbers`, `list_text`, `post_username`, `list_meta`, and `accent`. Colors accept `#rrggbb`, indexes `0`–`255`, `black`, `white`, `red`, `green`, `blue`, `yellow`, `cyan`, `magenta`, `gray`/`grey`, or `none`. Invalid fields, colors, files, and theme names produce actionable errors.
+
+Headers and main panes use `background`; headers with no content are omitted and their title moves to the main pane border. `bar_backgrounds` continues to style progress bars. Editable fields use a subdued tint derived from the theme.
 
 ### Language
 

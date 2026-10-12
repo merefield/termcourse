@@ -2,8 +2,10 @@ package ui
 
 import (
 	"fmt"
+	"image/color"
 	"io"
 	"os"
+	"slices"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -28,6 +30,7 @@ type Style struct {
 	ColorMode  string
 	profile    colorprofile.Profile
 	roles      map[textRole]lipgloss.Style
+	input      lipgloss.Style
 	body       lipgloss.Style
 	border     lipgloss.Style
 	selected   lipgloss.Style
@@ -57,10 +60,20 @@ func NewStyle(value theme.Theme, output io.Writer) *Style {
 		roleAccent: result.makeStyle(value.Accent, ""),
 	}
 	result.body = result.makeStyle(value.Primary, value.Background)
+	inputBackground := profile.Convert(inputTint(value))
+	if profile == colorprofile.ANSI {
+		inputBackground = profile.Convert(lipgloss.Color("8"))
+		br, bg, bb, _ := result.body.GetBackground().RGBA()
+		ir, ig, ib, _ := inputBackground.RGBA()
+		if br == ir && bg == ig && bb == ib {
+			inputBackground = profile.Convert(lipgloss.Color("0"))
+		}
+	}
+	result.input = result.makeStyle(value.ListText, "").Background(inputBackground)
 	result.border = result.makeStyle(value.Border, "")
 	result.selected = result.makeStyle(value.SelectedText, value.Selected)
-	result.header = result.makeStyle(value.Primary, value.HeaderBackground)
-	result.headerSep = result.makeStyle(value.Separator, value.HeaderBackground)
+	result.header = result.makeStyle(value.Primary, value.Background)
+	result.headerSep = result.makeStyle(value.Separator, value.Background)
 	result.bar = result.makeStyle(value.Primary, value.HeaderBackground)
 	result.barFill = result.makeStyle(value.Accent, value.HeaderBackground).Bold(true)
 	result.barTrack = result.makeStyle(value.Separator, value.HeaderBackground)
@@ -74,6 +87,35 @@ func NewStyle(value theme.Theme, output io.Writer) *Style {
 	result.control = result.makeStyle(value.Border, "").Bold(true)
 	result.controlHot = result.makeStyle(value.Accent, "").Bold(true)
 	return result
+}
+
+// Use a small amount of the theme foreground to distinguish editable cells.
+// When the canvas follows the terminal profile, use the theme's subdued bar
+// background as the base because its actual profile color is unknown.
+func inputTint(value theme.Theme) color.Color {
+	background := value.Background
+	if background == "" {
+		background = value.HeaderBackground
+	}
+	if background == "" {
+		background = "#000000"
+	}
+	foreground := value.Primary
+	if foreground == "" {
+		foreground = "#f2f2f2"
+	}
+	br, bg, bb, _ := lipgloss.Color(string(background)).RGBA()
+	fr, fg, fb, _ := lipgloss.Color(string(foreground)).RGBA()
+	return color.RGBA{
+		R: uint8((br*90 + fr*10) / 100 >> 8),
+		G: uint8((bg*90 + fg*10) / 100 >> 8),
+		B: uint8((bb*90 + fb*10) / 100 >> 8),
+		A: 255,
+	}
+}
+
+func (s *Style) InputField(value string, width int) string {
+	return withDefaultBackground(s.input.Render(padLine(value, max(width, 1))), s.input.GetBackground())
 }
 
 func resolveColorProfile(output io.Writer) (colorprofile.Profile, string) {
@@ -116,7 +158,11 @@ func (s *Style) Selected(value string) string {
 func (s *Style) Liked(value string) string { return s.liked.Render(value) }
 
 func (s *Style) Box(lines []string, width int) []string {
-	return s.frame("", lines, width, s.body, func(_ int, line string) string {
+	return s.BodyBox("", lines, width)
+}
+
+func (s *Style) BodyBox(title string, lines []string, width int) []string {
+	return s.frame(title, lines, width, s.body, func(_ int, line string) string {
 		return s.body.Render(line)
 	})
 }
@@ -151,16 +197,27 @@ func (s *Style) AppTitle(host, version string, width, height int) []string {
 	return output
 }
 
-func (s *Style) HeaderBox(title string, lines []string, width int) []string {
+func (s *Style) HeaderBox(title string, lines []string, width int, literalRows ...int) []string {
+	if !hasVisibleContent(lines) {
+		return nil
+	}
 	prepared := make([]string, len(lines))
 	for index, line := range lines {
+		if slices.Contains(literalRows, index) {
+			prepared[index] = line
+			continue
+		}
 		line = strings.ReplaceAll(line, " | ", " · ")
 		if isHorizontalRule(line) {
 			line = strings.Repeat("─", max(width-4, 1))
 		}
 		prepared[index] = line
 	}
-	return s.frame(title, prepared, width, s.header, func(_ int, line string) string {
+	return s.frame(title, prepared, width, s.header, func(index int, line string) string {
+		// Editable header rows must retain literal punctuation and their tint.
+		if slices.Contains(literalRows, index) {
+			return s.header.Render(line)
+		}
 		if isHorizontalRule(line) {
 			return s.headerSep.Render(line)
 		}
@@ -283,6 +340,15 @@ func frameInnerWidth(width int) (int, bool) {
 		return width - 4, true
 	}
 	return max(width-2, 0), false
+}
+
+func hasVisibleContent(lines []string) bool {
+	for _, line := range lines {
+		if strings.TrimSpace(stripANSI(line)) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func isHorizontalRule(value string) bool {

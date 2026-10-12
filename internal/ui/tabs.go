@@ -385,7 +385,7 @@ func (u *UI) contextNavigationLine(kind, selected, period string, width int) nav
 	}
 }
 
-func (u *UI) navigationHeader(section string, active primaryTabID, context, selected, period string, extra []string, width, height int) []string {
+func (u *UI) navigationHeader(section string, active primaryTabID, context, selected, period string, extra []string, width, height int, literalRows ...int) []string {
 	u.resetMouseLayout()
 	u.activePrimary = active
 	u.activeContext, u.activeContextValue, u.activePeriod = context, selected, period
@@ -402,8 +402,13 @@ func (u *UI) navigationHeader(section string, active primaryTabID, context, sele
 	header := append([]string{}, title...)
 	header = append(header, strings.Repeat(" ", max(width, 0)))
 	header = append(header, content...)
+	u.mainPaneTitle = ""
 	if strings.TrimSpace(section) != "" {
-		header = append(header, u.style.HeaderBox(u.upper(section), extra, width)...)
+		if box := u.style.HeaderBox(u.upper(section), extra, width, literalRows...); len(box) > 0 {
+			header = append(header, box...)
+		} else {
+			u.mainPaneTitle = u.upper(section)
+		}
 	}
 	tabStartY := len(title) + 1
 	for lineIndex, line := range lines {

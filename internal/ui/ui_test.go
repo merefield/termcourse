@@ -341,7 +341,7 @@ func TestNavigationTabsRenderAndHitTestFromSameGeometry(t *testing.T) {
 	if !strings.Contains(plain[2], "╭ TOPICS ╮") || !strings.Contains(plain[2], "╭ SEARCH ╮") {
 		t.Fatalf("primary screen rail is not above the panel: %#v", plain)
 	}
-	if !strings.Contains(plain[3], "TOP") || !strings.HasPrefix(plain[4], "╭─ TOPIC LIST") {
+	if len(plain) != 4 || !strings.Contains(plain[3], "TOP") || u.mainPaneTitle != "TOPIC LIST" {
 		t.Fatalf("context rail/header order is wrong: %#v", plain)
 	}
 
@@ -374,10 +374,10 @@ func TestWideMastheadKeepsPaddingBeforePersistentRails(t *testing.T) {
 		options: Options{Username: "member"},
 	}
 	header := u.navigationHeader("Search", primarySearch, "search", "results", "", nil, 100, 32)
-	if len(header) < 8 || strings.TrimSpace(stripANSI(header[3])) != "" {
+	if len(header) != 6 || strings.TrimSpace(stripANSI(header[3])) != "" {
 		t.Fatalf("wide masthead does not have one padding row before rails: %#v", header)
 	}
-	if !strings.Contains(stripANSI(header[4]), "SEARCH") || !strings.Contains(stripANSI(header[5]), "RESULTS") || !strings.HasPrefix(stripANSI(header[6]), "╭─ SEARCH") {
+	if !strings.Contains(stripANSI(header[4]), "SEARCH") || !strings.Contains(stripANSI(header[5]), "RESULTS") || u.mainPaneTitle != "SEARCH" {
 		t.Fatalf("wide rail/header order is wrong: %#v", header)
 	}
 }
@@ -675,17 +675,21 @@ func TestStyleUsesRequestedColorProfile(t *testing.T) {
 	}
 }
 
-func TestSemanticHeaderStylesUseHeaderBackgroundAndSeparators(t *testing.T) {
+func TestSemanticHeaderStylesUseCanvasBackgroundAndSeparators(t *testing.T) {
 	t.Setenv("TERMCOURSE_COLOR_MODE", "truecolor")
-	style := NewStyle(testTheme(), &bytes.Buffer{})
+	value := testTheme()
+	value.Background = "#101820"
+	style := NewStyle(value, &bytes.Buffer{})
 	joined := strings.Join(style.HeaderBox("Section", []string{"left | right", "--------", "status"}, 20), "\n")
-	for _, sequence := range []string{
-		"48;2;31;31;31m",
-		"38;2;111;111;111;48;2;31;31;31m",
-		"\x1b[38;2;168;168;168m",
-	} {
-		if !strings.Contains(joined, sequence) {
-			t.Fatalf("themed header %q missing %q", joined, sequence)
+	if !strings.Contains(stripANSI(joined), "left · right") {
+		t.Fatal("header lost semantic separators")
+	}
+	for _, line := range backgroundTestLines(joined) {
+		for _, cell := range line {
+			assertBackground(t, cell.Style.Bg, style.body.GetBackground())
+			if cell.Content == "·" {
+				assertBackground(t, cell.Style.Fg, style.headerSep.GetForeground())
+			}
 		}
 	}
 }
