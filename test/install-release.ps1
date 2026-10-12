@@ -48,30 +48,62 @@ import sys
 
 os.chdir(sys.argv[1])
 server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), http.server.SimpleHTTPRequestHandler)
-with open(sys.argv[2], "w", encoding="ascii") as port_file:
+port_path = sys.argv[2]
+with open(port_path + ".tmp", "w", encoding="ascii") as port_file:
     port_file.write(str(server.server_port))
+os.replace(port_path + ".tmp", port_path)
 server.serve_forever()
 '@
-    $serverProcess = Start-Process -FilePath $python.Source -ArgumentList @($serverScript, $serverRoot, $portFile) -PassThru
-    $port = ""
-    for ($attempt = 0; $attempt -lt 50; $attempt++) {
-        if ($serverProcess.HasExited) { throw "fixture HTTP server exited before reporting its port" }
-        if (Test-Path -LiteralPath $portFile) {
-            $port = ([string](Get-Content -LiteralPath $portFile -Raw)).Trim()
-            if ($port -match '^\d+$') { break }
+    $serverStdout = Join-Path $testRoot "fixture-server.stdout"
+    $serverStderr = Join-Path $testRoot "fixture-server.stderr"
+    # Start-Process joins ArgumentList with spaces, so quote each path for
+    # temporary directories whose names contain spaces.
+    $serverArguments = @("-u", "`"$serverScript`"", "`"$serverRoot`"", "`"$portFile`"")
+    $serverProcess = Start-Process -FilePath $python.Source -ArgumentList $serverArguments -PassThru -NoNewWindow -RedirectStandardOutput $serverStdout -RedirectStandardError $serverStderr
+
+    function Get-FixtureServerDiagnostics {
+        $output = @()
+        foreach ($logPath in @($serverStdout, $serverStderr)) {
+            if (Test-Path -LiteralPath $logPath) {
+                $log = ([string](Get-Content -LiteralPath $logPath -Raw -ErrorAction SilentlyContinue)).Trim()
+                if ($log) { $output += $log }
+            }
         }
-        Start-Sleep -Milliseconds 100
+        if ($output.Count -eq 0) { return "No server output was captured." }
+        return ($output -join "`n")
     }
-    if ($port -notmatch '^\d+$') { throw "fixture HTTP server reported an invalid port: $port" }
-    $baseUrl = "http://127.0.0.1:$port"
+
+    $port = ""
+    $baseUrl = ""
     $webRequestArgs = @{}
     if ($PSVersionTable.PSVersion.Major -lt 6) { $webRequestArgs.UseBasicParsing = $true }
     $ready = $false
-    for ($attempt = 0; $attempt -lt 50; $attempt++) {
-        try { Invoke-WebRequest -Uri "$baseUrl/repos/merefield/termcourse/releases/latest" @webRequestArgs | Out-Null; $ready = $true; break }
-        catch { Start-Sleep -Milliseconds 100 }
+    $lastReadinessError = "The server has not reported a port."
+    # A cold Python process can take longer than five seconds on Windows CI.
+    # Wait for a successful HTTP response, with one deadline for all startup.
+    $startupTimer = [Diagnostics.Stopwatch]::StartNew()
+    while ($startupTimer.Elapsed.TotalSeconds -lt 30) {
+        $serverProcess.Refresh()
+        if ($serverProcess.HasExited) {
+            throw "fixture HTTP server exited with code $($serverProcess.ExitCode) before becoming ready:`n$(Get-FixtureServerDiagnostics)"
+        }
+        if (Test-Path -LiteralPath $portFile) {
+            try {
+                $port = ([string](Get-Content -LiteralPath $portFile -Raw)).Trim()
+                if ($port -match '^\d+$') {
+                    $baseUrl = "http://127.0.0.1:$port"
+                    Invoke-WebRequest -Uri "$baseUrl/repos/merefield/termcourse/releases/latest" -TimeoutSec 2 @webRequestArgs | Out-Null
+                    $ready = $true
+                    break
+                }
+                $lastReadinessError = "The server reported an invalid port: $port"
+            } catch { $lastReadinessError = $_.Exception.Message }
+        }
+        Start-Sleep -Milliseconds 100
     }
-    if (-not $ready) { throw "fixture HTTP server did not start" }
+    if (-not $ready) {
+        throw "fixture HTTP server did not become ready within 30 seconds: $lastReadinessError`n$(Get-FixtureServerDiagnostics)"
+    }
 
     foreach ($name in @("TERMCOURSE_VERSION", "TERMCOURSE_REPOSITORY", "TERMCOURSE_GITHUB_URL", "TERMCOURSE_GITHUB_API_URL")) { $savedEnvironment[$name] = [Environment]::GetEnvironmentVariable($name) }
     $env:TERMCOURSE_VERSION = "latest"; $env:TERMCOURSE_REPOSITORY = "merefield/termcourse"; $env:TERMCOURSE_GITHUB_URL = $baseUrl; $env:TERMCOURSE_GITHUB_API_URL = $baseUrl
