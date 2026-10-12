@@ -103,10 +103,7 @@ func (u *UI) loadInitialData() (startupData, error) {
 func (u *UI) renderStartupLoading() {
 	width, height := u.terminal.Size()
 	header := u.navigationHeader("", primaryTopics, "topics", "latest", "monthly", nil, width, height)
-	screen := make([]string, height)
-	copy(screen, header)
-	if len(header) < height {
-		screen[len(header)] = u.style.Text(u.t("ui.status.loading"), roleListMeta)
-	}
+	screen, pane := u.mainPane(header, width, height, 0)
+	u.drawMainPane(screen, pane, []string{u.style.Text(u.t("ui.status.loading"), roleListMeta)})
 	u.renderer.Render(screen, width, height, "startup-loading", -1, -1, false)
 }

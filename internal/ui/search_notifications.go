@@ -103,38 +103,30 @@ func (u *UI) renderSearch(query string, results []discourse.JSON, topics map[int
 	width, height := u.terminal.Size()
 	controls := u.t("ui.controls.search_results")
 	header := u.searchResultsHeader(query, width, height)
-	screen := make([]string, height)
-	copy(screen, header)
-	startRow := len(header) + 1
+	screen, pane := u.mainPane(header, width, height, 1)
+	lines := make([]string, pane.height)
 	if len(results) == 0 {
-		if height > 1 {
-			screen[min(startRow, height-2)] = u.t("ui.empty.results")
+		if len(lines) > 0 {
+			lines[0] = u.t("ui.empty.results")
 		}
-		u.placeControlsFooter(screen, controls, width)
-		u.renderer.Render(screen, width, height, "search-"+query, -1, -1, false)
-		return
-	}
-	rows := max(height-startRow-1, 0)
-	if rows == 0 {
-		u.placeControlsFooter(screen, controls, width)
-		u.renderer.Render(screen, width, height, "search-"+query, -1, -1, false)
-		return
-	}
-	start := max(selected-rows/2, 0)
-	titleWidth := max((width-4)/3, 10)
-	blurbWidth := max(width-titleWidth-4, 10)
-	for index := start; index < min(start+rows, len(results)); index++ {
-		post := results[index]
-		title := emojify(topics[discourse.Int(post["topic_id"])], u.emojiEnabled)
-		blurb := emojify(stripHTML(discourse.String(post["blurb"])), u.emojiEnabled)
-		line := fitCell(title, titleWidth, false) + " - " + fitCell(blurb, blurbWidth, false)
-		line = highlightTerm(line, query)
-		if index == selected {
-			line = u.style.Selected(line)
+	} else {
+		start := max(selected-pane.height/2, 0)
+		titleWidth := max((pane.width-4)/3, 1)
+		blurbWidth := max(pane.width-titleWidth-3, 1)
+		for index := start; index < min(start+pane.height, len(results)); index++ {
+			post := results[index]
+			title := emojify(topics[discourse.Int(post["topic_id"])], u.emojiEnabled)
+			blurb := emojify(stripHTML(discourse.String(post["blurb"])), u.emojiEnabled)
+			line := fitCell(title, titleWidth, false) + " - " + fitCell(blurb, blurbWidth, false)
+			line = highlightTerm(line, query)
+			if index == selected {
+				line = u.style.Selected(line)
+			}
+			lines[index-start] = line
+			u.addMouseRegion(pane.x, pane.y+index-start, pane.width, 1, rowKey(index))
 		}
-		screen[startRow+index-start] = line
-		u.addMouseRegion(0, startRow+index-start, width, 1, rowKey(index))
 	}
+	u.drawMainPane(screen, pane, lines)
 	u.placeControlsFooter(screen, controls, width)
 	u.renderer.Render(screen, width, height, "search-"+query, -1, -1, false)
 }
@@ -257,56 +249,43 @@ func (u *UI) renderNotifications(notifications []discourse.JSON, selected int, f
 	}
 	controls := u.t("ui.controls.notifications")
 	header := u.navigationHeader(status, primaryNotifications, "notifications", filter, "", nil, width, height)
-	screen := make([]string, height)
-	copy(screen, header)
-	startRow := len(header) + 1
+	screen, pane := u.mainPane(header, width, height, 1)
+	lines := make([]string, pane.height)
 	if len(notifications) == 0 {
-		if height > 1 {
-			screen[min(startRow, height-2)] = u.t("ui.empty.notifications")
+		if len(lines) > 0 {
+			lines[0] = u.t("ui.empty.notifications")
 		}
-		u.placeControlsFooter(screen, controls, width)
-		u.renderer.Render(screen, width, height, "notifications-"+filter, -1, -1, false)
-		return
-	}
-	userWidth, typeWidth, timeWidth := min(max(width*18/100, 12), 20), min(max(width*14/100, 10), 14), 6
-	titleWidth := max(width-userWidth-typeWidth-timeWidth-7, 12)
-	if startRow >= height-1 {
-		u.placeControlsFooter(screen, controls, width)
-		u.renderer.Render(screen, width, height, "notifications-"+filter, -1, -1, false)
-		return
-	}
-	screen[startRow] = u.style.Text(tableRow([]cell{
-		{u.t("ui.notifications.columns.user"), userWidth, false},
-		{u.t("ui.notifications.columns.type"), typeWidth, false},
-		{u.t("ui.notifications.columns.title"), titleWidth, false},
-		{u.t("ui.notifications.columns.ago"), timeWidth, true},
-	}), roleListMeta)
-	startRow++
-	rows := max(height-startRow-1, 0)
-	if rows == 0 {
-		u.placeControlsFooter(screen, controls, width)
-		u.renderer.Render(screen, width, height, "notifications-"+filter, -1, -1, false)
-		return
-	}
-	start := max(selected-rows/2, 0)
-	for index := start; index < min(start+rows, len(notifications)); index++ {
-		item := notifications[index]
-		marker := "  "
-		if !discourse.Bool(item["read"]) {
-			marker = u.t("ui.notifications.unread_marker")
+	} else if len(lines) > 0 {
+		userWidth, typeWidth, timeWidth := min(max(pane.width*18/100, 12), 20), min(max(pane.width*14/100, 10), 14), 6
+		titleWidth := max(pane.width-userWidth-typeWidth-timeWidth-7, 1)
+		lines[0] = u.style.Text(tableRow([]cell{
+			{u.t("ui.notifications.columns.user"), userWidth, false},
+			{u.t("ui.notifications.columns.type"), typeWidth, false},
+			{u.t("ui.notifications.columns.title"), titleWidth, false},
+			{u.t("ui.notifications.columns.ago"), timeWidth, true},
+		}), roleListMeta)
+		rows := max(pane.height-1, 0)
+		start := max(selected-rows/2, 0)
+		for index := start; index < min(start+rows, len(notifications)); index++ {
+			item := notifications[index]
+			marker := "  "
+			if !discourse.Bool(item["read"]) {
+				marker = u.t("ui.notifications.unread_marker")
+			}
+			line := tableRow([]cell{
+				{marker + u.notificationActor(item), userWidth, false},
+				{u.notificationTypeLabel(item), typeWidth, false},
+				{u.notificationTitle(item), titleWidth, false},
+				{relativeTime(discourse.String(item["created_at"]), u), timeWidth, true},
+			})
+			if index == selected {
+				line = u.style.Selected(line)
+			}
+			lines[1+index-start] = line
+			u.addMouseRegion(pane.x, pane.y+1+index-start, pane.width, 1, rowKey(index))
 		}
-		line := tableRow([]cell{
-			{marker + u.notificationActor(item), userWidth, false},
-			{u.notificationTypeLabel(item), typeWidth, false},
-			{u.notificationTitle(item), titleWidth, false},
-			{relativeTime(discourse.String(item["created_at"]), u), timeWidth, true},
-		})
-		if index == selected {
-			line = u.style.Selected(line)
-		}
-		screen[startRow+index-start] = line
-		u.addMouseRegion(0, startRow+index-start, width, 1, rowKey(index))
 	}
+	u.drawMainPane(screen, pane, lines)
 	u.placeControlsFooter(screen, controls, width)
 	u.renderer.Render(screen, width, height, "notifications-"+filter, -1, -1, false)
 }

@@ -98,6 +98,7 @@ type UI struct {
 	activeContext      string
 	activeContextValue string
 	activePeriod       string
+	mainPaneTitle      string
 	navigationLocked   bool
 	primaryNavAllowed  bool
 }
@@ -392,18 +393,14 @@ func (u *UI) renderTopicList(topics []discourse.JSON, selected int, filter, peri
 	controls := u.t("ui.controls.topic_list")
 	guidance := u.t("ui.guidance.topic_list")
 	header := u.navigationHeader("", primaryTopics, "topics", filter, period, nil, width, height)
-	screen := make([]string, height)
-	copy(screen, header)
-	boxStart := min(len(header), height)
-	boxHeight := max(height-boxStart-1, 0)
-	innerRows := max(boxHeight-2, 0)
-	innerWidth, _ := frameInnerWidth(width)
-	boxLines := make([]string, innerRows)
+	screen, pane := u.mainPane(header, width, height, 1)
+	innerWidth := pane.width
+	boxLines := make([]string, pane.height)
 	if len(topics) == 0 {
 		if len(boxLines) > 0 {
 			boxLines[0] = u.t("ui.empty.topics")
 		}
-		copy(screen[boxStart:], u.style.Box(boxLines, width))
+		u.drawMainPane(screen, pane, boxLines)
 		u.placeControlsFooter(screen, controls, width, guidance)
 		u.renderer.Render(screen, width, height, "topic-list-"+filter+"-"+period, -1, -1, false)
 		return
@@ -425,7 +422,7 @@ func (u *UI) renderTopicList(topics []discourse.JSON, selected int, filter, peri
 	}
 	rows := max(len(boxLines)-contentRow, 0)
 	if rows == 0 {
-		copy(screen[boxStart:], u.style.Box(boxLines, width))
+		u.drawMainPane(screen, pane, boxLines)
 		u.placeControlsFooter(screen, controls, width, guidance)
 		u.renderer.Render(screen, width, height, "topic-list-"+filter+"-"+period+"-"+mode, -1, -1, false)
 		return
@@ -438,10 +435,10 @@ func (u *UI) renderTopicList(topics []discourse.JSON, selected int, filter, peri
 			line = u.style.Selected(line)
 		}
 		boxLines[contentRow+index-start] = line
-		y := boxStart + 1 + contentRow + index - start
-		u.addMouseRegion(0, y, width, 1, rowKey(index))
+		y := pane.y + contentRow + index - start
+		u.addMouseRegion(pane.x, y, pane.width, 1, rowKey(index))
 	}
-	copy(screen[boxStart:], u.style.Box(boxLines, width))
+	u.drawMainPane(screen, pane, boxLines)
 	u.placeControlsFooter(screen, controls, width, guidance)
 	u.renderer.Render(screen, width, height, "topic-list-"+filter+"-"+period+"-"+mode, -1, -1, false)
 }

@@ -19,23 +19,17 @@ func (u *UI) showError(err error) bool {
 	message := u.errorMessage(err, time.Now())
 	width, height := u.terminal.Size()
 	u.resetMouseLayout()
-	inner := max(width-4, 1)
-	lines := wrapLines(strings.TrimSpace(message), inner, u.linksEnabled)
-	contextRows := 0
-	if u.activeContext != "" {
-		contextRows = 1
-	}
-	chromeRows := len(u.style.AppTitle(u.displayURL, u.options.Version, width, height)) + 1 + 1 + contextRows + 2
-	maxMessageLines := max(height-chromeRows-1, 1)
-	if len(lines) > maxMessageLines {
-		lines = append(lines[:maxMessageLines-1], truncate(u.t("ui.scroll.more_below"), inner))
-	}
-	panel := u.navigationHeader(
+	header := u.navigationHeader(
 		u.t("ui.errors.title"), u.activePrimary, u.activeContext, u.activeContextValue, u.activePeriod,
-		lines, width, height,
+		nil, width, height,
 	)
-	screen := make([]string, height)
-	copy(screen, panel[:min(len(panel), height)])
+	screen, pane := u.mainPane(header, width, height, 1)
+	lines := wrapLines(strings.TrimSpace(message), max(pane.width, 1), u.linksEnabled)
+	if len(lines) > pane.height && pane.height > 0 {
+		lines = append(lines[:pane.height-1], truncate(u.t("ui.scroll.more_below"), max(pane.width, 1)))
+	}
+	u.drawMainPane(screen, pane, lines)
+
 	u.placeControlsFooter(screen, u.t("ui.controls.continue"), width)
 	u.renderer.Render(screen, width, height, "error", -1, -1, true)
 	key, readErr := u.readKey(24 * time.Hour)

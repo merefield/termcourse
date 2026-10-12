@@ -237,18 +237,12 @@ func (u *UI) renderTopic(topic discourse.JSON, all []discourse.JSON, selected, s
 	}, width, height)
 	progress := u.progressFooter(current, total, width)
 	footerRows := len(progress) + 1
-	available := max(height-len(header)-footerRows, 1)
-	body, postIndexes := u.postListLines(all, selected, scroll, available, width)
-	screen := make([]string, height)
-	copy(screen, header)
-	for index := 0; index < available && index < len(body); index++ {
-		y := len(header) + index
-		if y >= height {
-			break
-		}
-		screen[y] = body[index]
+	screen, pane := u.mainPane(header, width, height, footerRows)
+	body, postIndexes := u.postListLines(all, selected, scroll, pane.height, max(pane.width, 1))
+	u.drawMainPane(screen, pane, body)
+	for index := 0; index < pane.height && index < len(body); index++ {
 		if index < len(postIndexes) && postIndexes[index] >= 0 {
-			u.addMouseRegion(0, y, width, 1, rowKey(postIndexes[index]))
+			u.addMouseRegion(pane.x, pane.y+index, pane.width, 1, rowKey(postIndexes[index]))
 		}
 	}
 	progressStart := max(height-footerRows, 0)

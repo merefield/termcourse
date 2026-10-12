@@ -532,22 +532,22 @@ renderLoop:
 		}
 		if backend == "chafa" && u.detectSixel() {
 			header := u.imageScreenHeader(width, height)
-			available := max(height-len(header)-1, 1)
-			if payload, nativeErr := u.renderNativeImage(imageURL, width, available, u.nativePixelViewport(height, len(header)+1)); nativeErr == nil && len(payload) > 0 {
+			screen, pane := u.mainPane(header, width, height, 1)
+			if payload, nativeErr := u.renderNativeImage(imageURL, max(pane.width, 1), max(pane.height, 1), u.nativePixelViewport(width, height, pane)); nativeErr == nil && len(payload) > 0 && pane.width > 0 && pane.height > 0 {
 				// Keep Bubble Tea's current model intact while the raw Sixel payload
 				// owns the image rows beneath the persistent managed navigation.
-				screen := make([]string, height)
-				copy(screen, header)
+				u.drawMainPane(screen, pane, nil)
 				u.placeControlsFooter(screen, u.t("ui.controls.fullscreen_image"), width)
 				u.renderer.Render(screen, width, height, "fullscreen-image-sixel", -1, -1, true)
-				u.terminal.Raw(xansi.HideCursor + xansi.CursorPosition(len(header)+1, 1) + string(payload) + xansi.HideCursor)
+				u.terminal.Raw(xansi.HideCursor + xansi.CursorPosition(pane.y+1, pane.x+1) + string(payload) + xansi.HideCursor)
 				for {
 					key, err := u.readKey(u.tick)
 					if err != nil || u.leaveImageForKey(key) {
 						u.renderer.Reset()
 						return
 					}
-					if key == keyThemeChanged || key == keyHoverChanged {
+					newWidth, newHeight := u.terminal.Size()
+					if key == keyThemeChanged || key == keyHoverChanged || newWidth != width || newHeight != height {
 						u.renderer.Reset()
 						continue renderLoop
 					}
@@ -555,8 +555,8 @@ renderLoop:
 			}
 		}
 		header := u.imageScreenHeader(width, height)
-		available := max(height-len(header)-1, 1)
-		rendered, err := u.renderImage(imageURL, backend, width, available, false, false)
+		screen, pane := u.mainPane(header, width, height, 1)
+		rendered, err := u.renderImage(imageURL, backend, max(pane.width, 1), max(pane.height, 1), false, false)
 		if err != nil {
 			u.showError(err)
 			return
@@ -565,15 +565,12 @@ renderLoop:
 			u.showError(fmt.Errorf("image renderer returned no output"))
 			return
 		}
-		screen := make([]string, height)
-		copy(screen, header)
-		for index := 0; index < len(rendered) && index < available; index++ {
-			padding := max((width-visibleWidth(rendered[index]))/2, 0)
-			y := len(header) + index
-			if y < height {
-				screen[y] = strings.Repeat(" ", padding) + rendered[index]
-			}
+		lines := make([]string, pane.height)
+		for index := 0; index < len(rendered) && index < len(lines); index++ {
+			padding := max((pane.width-visibleWidth(rendered[index]))/2, 0)
+			lines[index] = strings.Repeat(" ", padding) + rendered[index]
 		}
+		u.drawMainPane(screen, pane, lines)
 		u.placeControlsFooter(screen, u.t("ui.controls.fullscreen_image"), width)
 		// Let Bubble Tea diff managed image screens. An explicit clear erases
 		// terminal graphics and, with all-motion mouse events, can race the
@@ -584,7 +581,8 @@ renderLoop:
 			if err != nil || u.leaveImageForKey(key) {
 				return
 			}
-			if key == keyThemeChanged || key == keyHoverChanged {
+			newWidth, newHeight := u.terminal.Size()
+			if key == keyThemeChanged || key == keyHoverChanged || newWidth != width || newHeight != height {
 				continue renderLoop
 			}
 		}
@@ -595,23 +593,20 @@ func (u *UI) fullscreenKittyImage(imageURL string) bool {
 	for {
 		width, height := u.terminal.Size()
 		header := u.imageScreenHeader(width, height)
-		available := max(height-len(header)-1, 1)
-		rendered, err := u.renderKittyImage(imageURL, width, available)
+		screen, pane := u.mainPane(header, width, height, 1)
+		rendered, err := u.renderKittyImage(imageURL, max(pane.width, 1), max(pane.height, 1))
 		if err != nil || len(rendered) == 0 {
 			if err != nil {
 				u.reportKittyFailure(imageURL, "fullscreen", err)
 			}
 			return false
 		}
-		screen := make([]string, height)
-		copy(screen, header)
-		for index := 0; index < len(rendered) && index < available; index++ {
-			padding := max((width-visibleWidth(rendered[index]))/2, 0)
-			y := len(header) + index
-			if y < height {
-				screen[y] = strings.Repeat(" ", padding) + rendered[index]
-			}
+		lines := make([]string, pane.height)
+		for index := 0; index < len(rendered) && index < len(lines); index++ {
+			padding := max((pane.width-visibleWidth(rendered[index]))/2, 0)
+			lines[index] = strings.Repeat(" ", padding) + rendered[index]
 		}
+		u.drawMainPane(screen, pane, lines)
 		u.placeControlsFooter(screen, u.t("ui.controls.fullscreen_image"), width)
 		// Kitty's Unicode placeholders are ordinary managed cells. Keeping this
 		// as a normal diff render preserves their visible image across hover and
@@ -701,21 +696,21 @@ func parseGraphicsResponse(response, expectedItem string) (int, int, bool) {
 	return width, height, width > 0 && height > 0
 }
 
-func (u *UI) nativePixelViewport(screenHeight, reservedRows int) *[2]int {
-	graphics, _ := u.terminal.Query("\x1b[?2;1;0S", func(msg any) bool {
-		_, ok := msg.(ultraviolet.UnknownCsiEvent)
+func (u *UI) nativePixelViewport(screenWidth, screenHeight int, pane paneLayout) *[2]int {
+	response, _ := u.terminal.Query(xansi.WindowOp(14), func(msg any) bool {
+		_, ok := msg.(ultraviolet.PixelSizeEvent)
 		return ok
 	}, 150*time.Millisecond)
-	graphicsResponse, _ := graphics.(ultraviolet.UnknownCsiEvent)
-	width, height, ok := parseGraphicsResponse(string(graphicsResponse), "2")
+	pixels, ok := response.(ultraviolet.PixelSizeEvent)
+	width, height := pixels.Width, pixels.Height
+	ok = ok && width > 0 && height > 0
 	if !ok {
-		response, _ := u.terminal.Query(xansi.WindowOp(14), func(msg any) bool {
-			_, ok := msg.(ultraviolet.PixelSizeEvent)
+		graphics, _ := u.terminal.Query("\x1b[?2;1;0S", func(msg any) bool {
+			_, ok := msg.(ultraviolet.UnknownCsiEvent)
 			return ok
 		}, 150*time.Millisecond)
-		if pixels, responseOK := response.(ultraviolet.PixelSizeEvent); responseOK {
-			width, height, ok = pixels.Width, pixels.Height, pixels.Width > 0 && pixels.Height > 0
-		}
+		graphicsResponse, _ := graphics.(ultraviolet.UnknownCsiEvent)
+		width, height, ok = parseGraphicsResponse(string(graphicsResponse), "2")
 	}
 	if !ok {
 		return nil
@@ -725,11 +720,17 @@ func (u *UI) nativePixelViewport(screenHeight, reservedRows int) *[2]int {
 		return ok
 	}, 150*time.Millisecond)
 	cell, cellOK := cellResponse.(ultraviolet.CellSizeEvent)
-	cellHeight := cell.Height
+	cellWidth, cellHeight := cell.Width, cell.Height
+	if !cellOK || cellWidth <= 0 {
+		cellWidth = max(int(float64(width)/float64(max(screenWidth, 1))+0.5), 1)
+	}
 	if !cellOK || cellHeight <= 0 {
 		cellHeight = max(int(float64(height)/float64(max(screenHeight, 1))+0.5), 1)
 	}
-	viewport := [2]int{width, max(height-cellHeight*max(reservedRows, 1), 1)}
+	viewport := [2]int{
+		max(min(pane.width*cellWidth, width), 1),
+		max(min(pane.height*cellHeight, height), 1),
+	}
 	return &viewport
 }
 
