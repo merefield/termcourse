@@ -71,18 +71,8 @@ func (u *UI) searchLoop(query string) discourse.JSON {
 			continue
 		}
 		switch key {
-		case "up", "wheelup":
-			step := 1
-			if key == "wheelup" {
-				step = 3
-			}
-			selected = max(selected-step, 0)
-		case "down", "wheeldown":
-			step := 1
-			if key == "wheeldown" {
-				step = 3
-			}
-			selected = min(selected+step, max(len(results)-1, 0))
+		case "up", "wheelup", "down", "wheeldown":
+			selected = moveListSelection(selected, len(results), key)
 		case "enter":
 			if selected < len(results) {
 				return results[selected]
@@ -192,17 +182,9 @@ func (u *UI) notificationsLoop() bool {
 		}
 		switch key {
 		case "up", "wheelup":
-			step := 1
-			if key == "wheelup" {
-				step = 3
-			}
-			selected = max(selected-step, 0)
+			selected = moveListSelection(selected, len(filtered), key)
 		case "down", "wheeldown":
-			step := 1
-			if key == "wheeldown" {
-				step = 3
-			}
-			selected = min(selected+step, max(len(filtered)-1, 0))
+			selected = moveListSelection(selected, len(filtered), key)
 			if nextURL != "" && selected >= len(filtered)-3 && !loading {
 				loading = true
 				u.renderNotifications(filtered, selected, filter, loading)

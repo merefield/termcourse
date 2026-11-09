@@ -331,17 +331,9 @@ func (u *UI) topicListLoop(data discourse.JSON, filter, period string) loopResul
 		case keyTick:
 			continue
 		case "up", "wheelup":
-			step := 1
-			if key == "wheelup" {
-				step = 3
-			}
-			selected = max(selected-step, 0)
+			selected = moveListSelection(selected, len(topics), key)
 		case "down", "wheeldown":
-			step := 1
-			if key == "wheeldown" {
-				step = 3
-			}
-			selected = min(selected+step, max(len(topics)-1, 0))
+			selected = moveListSelection(selected, len(topics), key)
 			if nextURL != "" && selected >= len(topics)-3 && !loading {
 				loading = true
 				u.renderTopicList(topics, selected, filter, period, loading)
@@ -385,6 +377,21 @@ func (u *UI) topicListLoop(data discourse.JSON, filter, period string) loopResul
 				}
 			}
 		}
+	}
+}
+
+func moveListSelection(selected, count int, key string) int {
+	switch key {
+	case "up":
+		return max(selected-1, 0)
+	case "wheelup":
+		return max(selected-3, 0)
+	case "down":
+		return min(selected+1, max(count-1, 0))
+	case "wheeldown":
+		return min(selected+3, max(count-1, 0))
+	default:
+		return selected
 	}
 }
 
