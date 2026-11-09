@@ -565,17 +565,7 @@ renderLoop:
 			u.showError(fmt.Errorf("image renderer returned no output"))
 			return
 		}
-		lines := make([]string, pane.height)
-		for index := 0; index < len(rendered) && index < len(lines); index++ {
-			padding := max((pane.width-visibleWidth(rendered[index]))/2, 0)
-			lines[index] = strings.Repeat(" ", padding) + rendered[index]
-		}
-		u.drawMainPane(screen, pane, lines)
-		u.placeControlsFooter(screen, u.t("ui.controls.fullscreen_image"), width)
-		// Let Bubble Tea diff managed image screens. An explicit clear erases
-		// terminal graphics and, with all-motion mouse events, can race the
-		// replacement frame on every hover change.
-		u.renderer.Render(screen, width, height, "fullscreen-image", -1, -1, false)
+		u.drawFullscreenImage(screen, pane, rendered, width, height, "fullscreen-image")
 		for {
 			key, err := u.readKey(u.tick)
 			if err != nil || u.leaveImageForKey(key) {
@@ -601,17 +591,7 @@ func (u *UI) fullscreenKittyImage(imageURL string) bool {
 			}
 			return false
 		}
-		lines := make([]string, pane.height)
-		for index := 0; index < len(rendered) && index < len(lines); index++ {
-			padding := max((pane.width-visibleWidth(rendered[index]))/2, 0)
-			lines[index] = strings.Repeat(" ", padding) + rendered[index]
-		}
-		u.drawMainPane(screen, pane, lines)
-		u.placeControlsFooter(screen, u.t("ui.controls.fullscreen_image"), width)
-		// Kitty's Unicode placeholders are ordinary managed cells. Keeping this
-		// as a normal diff render preserves their visible image across hover and
-		// resize redraws instead of clearing it immediately before repainting.
-		u.renderer.Render(screen, width, height, "fullscreen-image-kitty", -1, -1, false)
+		u.drawFullscreenImage(screen, pane, rendered, width, height, "fullscreen-image-kitty")
 		for {
 			key, readErr := u.readKey(u.tick)
 			if readErr != nil || u.leaveImageForKey(key) {
@@ -626,6 +606,19 @@ func (u *UI) fullscreenKittyImage(imageURL string) bool {
 			}
 		}
 	}
+}
+
+func (u *UI) drawFullscreenImage(screen []string, pane paneLayout, rendered []string, width, height int, viewKey string) {
+	lines := make([]string, pane.height)
+	for index := 0; index < len(rendered) && index < len(lines); index++ {
+		padding := max((pane.width-visibleWidth(rendered[index]))/2, 0)
+		lines[index] = strings.Repeat(" ", padding) + rendered[index]
+	}
+	u.drawMainPane(screen, pane, lines)
+	u.placeControlsFooter(screen, u.t("ui.controls.fullscreen_image"), width)
+	// Both backends draw managed cells, including Kitty's Unicode placeholders.
+	// A full clear can erase terminal graphics between redraws.
+	u.renderer.Render(screen, width, height, viewKey, -1, -1, false)
 }
 
 func (u *UI) imageScreenHeader(width, height int) []string {
