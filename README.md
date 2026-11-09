@@ -343,6 +343,8 @@ Each uses the same full-width block lettering at the vertical centre, then shrin
 
 ## Implementation
 
+The [Duplication ratchet](tools/duplication/README.md) checks production Go code for copy-paste regressions. Normalised matches and test duplication are reported for review.
+
 The Security workflow scans reachable Go standard-library and dependency vulnerabilities on PRs, pushes to master, weekly, and manual dispatch. It pins `govulncheck` to v1.9.0 and disables automatic toolchain switching to scan the Go version in `go.mod`. Advisory-service failures fail the check. The scan currently covers the Linux build; it adds no application startup work or runtime dependency. Repeat locally with:
 
 ```sh

@@ -4,3 +4,5 @@
 /theme.yml
 *.test
 coverage.out
+/tools/duplication/node_modules/
+/tools/duplication/reports/
