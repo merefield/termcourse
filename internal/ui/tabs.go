@@ -87,16 +87,12 @@ func layoutTabRail(specs []tabSpec, width int) tabRail {
 	if width <= 0 || len(specs) == 0 {
 		return tabRail{}
 	}
-	type tier struct {
-		labels    []string
-		separator string
-	}
-	build := func(format func(tabSpec) string, separator string) tier {
+	build := func(format func(tabSpec) string, separator string) labelTier {
 		labels := make([]string, len(specs))
 		for index, spec := range specs {
 			labels[index] = format(spec)
 		}
-		return tier{labels: labels, separator: separator}
+		return labelTier{labels: labels, separator: separator}
 	}
 	badge := func(spec tabSpec) string {
 		if spec.badge <= 0 {
@@ -104,23 +100,13 @@ func layoutTabRail(specs []tabSpec, width int) tabRail {
 		}
 		return " " + strconv.Itoa(spec.badge)
 	}
-	tiers := []tier{
+	tiers := []labelTier{
 		build(func(spec tabSpec) string { return "╭ " + strings.ToUpper(spec.label) + badge(spec) + " ╮" }, " "),
 		build(func(spec tabSpec) string { return "╭" + strings.ToUpper(spec.short) + badge(spec) + "╮" }, " "),
 		build(func(spec tabSpec) string { return strings.ToUpper(spec.micro) }, " "),
 		build(func(spec tabSpec) string { return strings.ToUpper(spec.micro) }, ""),
 	}
-	chosen := tiers[len(tiers)-1]
-	for _, candidate := range tiers {
-		total := max(len(candidate.labels)-1, 0) * displayWidth(candidate.separator)
-		for _, label := range candidate.labels {
-			total += displayWidth(label)
-		}
-		if total <= width {
-			chosen = candidate
-			break
-		}
-	}
+	chosen := chooseLabelTier(tiers, width)
 
 	rail := tabRail{separator: chosen.separator}
 	x := 0

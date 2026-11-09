@@ -25,6 +25,25 @@ func displayWidth(value string) int {
 	return ansi.StringWidth(value)
 }
 
+type labelTier struct {
+	labels    []string
+	separator string
+}
+
+// chooseLabelTier returns the first tier that fits, or the last tier as a fallback.
+func chooseLabelTier(tiers []labelTier, width int) labelTier {
+	for _, candidate := range tiers {
+		total := max(len(candidate.labels)-1, 0) * displayWidth(candidate.separator)
+		for _, label := range candidate.labels {
+			total += displayWidth(label)
+		}
+		if total <= width {
+			return candidate
+		}
+	}
+	return tiers[len(tiers)-1]
+}
+
 func visibleWidth(value string) int { return displayWidth(stripANSI(value)) }
 
 func truncateVisible(value string, width int) string {

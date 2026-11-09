@@ -331,17 +331,9 @@ func (u *UI) topicListLoop(data discourse.JSON, filter, period string) loopResul
 		case keyTick:
 			continue
 		case "up", "wheelup":
-			step := 1
-			if key == "wheelup" {
-				step = 3
-			}
-			selected = max(selected-step, 0)
+			selected = moveListSelection(selected, len(topics), key)
 		case "down", "wheeldown":
-			step := 1
-			if key == "wheeldown" {
-				step = 3
-			}
-			selected = min(selected+step, max(len(topics)-1, 0))
+			selected = moveListSelection(selected, len(topics), key)
 			if nextURL != "" && selected >= len(topics)-3 && !loading {
 				loading = true
 				u.renderTopicList(topics, selected, filter, period, loading)
@@ -385,6 +377,21 @@ func (u *UI) topicListLoop(data discourse.JSON, filter, period string) loopResul
 				}
 			}
 		}
+	}
+}
+
+func moveListSelection(selected, count int, key string) int {
+	switch key {
+	case "up":
+		return max(selected-1, 0)
+	case "wheelup":
+		return max(selected-3, 0)
+	case "down":
+		return min(selected+1, max(count-1, 0))
+	case "wheeldown":
+		return min(selected+3, max(count-1, 0))
+	default:
+		return selected
 	}
 }
 
@@ -550,38 +557,29 @@ func tableRow(cells []cell) string {
 func (u *UI) pmUsers(topic discourse.JSON) string {
 	var names []string
 	login := strings.ToLower(strings.TrimSpace(u.options.Username))
+	addName := func(user discourse.JSON) {
+		name := strings.ToLower(strings.TrimSpace(discourse.String(user["username"])))
+		if name != "" && name != login {
+			names = appendUnique(names, name)
+		}
+	}
 	for _, key := range []string{"participants", "allowed_users"} {
 		for _, raw := range discourse.Slice(topic[key]) {
-			name := strings.ToLower(strings.TrimSpace(discourse.String(discourse.Map(raw)["username"])))
-			if name != "" && name != login {
-				names = appendUnique(names, name)
-			}
+			addName(discourse.Map(raw))
 		}
 		if len(names) > 0 {
 			break
 		}
 	}
-	ids := discourse.Slice(topic["participant_ids"])
 	if len(names) == 0 {
-		for _, raw := range ids {
-			id := discourse.Int(raw)
-			if user := u.users[id]; user != nil {
-				name := strings.ToLower(strings.TrimSpace(discourse.String(user["username"])))
-				if name != "" && name != login {
-					names = appendUnique(names, name)
-				}
-			}
+		for _, raw := range discourse.Slice(topic["participant_ids"]) {
+			addName(u.users[discourse.Int(raw)])
 		}
 	}
 	if len(names) == 0 {
 		for _, raw := range discourse.Slice(topic["posters"]) {
 			id := discourse.Int(discourse.Map(raw)["user_id"])
-			if user := u.users[id]; user != nil {
-				name := strings.ToLower(strings.TrimSpace(discourse.String(user["username"])))
-				if name != "" && name != login {
-					names = appendUnique(names, name)
-				}
-			}
+			addName(u.users[id])
 		}
 	}
 	if len(names) == 0 {

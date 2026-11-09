@@ -160,6 +160,34 @@ func TestCharmTerminalModelOwnsResizeInputCursorAndQueries(t *testing.T) {
 	}
 }
 
+func TestPMUsersPreservesFallbackOrder(t *testing.T) {
+	u := &UI{
+		options: Options{Username: " Me "},
+		users: map[int]discourse.JSON{
+			1: {"username": "ME"},
+			2: {"username": " IDUser "},
+			3: {"username": " Poster "},
+		},
+	}
+	topic := discourse.JSON{
+		"participants":    []any{discourse.JSON{"username": " First "}, discourse.JSON{"username": "FIRST"}},
+		"allowed_users":   []any{discourse.JSON{"username": "Allowed"}},
+		"participant_ids": []any{1, 999, 2, 2},
+		"posters":         []any{discourse.JSON{"user_id": 3}},
+	}
+	for _, source := range []struct{ key, want string }{
+		{"participants", "first"},
+		{"allowed_users", "allowed"},
+		{"participant_ids", "iduser"},
+		{"posters", "poster"},
+	} {
+		if got := u.pmUsers(topic); got != source.want {
+			t.Fatalf("%s: got %q, want %q", source.key, got, source.want)
+		}
+		delete(topic, source.key)
+	}
+}
+
 func TestTabRailsStayCompleteAndResponsive(t *testing.T) {
 	specs := []tabSpec{
 		{id: "latest", label: "Latest", short: "LAT", micro: "L", selected: true, enabled: true},
