@@ -42,11 +42,7 @@ func layoutControls(value string, width int) []laidOutControl {
 		return nil
 	}
 	segments := strings.Split(value, " | ")
-	type tier struct {
-		labels    []string
-		separator string
-	}
-	build := func(compact bool, framed bool, separator string) tier {
+	build := func(compact bool, framed bool, separator string) labelTier {
 		labels := make([]string, len(segments))
 		for index, segment := range segments {
 			label := strings.ToUpper(strings.TrimSpace(segment))
@@ -60,25 +56,15 @@ func layoutControls(value string, width int) []laidOutControl {
 			}
 			labels[index] = label
 		}
-		return tier{labels: labels, separator: separator}
+		return labelTier{labels: labels, separator: separator}
 	}
-	tiers := []tier{
+	tiers := []labelTier{
 		build(false, true, "  "),
 		build(true, true, " "),
 		build(true, false, " "),
 		build(true, false, ""),
 	}
-	chosen := tiers[len(tiers)-1]
-	for _, candidate := range tiers {
-		total := max(len(candidate.labels)-1, 0) * displayWidth(candidate.separator)
-		for _, label := range candidate.labels {
-			total += displayWidth(label)
-		}
-		if total <= width {
-			chosen = candidate
-			break
-		}
-	}
+	chosen := chooseLabelTier(tiers, width)
 
 	x := 0
 	controls := make([]laidOutControl, 0, len(segments))
