@@ -1,4 +1,19 @@
 {
   "schemaVersion": 1,
-  "status": "pending-bootstrap"
+  "status": "established",
+  "toolVersion": "5.4.2",
+  "policyHash": "a08d6a368db45501c31af4c0363cec388ac3d6e9249219b76968f56f99011380",
+  "sourceCommit": "69318312481f37e607f1a365223ef4007efa92d5",
+  "scans": {
+    "exact-50": {
+      "clones": 8,
+      "duplicatedLines": 80,
+      "duplicatedTokens": 547
+    },
+    "exact-100": {
+      "clones": 1,
+      "duplicatedLines": 12,
+      "duplicatedTokens": 118
+    }
+  }
 }
