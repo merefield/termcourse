@@ -5,7 +5,7 @@
 [![Go version](https://img.shields.io/github/go-mod/go-version/merefield/termcourse)](go.mod)
 [![License](https://img.shields.io/github/license/merefield/termcourse)](LICENSE)
 
-Termcourse is a Go 1.27.2 terminal UI for browsing and posting to Discourse forums. It replaces the original Ruby implementation while retaining its browsing, posting, realtime, rendering, localization, theming, and image features.
+Termcourse is a Go 1.27.3 terminal UI for browsing and posting to Discourse forums. It replaces the original Ruby implementation while retaining its browsing, posting, realtime, rendering, localization, theming, and image features.
 
 ## Features
 
@@ -89,7 +89,7 @@ If no credentials are configured, Termcourse prompts for the missing username an
 
 ### Install with Go
 
-Go 1.27.2 or newer is required when installing from source. `go install` compiles Termcourse locally:
+Go 1.27.3 or newer is required when installing from source. `go install` compiles Termcourse locally:
 
 ```sh
 go install github.com/merefield/termcourse/cmd/termcourse@latest
@@ -343,10 +343,10 @@ Each uses the same full-width block lettering at the vertical centre, then shrin
 
 ## Implementation
 
-The Security workflow scans reachable Go standard-library and dependency vulnerabilities on PRs, pushes to master, weekly, and manual dispatch. It pins `govulncheck` to v1.8.0 and disables automatic toolchain switching to scan the Go version in `go.mod`. Advisory-service failures fail the check. The scan currently covers the Linux build; it adds no application startup work or runtime dependency. Repeat locally with:
+The Security workflow scans reachable Go standard-library and dependency vulnerabilities on PRs, pushes to master, weekly, and manual dispatch. It pins `govulncheck` to v1.9.0 and disables automatic toolchain switching to scan the Go version in `go.mod`. Advisory-service failures fail the check. The scan currently covers the Linux build; it adds no application startup work or runtime dependency. Repeat locally with:
 
 ```sh
-GOTOOLCHAIN=go1.27.2 go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
+GOTOOLCHAIN=go1.27.3 go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
 ```
 
 The interface runs on the current Charm v2 stack. Bubble Tea owns raw mode, the alternate screen, synchronized incremental rendering, resize events, cursor state, terminal queries, color downsampling, window metadata, and supported native progress metadata. Bubbles supplies the themed single-line editor and multiline composer, including bracketed paste, word navigation, soft wrapping, cursor behavior, and viewport scrolling. Lip Gloss v2 provides pure theme/layout styles, while Glamour v2/Goldmark renders GFM and `x/ansi` provides ANSI-safe grapheme measurement, truncation, Kitty graphics encoding, capability responses, and virtual image placement. `x/term` remains limited to pre-TUI password input, terminal detection, and sizing fallback.

@@ -92,7 +92,7 @@ jobs:
           cache: true
       - name: Setup Bats
         if: runner.os == 'Linux'
-        uses: bats-core/bats-action@4.0.0
+        uses: bats-core/bats-action@4.1.0
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           support-install: false
