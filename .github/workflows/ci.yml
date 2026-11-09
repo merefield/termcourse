@@ -10,6 +10,119 @@ permissions:
   contents: read
 
 jobs:
+  duplication:
+    name: Duplication ratchet
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout candidate
+        uses: actions/checkout@v7
+        with:
+          path: candidate
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Checkout trusted comparison base
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.event.before }}
+          path: base
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: candidate/tools/duplication/package-lock.json
+      - name: Test duplication tooling
+        run: |
+          npm ci --prefix candidate/tools/duplication --ignore-scripts --no-audit --no-fund
+          npm --prefix candidate/tools/duplication test
+      - name: Measure and compare production duplication
+        id: duplication-policy
+        shell: bash
+        run: |
+          policy_dir="$GITHUB_WORKSPACE/base/tools/duplication"
+          if [[ -f "$policy_dir/policy.json" ]]; then
+            echo "trusted=true" >> "$GITHUB_OUTPUT"
+            npm ci --prefix "$policy_dir" --ignore-scripts --no-audit --no-fund
+          else
+            # One-time bootstrap: the base branch has no duplication policy yet.
+            policy_dir="$GITHUB_WORKSPACE/candidate/tools/duplication"
+          fi
+          node "$policy_dir/check.mjs" --root "$GITHUB_WORKSPACE/candidate" \
+            --base "$GITHUB_WORKSPACE/base" --output "$RUNNER_TEMP/duplication-report"
+      - name: Validate proposed checker and policy against master
+        if: steps.duplication-policy.outputs.trusted == 'true'
+        run: |
+          node "$GITHUB_WORKSPACE/base/tools/duplication/verify.mjs" \
+            --root "$GITHUB_WORKSPACE/candidate" --base "$GITHUB_WORKSPACE/base" \
+            --output "$RUNNER_TEMP/duplication-report"
+      - name: Preserve actionable duplication reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: duplication-report
+          path: ${{ runner.temp }}/duplication-report
+          retention-days: 30
+          if-no-files-found: warn
+
+  duplication-baseline:
+    name: Update duplication baseline
+    needs: [duplication, test]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    concurrency:
+      group: duplication-baseline-master
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+      - name: Persist initial baseline or tighter limits
+        shell: bash
+        run: |
+          git fetch --no-tags origin master
+          if [[ "$(git rev-parse FETCH_HEAD)" != "$GITHUB_SHA" ]]; then
+            echo "A newer master commit exists; its successful CI run will update the baseline."
+            exit 0
+          fi
+          npm ci --prefix tools/duplication --ignore-scripts --no-audit --no-fund
+          node tools/duplication/check.mjs --update-baseline --output "$RUNNER_TEMP/duplication-ratchet"
+          if git diff --quiet -- tools/duplication/baseline.json; then
+            echo "No improved limits; baseline left unchanged."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- tools/duplication/baseline.json
+          git commit -m "CHORE: ratchet duplication baseline"
+          # Normal non-force push: never overwrite a concurrently advanced master.
+          # GITHUB_TOKEN pushes do not recursively start another CI run.
+          if ! git push origin HEAD:master; then
+            git fetch --no-tags origin master
+            if [[ "$(git rev-parse FETCH_HEAD)" != "$GITHUB_SHA" ]]; then
+              echo "Master advanced during the update; leaving its newer content untouched."
+              exit 0
+            fi
+            echo "Baseline push failed; check repository Actions permissions and branch rules."
+            exit 1
+          fi
+      - name: Preserve measured baseline for manual recovery
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: duplication-baseline-candidate
+          path: ${{ runner.temp }}/duplication-ratchet
+          retention-days: 30
+          if-no-files-found: ignore
+
   test:
     name: Go ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
@@ -30,7 +143,7 @@ jobs:
 
       - name: Setup Bats
         if: runner.os == 'Linux'
-        uses: bats-core/bats-action@4.0.0
+        uses: bats-core/bats-action@4.1.0
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           support-install: false

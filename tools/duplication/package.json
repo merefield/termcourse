@@ -1,0 +1,13 @@
+{
+  "name": "termcourse-duplication-check",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "node check.mjs",
+    "test": "node --test check.test.mjs",
+    "ratchet": "node check.mjs --update-baseline"
+  },
+  "devDependencies": {
+    "jscpd": "5.4.2"
+  }
+}
