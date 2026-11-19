@@ -677,10 +677,14 @@ func TestHeaderLineRightAlignsStatusAndStaysWithinWidth(t *testing.T) {
 func TestMarkdownRenderingUsesGFMAndTerminalLinks(t *testing.T) {
 	lines := wrapLines("## Heading\n\n- first\n- second\n\n[site](https://example.com)", 40, true)
 	joined := strings.Join(lines, "\n")
-	for _, expected := range []string{"## Heading", "first", "second", "\x1b]8;", "https://example.com"} {
-		if !strings.Contains(joined, expected) {
+	plain := stripANSI(joined)
+	for _, expected := range []string{"▌ Heading", "first", "second", "https://example.com"} {
+		if !strings.Contains(plain, expected) {
 			t.Fatalf("rendered Markdown %q missing %q", joined, expected)
 		}
+	}
+	if !strings.Contains(joined, "\x1b]8;") {
+		t.Fatalf("rendered Markdown missing terminal hyperlink: %q", joined)
 	}
 	for _, line := range lines {
 		if visibleWidth(line) > 40 {

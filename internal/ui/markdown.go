@@ -38,6 +38,17 @@ func renderMarkdown(source []byte, doc ast.Node, width int) (string, error) {
 		style.Emph = glamour.StylePrimitive{Italic: new(true)}
 		style.Strong = glamour.StylePrimitive{Bold: new(true)}
 		style.Code.StylePrimitive = glamour.StylePrimitive{Inverse: new(true)}
+		style.Heading.Bold = new(true)
+		style.H1.Prefix = "◆ "
+		style.H2.Prefix = "▌ "
+		style.H3.Prefix = "▎ "
+		style.H4.Prefix = "▏ "
+		style.H5.Prefix = "• "
+		style.H6.Prefix = "· "
+		style.Strikethrough = glamour.StylePrimitive{CrossedOut: new(true)}
+		style.BlockQuote.IndentToken = new("│ ")
+		style.Task.Unticked = "☐ "
+		style.Task.Ticked = "☑ "
 		style.Table.RowSeparator = new("─")
 		style.Table.ColumnSeparator = new("│")
 		style.Table.CenterSeparator = new("┼")

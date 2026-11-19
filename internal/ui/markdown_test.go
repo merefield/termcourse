@@ -91,3 +91,38 @@ func TestMarkdownTableKeepsReferenceLinksInNarrowPanes(t *testing.T) {
 	}
 	t.Fatal("reference link is no longer clickable")
 }
+
+func TestMarkdownHeadingsQuotesAndTasks(t *testing.T) {
+	source := "# One\n## Two\n### Three\n#### Four\n##### Five\n###### Six\n\n> This quote wraps across lines.\n\n- [ ] Pending\n- [x] Done"
+	lines := wrapLines(source, 24, false)
+	plain := stripANSI(strings.Join(lines, "\n"))
+	for _, want := range []string{"◆ One", "▌ Two", "▎ Three", "▏ Four", "• Five", "· Six", "│ This quote", "│ across lines.", "☐ Pending", "☑ Done"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("missing %q in rendered Markdown:\n%s", want, plain)
+		}
+	}
+	for _, line := range lines {
+		if strings.HasPrefix(strings.TrimSpace(stripANSI(line)), "▌ ") {
+			for _, cell := range backgroundTestLines(line)[0] {
+				if cell.Content != " " && cell.Style.Attrs&uv.AttrBold == 0 {
+					t.Fatalf("heading text %q was not bold", cell.Content)
+				}
+			}
+		}
+	}
+}
+
+func TestMarkdownStrikethroughSurvivesWrapping(t *testing.T) {
+	lines := wrapLines("~~abcdefghij~~ Z", 10, false)
+	var crossed strings.Builder
+	for _, line := range lines {
+		for _, cell := range backgroundTestLines(line + "│")[0] {
+			if cell.Style.Attrs&uv.AttrStrikethrough != 0 {
+				crossed.WriteString(cell.Content)
+			}
+		}
+	}
+	if got := crossed.String(); got != "abcdefghij" {
+		t.Fatalf("strikethrough applied to %q", got)
+	}
+}

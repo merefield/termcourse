@@ -91,7 +91,7 @@ func webTextLines(text string, width int, enabled bool) []string {
 					out.WriteString(ansi.SetHyperlink(activeLink, webLinkID))
 					drawnLink = activeLink
 				}
-				wanted := uv.Style{Attrs: style.Attrs & (uv.AttrBold | uv.AttrItalic | uv.AttrReverse)}
+				wanted := uv.Style{Attrs: style.Attrs & (uv.AttrBold | uv.AttrItalic | uv.AttrReverse | uv.AttrStrikethrough)}
 				if drawnLink != "" {
 					wanted.Underline = uv.UnderlineSingle
 				}
@@ -113,7 +113,7 @@ func markdownStyleDiff(from, to *uv.Style) string {
 	// The pane supplies foreground and background colours. Clear the inline
 	// attributes individually so an SGR reset doesn't erase those colours.
 	if to.IsZero() && !from.IsZero() {
-		return ansi.Style{}.Normal().Italic(false).Reverse(false).Underline(false).String()
+		return ansi.Style{}.Normal().Italic(false).Reverse(false).Underline(false).Strikethrough(false).String()
 	}
 	return to.Diff(from)
 }
