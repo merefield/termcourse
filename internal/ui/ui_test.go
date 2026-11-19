@@ -677,10 +677,14 @@ func TestHeaderLineRightAlignsStatusAndStaysWithinWidth(t *testing.T) {
 func TestMarkdownRenderingUsesGFMAndTerminalLinks(t *testing.T) {
 	lines := wrapLines("## Heading\n\n- first\n- second\n\n[site](https://example.com)", 40, true)
 	joined := strings.Join(lines, "\n")
-	for _, expected := range []string{"## Heading", "first", "second", "\x1b]8;", "https://example.com"} {
-		if !strings.Contains(joined, expected) {
+	plain := stripANSI(joined)
+	for _, expected := range []string{"▌ Heading", "first", "second", "https://example.com"} {
+		if !strings.Contains(plain, expected) {
 			t.Fatalf("rendered Markdown %q missing %q", joined, expected)
 		}
+	}
+	if !strings.Contains(joined, "\x1b]8;") {
+		t.Fatalf("rendered Markdown missing terminal hyperlink: %q", joined)
 	}
 	for _, line := range lines {
 		if visibleWidth(line) > 40 {
@@ -1004,14 +1008,14 @@ func TestImageExtractionAndModes(t *testing.T) {
 	}
 	t.Setenv("TERMCOURSE_IMAGE_MODE", "balanced")
 	t.Setenv("TERMCOURSE_IMAGE_COLORS", "full")
-	args := strings.Join(chafaArgs("/tmp/example.png", 40, 12, false), " ")
+	args := strings.Join(chafaArgs("/tmp/example.png", 40, 12), " ")
 	for _, expected := range []string{"--symbols vhalf", "--colors full", "--optimize 5", "--work 5", "--size 40x12"} {
 		if !strings.Contains(args, expected) {
 			t.Fatalf("args %q missing %q", args, expected)
 		}
 	}
 	t.Setenv("TERMCOURSE_IMAGE_MODE", "")
-	if defaults := strings.Join(chafaArgs("/tmp/example.png", 32, 6, false), " "); !strings.Contains(defaults, "--symbols vhalf") || !strings.Contains(defaults, "--colors full") {
+	if defaults := strings.Join(chafaArgs("/tmp/example.png", 32, 6), " "); !strings.Contains(defaults, "--symbols vhalf") || !strings.Contains(defaults, "--colors full") {
 		t.Fatalf("default Chafa fallback is not colored and balanced: %q", defaults)
 	}
 }

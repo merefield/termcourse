@@ -5,17 +5,11 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"sync"
 
-	"charm.land/glamour/v2"
-	"charm.land/glamour/v2/styles"
 	"github.com/charmbracelet/x/ansi"
 )
 
-var (
-	htmlPattern       = regexp.MustCompile(`<[^>]*>`)
-	markdownRenderers sync.Map
-)
+var htmlPattern = regexp.MustCompile(`<[^>]*>`)
 
 func stripANSI(value string) string {
 	return ansi.Strip(value)
@@ -106,43 +100,6 @@ func headerLine(left, right string, width int) string {
 
 func stripHTML(value string) string {
 	return html.UnescapeString(htmlPattern.ReplaceAllString(value, ""))
-}
-
-func wrapLines(value string, width int, links bool) []string {
-	if width <= 0 {
-		return []string{""}
-	}
-	loaded, ok := markdownRenderers.Load(width)
-	if !ok {
-		renderer, err := glamour.NewTermRenderer(
-			glamour.WithStandardStyle(styles.NoTTYStyle),
-			glamour.WithWordWrap(width),
-			glamour.WithPreservedNewLines(),
-			glamour.WithInlineTableLinks(true),
-		)
-		if err != nil {
-			return webTextLines(linkify(stripHTML(value), links), width, links)
-		}
-		loaded, _ = markdownRenderers.LoadOrStore(width, &markdownRenderer{renderer: renderer})
-	}
-	cached := loaded.(*markdownRenderer)
-	value = expandBareWebURLs(value)
-	cached.mu.Lock()
-	rendered, err := cached.renderer.Render(value)
-	cached.mu.Unlock()
-	if err != nil {
-		return webTextLines(linkify(stripHTML(value), links), width, links)
-	}
-	rendered = strings.Trim(rendered, "\n")
-	if rendered == "" {
-		return []string{""}
-	}
-	return webTextLines(rendered, width, links)
-}
-
-type markdownRenderer struct {
-	mu       sync.Mutex
-	renderer *glamour.TermRenderer
 }
 
 func emojify(value string, enabled bool) string {

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	uv "github.com/charmbracelet/ultraviolet"
 	xansi "github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/term"
 )
@@ -160,6 +161,21 @@ func (t *Terminal) Raw(sequence string) {
 	if t.program != nil {
 		t.program.Send(tea.RawMsg{Msg: sequence})
 	}
+}
+
+func (t *Terminal) rawAfterFrame(sequence string) error {
+	// Bubble Tea flushes queued raw output before its managed frame. Wait for
+	// a terminal reply so the overlay is queued for a later flush than the
+	// frame beneath it.
+	_, err := t.Query(xansi.RequestPrimaryDeviceAttributes, func(msg any) bool {
+		_, ok := msg.(uv.PrimaryDeviceAttributesEvent)
+		return ok
+	}, 500*time.Millisecond)
+	if err != nil {
+		return err
+	}
+	t.Raw(sequence)
+	return nil
 }
 
 func (t *Terminal) Query(sequence string, accept func(any) bool, timeout time.Duration) (any, error) {
