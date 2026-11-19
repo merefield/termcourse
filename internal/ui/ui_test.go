@@ -1008,14 +1008,14 @@ func TestImageExtractionAndModes(t *testing.T) {
 	}
 	t.Setenv("TERMCOURSE_IMAGE_MODE", "balanced")
 	t.Setenv("TERMCOURSE_IMAGE_COLORS", "full")
-	args := strings.Join(chafaArgs("/tmp/example.png", 40, 12, false), " ")
+	args := strings.Join(chafaArgs("/tmp/example.png", 40, 12), " ")
 	for _, expected := range []string{"--symbols vhalf", "--colors full", "--optimize 5", "--work 5", "--size 40x12"} {
 		if !strings.Contains(args, expected) {
 			t.Fatalf("args %q missing %q", args, expected)
 		}
 	}
 	t.Setenv("TERMCOURSE_IMAGE_MODE", "")
-	if defaults := strings.Join(chafaArgs("/tmp/example.png", 32, 6, false), " "); !strings.Contains(defaults, "--symbols vhalf") || !strings.Contains(defaults, "--colors full") {
+	if defaults := strings.Join(chafaArgs("/tmp/example.png", 32, 6), " "); !strings.Contains(defaults, "--symbols vhalf") || !strings.Contains(defaults, "--colors full") {
 		t.Fatalf("default Chafa fallback is not colored and balanced: %q", defaults)
 	}
 }

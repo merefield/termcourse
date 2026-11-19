@@ -120,7 +120,7 @@ func (u *UI) imagePreview(raw string, width int) []string {
 	if rendered, present := u.imageCache[key]; present {
 		return append([]string{}, rendered...)
 	}
-	rendered, err := u.renderImage(urls[0], backend, columns, rows, false, true)
+	rendered, err := u.renderImage(urls[0], backend, columns, rows, true)
 	if err != nil || len(rendered) == 0 {
 		u.imageCache[key] = nil
 		return nil
@@ -150,7 +150,7 @@ func imageBackend() string {
 	return ""
 }
 
-func (u *UI) renderImage(imageURL, backend string, width, lines int, sixel, filterQuality bool) ([]string, error) {
+func (u *UI) renderImage(imageURL, backend string, width, lines int, filterQuality bool) ([]string, error) {
 	body, err := u.client.GetBytes(imageURL, envInt("TERMCOURSE_IMAGE_MAX_BYTES", 5_242_880))
 	if err != nil {
 		return nil, err
@@ -173,7 +173,7 @@ func (u *UI) renderImage(imageURL, backend string, width, lines int, sixel, filt
 	if backend == "viu" {
 		command = exec.Command("viu", "-h", strconv.Itoa(lines), "--blocks", "--transparent", name)
 	} else {
-		args := chafaArgs(name, width, lines, sixel)
+		args := chafaArgs(name, width, lines)
 		command = exec.Command("chafa", args...)
 	}
 	if imageMode() != "compat" && imageColors() == "full" {
@@ -182,9 +182,6 @@ func (u *UI) renderImage(imageURL, backend string, width, lines int, sixel, filt
 	output, err := command.CombinedOutput()
 	if err != nil {
 		return nil, err
-	}
-	if sixel {
-		return []string{string(output)}, nil
 	}
 	var rendered []string
 	preserve := backend == "viu" || imageMode() != "compat"
@@ -206,11 +203,8 @@ func (u *UI) renderImage(imageURL, backend string, width, lines int, sixel, filt
 	return rendered, nil
 }
 
-func chafaArgs(path string, width, lines int, sixel bool) []string {
+func chafaArgs(path string, width, lines int) []string {
 	size := fmt.Sprintf("%dx%d", width, lines)
-	if sixel {
-		return []string{"--format", "sixels", "--scale", "max", "--align", "top,left", "--margin-bottom", "0", "--optimize", "9", "--size", size, "--view-size", size, path}
-	}
 	switch imageMode() {
 	case "balanced":
 		return []string{"--format", "symbols", "--symbols", "vhalf", "--colors", imageColors(), "--optimize", "5", "--work", "5", "--size", size, path}
@@ -530,33 +524,23 @@ renderLoop:
 		if backend == "" {
 			return
 		}
-		if backend == "chafa" && u.detectSixel() {
-			header := u.imageScreenHeader(width, height)
-			screen, pane := u.mainPane(header, width, height, 1)
-			if payload, nativeErr := u.renderNativeImage(imageURL, max(pane.width, 1), max(pane.height, 1), u.nativePixelViewport(width, height, pane)); nativeErr == nil && len(payload) > 0 && pane.width > 0 && pane.height > 0 {
-				// Keep Bubble Tea's current model intact while the raw Sixel payload
-				// owns the image rows beneath the persistent managed navigation.
-				u.drawMainPane(screen, pane, nil)
-				u.placeControlsFooter(screen, u.t("ui.controls.fullscreen_image"), width)
-				u.renderer.Render(screen, width, height, "fullscreen-image-sixel", -1, -1, true)
-				u.terminal.Raw(xansi.HideCursor + xansi.CursorPosition(pane.y+1, pane.x+1) + string(payload) + xansi.HideCursor)
-				for {
-					key, err := u.readKey(u.tick)
-					if err != nil || u.leaveImageForKey(key) {
-						u.renderer.Reset()
-						return
-					}
-					newWidth, newHeight := u.terminal.Size()
-					if key == keyThemeChanged || key == keyHoverChanged || newWidth != width || newHeight != height {
-						u.renderer.Reset()
-						continue renderLoop
-					}
+		if backend == "chafa" && u.detectSixel() && u.drawFullscreenSixel(imageURL, width, height) {
+			for {
+				key, err := u.readKey(u.tick)
+				if err != nil || u.leaveImageForKey(key) {
+					u.renderer.Reset()
+					return
+				}
+				newWidth, newHeight := u.terminal.Size()
+				if key == keyThemeChanged || key == keyHoverChanged || newWidth != width || newHeight != height {
+					u.renderer.Reset()
+					continue renderLoop
 				}
 			}
 		}
 		header := u.imageScreenHeader(width, height)
 		screen, pane := u.mainPane(header, width, height, 1)
-		rendered, err := u.renderImage(imageURL, backend, max(pane.width, 1), max(pane.height, 1), false, false)
+		rendered, err := u.renderImage(imageURL, backend, max(pane.width, 1), max(pane.height, 1), false)
 		if err != nil {
 			u.showError(err)
 			return
@@ -577,6 +561,73 @@ renderLoop:
 			}
 		}
 	}
+}
+
+func (u *UI) drawFullscreenSixel(imageURL string, width, height int) bool {
+	header := u.imageScreenHeader(width, height)
+	screen, pane := u.mainPane(header, width, height, 1)
+	if pane.width == 0 || pane.height == 0 {
+		return false
+	}
+	cellSize := u.sixelCellSize(width, height)
+	maxPixels := image.Pt(pane.width*cellSize.X, pane.height*cellSize.Y)
+	// A Sixel band is six pixels tall. Keep even the last partial band inside
+	// the pane so it cannot paint over the bottom border.
+	maxPixels.Y -= maxPixels.Y % 6
+	if maxPixels.X <= 0 || maxPixels.Y <= 0 {
+		return false
+	}
+	payload, err := u.renderNativeImage(imageURL, maxPixels)
+	if err != nil {
+		u.imageDebug("Fullscreen Sixel encoding failed: %v", err)
+		return false
+	}
+	sequence, ok := placeSixelInPane(payload, pane, cellSize)
+	if !ok {
+		u.imageDebug("Fullscreen Sixel raster did not fit the pane")
+		return false
+	}
+	if currentWidth, currentHeight := u.terminal.Size(); currentWidth != width || currentHeight != height {
+		return false
+	}
+	u.drawMainPane(screen, pane, nil)
+	u.placeControlsFooter(screen, u.t("ui.controls.fullscreen_image"), width)
+	u.renderer.Render(screen, width, height, "fullscreen-image-sixel", -1, -1, true)
+	if err := u.terminal.rawAfterFrame(sequence); err != nil {
+		u.imageDebug("Fullscreen Sixel frame sync failed: %v", err)
+		return false
+	}
+	return true
+}
+
+func placeSixelInPane(encoded []byte, pane paneLayout, cellSize image.Point) (string, bool) {
+	const dcs, st = "\x1bP", "\x1b\\"
+	// Keep just the image. Encoders can add cursor controls or multiple frames
+	// that would escape the position set by the application.
+	_, afterDCS, found := bytes.Cut(encoded, []byte(dcs))
+	if !found {
+		return "", false
+	}
+	frame, _, found := bytes.Cut(afterDCS, []byte(st))
+	if !found {
+		return "", false
+	}
+	_, rasterData, found := bytes.Cut(frame, []byte("q"))
+	if !found {
+		return "", false
+	}
+	var width, height int
+	_, err := fmt.Fscanf(bytes.NewReader(rasterData), "\"1;1;%d;%d", &width, &height)
+	if err != nil || width <= 0 || height <= 0 ||
+		width > pane.width*cellSize.X || height > pane.height*cellSize.Y/6*6 {
+		return "", false
+	}
+	pixelHeight := (height + 5) / 6 * 6
+	col := pane.x + (pane.width*cellSize.X-width)/2/cellSize.X
+	row := pane.y + (pane.height*cellSize.Y-pixelHeight)/2/cellSize.Y
+	// Reset DEC Sixel display mode so the image starts at the cursor.
+	return xansi.SaveCursor + xansi.ResetMode(xansi.DECMode(80)) +
+		xansi.CursorPosition(col+1, row+1) + dcs + string(frame) + st + xansi.RestoreCursor, true
 }
 
 func (u *UI) fullscreenKittyImage(imageURL string) bool {
@@ -689,8 +740,17 @@ func parseGraphicsResponse(response, expectedItem string) (int, int, bool) {
 	return width, height, width > 0 && height > 0
 }
 
-func (u *UI) nativePixelViewport(screenWidth, screenHeight int, pane paneLayout) *[2]int {
-	response, _ := u.terminal.Query(xansi.WindowOp(14), func(msg any) bool {
+func (u *UI) sixelCellSize(screenWidth, screenHeight int) image.Point {
+	// Windows Terminal reports virtual Sixel pixels for the character cell.
+	response, _ := u.terminal.Query(xansi.WindowOp(16), func(msg any) bool {
+		_, ok := msg.(ultraviolet.CellSizeEvent)
+		return ok
+	}, 150*time.Millisecond)
+	if cell, ok := response.(ultraviolet.CellSizeEvent); ok && cell.Width > 0 && cell.Height > 0 {
+		return image.Pt(cell.Width, cell.Height)
+	}
+
+	response, _ = u.terminal.Query(xansi.WindowOp(14), func(msg any) bool {
 		_, ok := msg.(ultraviolet.PixelSizeEvent)
 		return ok
 	}, 150*time.Millisecond)
@@ -706,28 +766,12 @@ func (u *UI) nativePixelViewport(screenWidth, screenHeight int, pane paneLayout)
 		width, height, ok = parseGraphicsResponse(string(graphicsResponse), "2")
 	}
 	if !ok {
-		return nil
+		return image.Point{}
 	}
-	cellResponse, _ := u.terminal.Query(xansi.WindowOp(16), func(msg any) bool {
-		_, ok := msg.(ultraviolet.CellSizeEvent)
-		return ok
-	}, 150*time.Millisecond)
-	cell, cellOK := cellResponse.(ultraviolet.CellSizeEvent)
-	cellWidth, cellHeight := cell.Width, cell.Height
-	if !cellOK || cellWidth <= 0 {
-		cellWidth = max(int(float64(width)/float64(max(screenWidth, 1))+0.5), 1)
-	}
-	if !cellOK || cellHeight <= 0 {
-		cellHeight = max(int(float64(height)/float64(max(screenHeight, 1))+0.5), 1)
-	}
-	viewport := [2]int{
-		max(min(pane.width*cellWidth, width), 1),
-		max(min(pane.height*cellHeight, height), 1),
-	}
-	return &viewport
+	return image.Pt(width/max(screenWidth, 1), height/max(screenHeight, 1))
 }
 
-func (u *UI) renderNativeImage(imageURL string, width, lines int, viewport *[2]int) ([]byte, error) {
+func (u *UI) renderNativeImage(imageURL string, maxPixels image.Point) ([]byte, error) {
 	body, err := u.client.GetBytes(imageURL, envInt("TERMCOURSE_IMAGE_MAX_BYTES", 5_242_880))
 	if err != nil {
 		return nil, err
@@ -744,10 +788,11 @@ func (u *UI) renderNativeImage(imageURL string, width, lines int, viewport *[2]i
 		return nil, err
 	}
 	_ = file.Close()
-	if viewport != nil {
-		for _, binary := range []string{"magick", "convert"} {
-			if path, lookupErr := exec.LookPath(binary); lookupErr == nil {
-				return exec.Command(path, name, "-resize", fmt.Sprintf("%dx%d", viewport[0], viewport[1]), "sixel:-").Output()
+	for _, binary := range []string{"magick", "convert"} {
+		if path, lookupErr := exec.LookPath(binary); lookupErr == nil {
+			size := fmt.Sprintf("%dx%d", maxPixels.X, maxPixels.Y)
+			if output, err := exec.Command(path, name+"[0]", "-resize", size, "sixel:-").Output(); err == nil && len(output) > 0 {
+				return output, nil
 			}
 		}
 	}
@@ -755,7 +800,15 @@ func (u *UI) renderNativeImage(imageURL string, width, lines int, viewport *[2]i
 	if err != nil {
 		return nil, err
 	}
-	return exec.Command(path, chafaArgs(name, width, lines, true)...).Output()
+	// Chafa uses 8×8 output cells when run with piped output and no TTY.
+	const chafaCell = 8
+	if maxPixels.X < chafaCell || maxPixels.Y < chafaCell {
+		return nil, fmt.Errorf("pane is too small for Chafa Sixel output")
+	}
+	size := fmt.Sprintf("%dx%d", maxPixels.X/chafaCell, maxPixels.Y/chafaCell)
+	return exec.Command(path, "--format", "sixels", "--font-ratio", "1", "--scale", "max",
+		"--animate", "off", "--polite", "on", "--passthrough", "none",
+		"--size", size, "--view-size", size, name).Output()
 }
 
 func lowQuality(lines []string) bool {

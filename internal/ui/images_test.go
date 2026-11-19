@@ -1,15 +1,107 @@
 package ui
 
 import (
+	"fmt"
 	"image"
 	"image/color"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
+	tea "charm.land/bubbletea/v2"
 	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/ansi/kitty"
 )
+
+type terminalWrites chan string
+
+func (w terminalWrites) Write(p []byte) (int, error) {
+	w <- string(p)
+	return len(p), nil
+}
+
+func TestSixelOverlayFollowsManagedFrame(t *testing.T) {
+	output := make(terminalWrites, 16)
+	terminal := NewTerminal(nil, output)
+	program := tea.NewProgram(terminalModel{state: terminal.state},
+		tea.WithInput(nil), tea.WithOutput(output), tea.WithWindowSize(40, 10), tea.WithContext(t.Context()))
+	terminal.program = program
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = program.Run()
+	}()
+	t.Cleanup(func() {
+		program.Quit()
+		<-done
+	})
+
+	const header = "IMAGE FRAME"
+	const sixel = "\x1bPq#0;2;100;0;0#0~\x1b\\"
+	terminal.render(header, -1, -1, nil, true)
+	result := make(chan error, 1)
+	go func() { result <- terminal.rawAfterFrame(sixel) }()
+
+	var stream strings.Builder
+	timeout := time.NewTimer(3 * time.Second)
+	defer timeout.Stop()
+	for {
+		select {
+		case write := <-output:
+			stream.WriteString(write)
+			if strings.Contains(write, ansi.RequestPrimaryDeviceAttributes) {
+				program.Send(uv.PrimaryDeviceAttributesEvent{4})
+			}
+			if strings.Contains(write, sixel) {
+				if frame := strings.Index(stream.String(), header); frame < 0 || frame > strings.Index(stream.String(), sixel) {
+					t.Fatalf("Sixel sent before its managed frame: %q", stream.String())
+				}
+				return
+			}
+		case err := <-result:
+			if err != nil {
+				t.Fatal(err)
+			}
+		case <-timeout.C:
+			t.Fatalf("Sixel output never arrived: %q", stream.String())
+		}
+	}
+}
+
+func TestSixelPlacementStaysInsidePane(t *testing.T) {
+	pane := paneLayout{x: 2, y: 7, width: 76, height: 19}
+	cellSize := image.Pt(10, 20)
+	for _, tc := range []struct {
+		name          string
+		width, height int
+		cursor        string
+	}{
+		{"portrait", 180, 378, "\x1b[8;32H"},
+		{"landscape", 760, 90, "\x1b[15;3H"},
+		{"fills pane", 760, 378, "\x1b[8;3H"},
+		{"too wide", 761, 300, ""},
+		{"last band would clip border", 300, 380, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			frame := fmt.Sprintf("\x1bP0;0;0q\"1;1;%d;%d#0!10~\x1b\\", tc.width, tc.height)
+			// An encoder may emit extra cursor controls or animation frames.
+			encoded := "\x1b[?25l" + frame + "\x1b[?25h" + frame
+			sequence, ok := placeSixelInPane([]byte(encoded), pane, cellSize)
+			if tc.cursor == "" {
+				if ok {
+					t.Fatalf("accepted out-of-bounds Sixel raster: %q", sequence)
+				}
+				return
+			}
+			if !ok || !strings.Contains(sequence, tc.cursor+frame) ||
+				strings.Count(sequence, frame) != 1 || strings.Contains(sequence, "\x1b[?25h") {
+				t.Fatalf("want one Sixel frame at %q, got %q", tc.cursor, sequence)
+			}
+		})
+	}
+}
 
 func TestKittyPlacementSelectionSurvivesExpansionAndResize(t *testing.T) {
 	// Each transition must replace the same explicitly selected placement.
