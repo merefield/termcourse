@@ -26,8 +26,8 @@ func TestWebLinksExpandAllDestinations(t *testing.T) {
 				if !strings.Contains(plain, target) {
 					t.Fatalf("address hidden: enabled=%v source=%q output=%q", enabled, source, plain)
 				}
-				if !enabled && strings.Contains(strings.Join(lines, ""), "\x1b") {
-					t.Fatal("disabled links contain escape sequences")
+				if !enabled && strings.Contains(strings.Join(lines, ""), "\x1b]8;") {
+					t.Fatal("disabled links contain OSC 8 hyperlinks")
 				}
 				if enabled {
 					found := false

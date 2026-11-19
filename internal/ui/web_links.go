@@ -7,6 +7,7 @@ import (
 	"unicode"
 
 	tea "charm.land/bubbletea/v2"
+	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
@@ -62,54 +63,59 @@ func walkWebText(text string, visit func(string, int, *ansi.Parser)) {
 	}
 }
 
-// Glamour expands destinations for every domain. Normalize its links, then
-// give every wrapped line its own open/close pair so scrolling and padding
-// cannot inherit a URL from an omitted line.
+// Give each wrapped row its own styles and validated links. Rows can be
+// scrolled into view independently, and their styling must stop before padding.
 func webTextLines(text string, width int, enabled bool) []string {
-	if !enabled {
-		return strings.Split(ansi.Hardwrap(ansi.Strip(text), width, true), "\n")
-	}
-	var normalized strings.Builder
-	var active string
-	walkWebText(text, func(seq string, _ int, p *ansi.Parser) {
-		if ansi.HasOscPrefix(seq) && p.Command() == 8 {
-			fields := strings.SplitN(string(p.Data()), ";", 3)
-			if active != "" {
-				normalized.WriteString("\x1b[24m" + ansi.ResetHyperlink())
-			}
-			active = ""
-			if len(fields) == 3 && validWebURL(fields[2]) {
-				active = fields[2]
-				normalized.WriteString(ansi.SetHyperlink(active, webLinkID) + "\x1b[4m")
-			}
-			return
-		}
-		normalized.WriteString(seq)
-	})
-	if active != "" {
-		normalized.WriteString("\x1b[24m" + ansi.ResetHyperlink())
-	}
-	lines := strings.Split(ansi.Hardwrap(normalized.String(), width, true), "\n")
-	active = ""
+	lines := strings.Split(ansi.Hardwrap(text, width, true), "\n")
+	var style uv.Style
+	var activeLink string
 	for i, line := range lines {
-		prefix := ""
-		if active != "" {
-			prefix = ansi.SetHyperlink(active, webLinkID) + "\x1b[4m"
-		}
-		walkWebText(line, func(seq string, _ int, p *ansi.Parser) {
-			if ansi.HasOscPrefix(seq) && p.Command() == 8 {
-				fields := strings.SplitN(string(p.Data()), ";", 3)
-				if len(fields) == 3 {
-					active = fields[2]
+		var out strings.Builder
+		var drawnStyle uv.Style
+		var drawnLink string
+		walkWebText(strings.TrimRight(line, " \t\r"), func(seq string, cells int, p *ansi.Parser) {
+			switch {
+			case ansi.HasCsiPrefix(seq) && p.Command() == 'm':
+				uv.ReadStyle(p.Params(), &style)
+			case ansi.HasOscPrefix(seq) && p.Command() == 8:
+				activeLink = ""
+				if enabled {
+					var link uv.Link
+					uv.ReadLink(p.Data(), &link)
+					if validWebURL(link.URL) {
+						activeLink = link.URL
+					}
 				}
+			case cells > 0 || seq == "\t":
+				if drawnLink != activeLink {
+					out.WriteString(ansi.SetHyperlink(activeLink, webLinkID))
+					drawnLink = activeLink
+				}
+				wanted := uv.Style{Attrs: style.Attrs & (uv.AttrBold | uv.AttrItalic | uv.AttrReverse)}
+				if drawnLink != "" {
+					wanted.Underline = uv.UnderlineSingle
+				}
+				out.WriteString(markdownStyleDiff(&drawnStyle, &wanted))
+				drawnStyle = wanted
+				out.WriteString(seq)
 			}
 		})
-		lines[i] = prefix + strings.TrimRight(line, " \t\r")
-		if active != "" {
-			lines[i] += "\x1b[24m" + ansi.ResetHyperlink()
+		if drawnLink != "" {
+			out.WriteString(ansi.ResetHyperlink())
 		}
+		out.WriteString(markdownStyleDiff(&drawnStyle, &uv.Style{}))
+		lines[i] = out.String()
 	}
 	return lines
+}
+
+func markdownStyleDiff(from, to *uv.Style) string {
+	// The pane supplies foreground and background colours. Clear the inline
+	// attributes individually so an SGR reset doesn't erase those colours.
+	if to.IsZero() && !from.IsZero() {
+		return ansi.Style{}.Normal().Italic(false).Reverse(false).Underline(false).String()
+	}
+	return to.Diff(from)
 }
 
 // Use the renderer's grapheme widths, including both cells of wide characters.
